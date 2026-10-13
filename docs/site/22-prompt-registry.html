@@ -1,0 +1,817 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prompt registry · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li class="on"><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">22</div><div><p class="dg">Design, data and AI quality</p>
+<h1>Prompt registry</h1><p class="meta">4,159 words · <a href="../22-prompt-registry.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#what-prompt-surface-means">What "prompt surface" means</a></li><li><a href="#1-seats-in-scope">1. Seats in scope</a></li><li><a href="#2-claudemd-layers">2. CLAUDE.md layers</a></li><li><a href="#3-auto-memory-index">3. Auto-memory index</a></li><li><a href="#4-seat-bootstrap-files">4. Seat bootstrap files</a></li><li><a href="#5-daemon-typed-prompts-framework-code">5. Daemon-typed prompts (framework code)</a></li><li><a href="#6-cron-prompts">6. Cron prompts</a></li><li><a href="#7-hook-injected-text">7. Hook-injected text</a></li><li><a href="#8-skills">8. Skills</a></li><li><a href="#9-versioning">9. Versioning</a></li><li><a href="#10-registry-checklist">10. Registry checklist</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document lists every place in OGL Cortex where text reaches a seat's model as instructions. It explains who writes each surface, when it loads, how big it tends to get, and how to version it. It ends with a versioning design you can adopt on day one.</p>
+<p>Related documents: architecture in <code>01-core-architecture.md</code>, the cron and settings registry in <code>03-configuration-registry.md</code>, data shapes (cron entry, hook input and output JSON) in <code>21-data-models-schema-registry.md</code>, the tests that check some of these prompts in <code>23-evals-and-benchmarks.md</code>, and which model reads them in <code>24-model-lifecycle.md</code>.</p>
+<p>Path conventions used below:</p>
+<ul>
+<li><code>$CORTEX_HOME</code> is your cortextOS checkout (for example <code>~/cortextos</code>).</li>
+<li><code>$CTX_ROOT</code> is the runtime state root for one daemon instance (for example <code>~/.cortextos/&lt;instance&gt;</code>).</li>
+<li><code>&lt;org&gt;</code> is your org folder name under <code>$CORTEX_HOME/orgs/</code>.</li>
+<li><code>&lt;seat&gt;</code> is one agent folder under <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/</code>.</li>
+</ul>
+<h2 id="what-prompt-surface-means">What "prompt surface" means</h2>
+<p>A prompt surface is any text that reaches a seat's model as instructions without someone typing it into chat that turn. Put simply: everything the model is told before or alongside the owner's message. OGL Cortex has seven kinds:</p>
+<ol type="1">
+<li><strong>CLAUDE.md layers.</strong> Claude Code loads these at session start. It reads the user-level file in <code>~/.claude/</code> and every <code>CLAUDE.md</code> in the working directory and its parent directories.</li>
+<li><strong>Auto-memory index.</strong> <code>~/.claude/projects/&lt;project&gt;/memory/MEMORY.md</code>. Claude Code loads its first 200 lines into every session for that project.</li>
+<li><strong>Seat bootstrap files.</strong> IDENTITY.md, SOUL.md, GUARDRAILS.md and the rest. Claude Code does not auto-load them. The daemon's boot prompt tells the model to read them.</li>
+<li><strong>Daemon-typed prompts.</strong> The boot prompt, the continue prompt, the cron-fire line and the Telegram and agent-message wrappers. The cortextOS daemon types these into each seat's terminal.</li>
+<li><strong>Cron prompts.</strong> The <code>prompt</code> field of each entry in a seat's <code>crons.json</code>. The daemon types it in on schedule.</li>
+<li><strong>Skill prompts.</strong> <code>SKILL.md</code> files. Name and description sit in context; the body loads when invoked.</li>
+<li><strong>Hook-injected text.</strong> Small programs that Claude Code runs on events (session start, each prompt, after each tool call, compaction). Some print text that joins the model's context. Guard hooks that block an action also send their reason text to the model.</li>
+</ol>
+<figure class="diagram"><img src="img/2084bce98380.svg" alt="Diagram"></figure>
+
+<h2 id="1-seats-in-scope">1. Seats in scope</h2>
+<p>A seat is one long-running Claude Code session the daemon manages. <code>cortextos bus list-agents</code> lists every seat with <code>enabled</code> and <code>running</code> flags. A fleet can keep any number of seats on disk and enable only some. This document uses neutral role names:</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Template</th>
+<th>Job</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>orchestrator</td>
+<td><code>orchestrator</code></td>
+<td>the seat the owner talks to; decomposes and dispatches work</td>
+</tr>
+<tr>
+<td>analyst</td>
+<td><code>analyst</code></td>
+<td>metrics, upstream checks, system improvement cycles</td>
+</tr>
+<tr>
+<td>specialist</td>
+<td><code>agent</code></td>
+<td>domain work (code, content, research)</td>
+</tr>
+<tr>
+<td>auditor</td>
+<td><code>agent</code> with an auditor identity</td>
+<td>reviews returns and gates changes</td>
+</tr>
+<tr>
+<td>sentinel</td>
+<td><code>agent</code></td>
+<td>infrastructure watch and alert relay</td>
+</tr>
+</tbody>
+</table>
+<p>Seat folder names are yours to choose (for example <code>boss</code> for an orchestrator). Each seat's <code>config.json</code> sets <code>runtime</code> (for example <code>claude-code</code>) and <code>model</code>. Model detail is in <code>24-model-lifecycle.md</code>.</p>
+<p>A disabled seat boots with whatever its files said when it was provisioned. Refresh its prompt files before you enable it.</p>
+<h2 id="2-claudemd-layers">2. CLAUDE.md layers</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Path</th>
+<th>Owner</th>
+<th>Loaded by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Global (user)</td>
+<td><code>~/.claude/CLAUDE.md</code></td>
+<td>the owner</td>
+<td>every Claude Code session on the machine</td>
+</tr>
+<tr>
+<td>Home</td>
+<td><code>~/CLAUDE.md</code> (optional)</td>
+<td>the owner</td>
+<td>any session under <code>~</code></td>
+</tr>
+<tr>
+<td>Framework</td>
+<td><code>$CORTEX_HOME/CLAUDE.md</code></td>
+<td>cortextOS upstream</td>
+<td>every seat, because every seat lives under <code>$CORTEX_HOME</code></td>
+</tr>
+<tr>
+<td>Org</td>
+<td><code>$CORTEX_HOME/orgs/&lt;org&gt;/CLAUDE.md</code> (optional, not created by default)</td>
+<td>the owner</td>
+<td>every seat in the org</td>
+</tr>
+<tr>
+<td>Seat</td>
+<td><code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/CLAUDE.md</code></td>
+<td>the seat, under owner rulings</td>
+<td>that seat</td>
+</tr>
+</tbody>
+</table>
+<p>Design guidance for these layers:</p>
+<ul>
+<li><strong>Keep the global file a plain file under your control.</strong> If you make <code>~/.claude/CLAUDE.md</code> a symlink into a notes vault or synced folder, any process that writes that folder can change what every Claude session on the machine is told. That includes sync jobs and enrichment scripts that append "related notes" blocks. If you want the vault to show the file, let the vault mirror it, not own it.</li>
+<li><strong>Never let an automated writer edit the global prompt silently.</strong> If a tool must append to it, have the tool write between fixed markers and commit the result, so a diff shows every machine edit.</li>
+<li><strong>Know what the framework file says.</strong> Upstream <code>$CORTEX_HOME/CLAUDE.md</code> is a contributor guide ("run <code>npm run build</code> and <code>npm test</code>"). Every seat inherits it through the parent-directory walk. That is harmless, but it is not seat guidance. Put seat rules in the seat file or an org file.</li>
+<li><strong>Do not describe mechanisms that do not run.</strong> A CLAUDE.md line that says "hooks automatically do X" teaches the model to trust X. If the hook is not wired in <code>settings.json</code>, delete the line or wire the hook.</li>
+<li><strong>Give every seat a seat CLAUDE.md.</strong> A seat without one gets its rules only from bootstrap files it is told to read at boot. A seat CLAUDE.md is re-loaded on every session start without relying on the model to follow a "read these files" instruction.</li>
+</ul>
+<h2 id="3-auto-memory-index">3. Auto-memory index</h2>
+<table>
+<thead>
+<tr>
+<th>Seat</th>
+<th>Path</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>any Claude Code seat</td>
+<td><code>~/.claude/projects/&lt;project-slug&gt;/memory/MEMORY.md</code></td>
+<td>the seat</td>
+</tr>
+</tbody>
+</table>
+<p>The project slug is the seat's absolute working directory with <code>/</code> replaced by <code>-</code>.</p>
+<p>Claude Code loads the first 200 lines of this index into every session. Line 201 and beyond are cut silently. The harness may count lines slightly differently from <code>wc -l</code>, so treat about 190 lines as the practical ceiling. Keep the index to one line per lesson, with the detail in topic files beside it. When you reach the cap, merge or retire entries rather than appending.</p>
+<h2 id="4-seat-bootstrap-files">4. Seat bootstrap files</h2>
+<p>The fresh-boot prompt says "Read AGENTS.md and all bootstrap files listed there" (<code>src/daemon/agent-process.ts</code>). The orchestrator template's AGENTS.md lists: IDENTITY, SOUL, GUARDRAILS, GOALS, HEARTBEAT, MEMORY, USER, TOOLS, SYSTEM. The orchestrator CLAUDE.md also tells it to read the org <code>knowledge.md</code>.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+<th>Usual writer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AGENTS.md</td>
+<td>session-start checklist and operating manual</td>
+<td>template, then the seat</td>
+</tr>
+<tr>
+<td>IDENTITY.md</td>
+<td>name, role, emoji, vibe</td>
+<td>onboarding</td>
+</tr>
+<tr>
+<td>SOUL.md</td>
+<td>behavioural philosophy</td>
+<td>template, then the seat</td>
+</tr>
+<tr>
+<td>GUARDRAILS.md</td>
+<td>red-flag rules and responses</td>
+<td>seat, plus auditor coaching</td>
+</tr>
+<tr>
+<td>GOALS.md</td>
+<td>current goals</td>
+<td>generated from <code>goals.json</code> by <code>cortextos goals generate-md</code>; do not hand-edit</td>
+</tr>
+<tr>
+<td>HEARTBEAT.md</td>
+<td>what to do on each heartbeat cron</td>
+<td>seat</td>
+</tr>
+<tr>
+<td>MEMORY.md</td>
+<td>long-term lessons</td>
+<td>seat</td>
+</tr>
+<tr>
+<td>USER.md</td>
+<td>facts about the owner relevant to the role</td>
+<td>seat</td>
+</tr>
+<tr>
+<td>TOOLS.md</td>
+<td>tool catalogue</td>
+<td>seat</td>
+</tr>
+<tr>
+<td>SYSTEM.md</td>
+<td>org and system context</td>
+<td>seat</td>
+</tr>
+<tr>
+<td>STATE.md (optional)</td>
+<td>where the work stands; re-injected after compaction (section 7)</td>
+<td>seat</td>
+</tr>
+<tr>
+<td>ENTITIES.md (optional)</td>
+<td>noun index of people, places, systems with source and date</td>
+<td>seat</td>
+</tr>
+<tr>
+<td>ONBOARDING.md</td>
+<td>first-boot protocol</td>
+<td>template; read only on first boot</td>
+</tr>
+<tr>
+<td><code>orgs/&lt;org&gt;/knowledge.md</code></td>
+<td>shared facts for every seat</td>
+<td>KB ingest and seats</td>
+</tr>
+</tbody>
+</table>
+<h3 id="41-size-budget">4.1 Size budget</h3>
+<p>Bootstrap files grow with use, and MEMORY.md and the org knowledge file grow fastest. At roughly 4 characters per token, 500 KB of boot-read text is on the order of 125,000 tokens if read in full.</p>
+<p>The framework already has two boot modes:</p>
+<ul>
+<li>The <strong>fresh boot prompt</strong> asks for all bootstrap files.</li>
+<li>The <strong>lean handoff boot prompt</strong> (used after a context handoff) reads GUARDRAILS, IDENTITY and SOUL in full, treats MEMORY.md "as an index", and says "do NOT read the full MEMORY.md body".</li>
+</ul>
+<p>Guidance: keep MEMORY.md as an index in every mode. Move narrative into dated topic files. Set a soft cap (for example 60 KB) and have the weekly review prune toward it.</p>
+<h3 id="42-prose-rules-are-not-enforcement">4.2 Prose rules are not enforcement</h3>
+<p>A sentence in a bootstrap file such as "ENTITIES.md is write-gated" is a request, not a gate. If a rule matters, back it with a hook (see <code>04-failsafe-boundary-log.md</code>). If no hook exists, say so in the file, so the reader does not assume one.</p>
+<h3 id="43-template-drift-between-seats">4.3 Template drift between seats</h3>
+<p>Seats provisioned from one template start with byte-identical files. Three kinds of drift follow:</p>
+<ul>
+<li>A file never gets specialised (two seats keep the same TOOLS.md).</li>
+<li>A seat boots from a template written for a different runtime (for example a Claude Code seat carrying the <code>agent-codex</code> AGENTS.md).</li>
+<li>Same-name files drift apart with no shared source.</li>
+</ul>
+<p>A cheap check: hash every bootstrap file across seats (<code>shasum -a 256</code>) and look for unexpected matches and unexpected differences. Section 9 shows how to make this routine.</p>
+<h3 id="44-org-level">4.4 Org level</h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>orgs/&lt;org&gt;/knowledge.md</code></td>
+<td>shared facts; orchestrator reads it at boot</td>
+</tr>
+<tr>
+<td><code>orgs/&lt;org&gt;/GUARDRAILS.md</code></td>
+<td>org-wide guardrails</td>
+</tr>
+<tr>
+<td><code>orgs/&lt;org&gt;/brand-voice.md</code></td>
+<td>voice rules</td>
+</tr>
+<tr>
+<td><code>orgs/&lt;org&gt;/goals.json</code></td>
+<td>org goals that feed the daily goal cascade</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-daemon-typed-prompts-framework-code">5. Daemon-typed prompts (framework code)</h2>
+<p>These live in compiled framework code, so their version is the framework commit. The running daemon executes <code>dist/</code>, so rebuild after you pull.</p>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Source</th>
+<th>What it says</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fresh boot prompt</td>
+<td><code>src/daemon/agent-process.ts</code></td>
+<td>current UTC time; "Read AGENTS.md and all bootstrap files listed there"; "do NOT call CronCreate or CronList for cron restoration"; plus reminder, deliverables and handoff blocks and an online-message line</td>
+</tr>
+<tr>
+<td>Lean handoff boot prompt</td>
+<td><code>src/daemon/agent-process.ts</code></td>
+<td>reads GUARDRAILS, IDENTITY, SOUL; MEMORY.md as index only; approval rules; resume from the handoff doc's Next Actions</td>
+</tr>
+<tr>
+<td>Onboarding append</td>
+<td><code>src/daemon/agent-process.ts</code></td>
+<td>"This is your FIRST BOOT ... read ONBOARDING.md and complete the onboarding protocol"</td>
+</tr>
+<tr>
+<td>Continue prompt</td>
+<td><code>src/daemon/agent-process.ts</code></td>
+<td>"SESSION CONTINUATION ... Re-read AGENTS.md and ALL bootstrap files listed there"</td>
+</tr>
+<tr>
+<td>Cron fire line</td>
+<td><code>src/daemon/agent-manager.ts</code></td>
+<td><code>[CRON FIRED &lt;iso&gt;] &lt;name&gt;: &lt;prompt&gt;</code></td>
+</tr>
+<tr>
+<td>Agent message wrapper</td>
+<td><code>src/daemon/fast-checker.ts</code></td>
+<td><code>=== AGENT MESSAGE from &lt;from&gt; [msg_id: &lt;id&gt;] ===</code></td>
+</tr>
+<tr>
+<td>Telegram wrapper</td>
+<td><code>src/daemon/fast-checker.ts</code></td>
+<td><code>=== TELEGRAM from [USER: &lt;name&gt;] (chat_id:&lt;id&gt;) ===</code>, fenced body, recent-sent context, then "Reply using: cortextos bus send-telegram ..."</td>
+</tr>
+<tr>
+<td>Telegram media wrappers</td>
+<td><code>src/daemon/fast-checker.ts</code></td>
+<td><code>TELEGRAM PHOTO</code>, <code>DOCUMENT</code>, <code>VOICE</code>, <code>VIDEO</code> variants with a <code>local_file:</code> path</td>
+</tr>
+</tbody>
+</table>
+<p>Two details worth knowing:</p>
+<ul>
+<li><strong>The cron fire line carries a timestamp on purpose.</strong> Without it, the PTY dedup would drop a repeat fire of the same prompt. Older type comments in <code>src/types/index.ts</code> describe a <code>[CRON: name]</code> prefix; trust <code>agent-manager.ts</code>. Any hook that detects cron turns should match <code>startswith("[CRON FIRED")</code>.</li>
+<li><strong>The cron file path.</strong> Per-agent crons live at <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code> (<code>src/bus/crons-schema.ts</code>, constants <code>CRONS_DIRECTORY</code> and <code>CRONS_FILENAME</code>). Some templates and older notes write <code>${CTX_ROOT}/state/&lt;seat&gt;/crons.json</code>. That path is wrong. Use <code>cortextos bus list-crons &lt;seat&gt;</code> rather than reading the file by hand.</li>
+</ul>
+<h2 id="6-cron-prompts">6. Cron prompts</h2>
+<p>Source: <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code>. Manage them only through the bus:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus list-crons <span class="op">&lt;</span>seat<span class="op">&gt;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus add-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span> <span class="op">&lt;</span>interval-or-cron-expr<span class="op">&gt;</span> <span class="op">&lt;</span>prompt...<span class="op">&gt;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus update-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span> --prompt <span class="st">&quot;&lt;prompt&gt;&quot;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus remove-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span></span></code></pre></div>
+<h3 id="61-typical-cron-set">6.1 Typical cron set</h3>
+<table>
+<thead>
+<tr>
+<th>Seat</th>
+<th>Name</th>
+<th>Schedule</th>
+<th>Prompt starts with</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>orchestrator</td>
+<td>heartbeat</td>
+<td>4h</td>
+<td>Read HEARTBEAT.md and follow its instructions</td>
+</tr>
+<tr>
+<td>orchestrator</td>
+<td>morning-review</td>
+<td><code>0 8 * * *</code></td>
+<td>Read .claude/skills/morning-review/SKILL.md</td>
+</tr>
+<tr>
+<td>orchestrator</td>
+<td>evening-review</td>
+<td><code>0 18 * * *</code></td>
+<td>Read .claude/skills/evening-review/SKILL.md</td>
+</tr>
+<tr>
+<td>orchestrator</td>
+<td>weekly-review</td>
+<td><code>0 8 * * 0</code></td>
+<td>Read .claude/skills/weekly-review/SKILL.md</td>
+</tr>
+<tr>
+<td>orchestrator</td>
+<td>upstream-drift-check</td>
+<td>12h</td>
+<td>Silent read-only upstream drift check</td>
+</tr>
+<tr>
+<td>any</td>
+<td>kb-ingest-daily</td>
+<td><code>45 16 * * *</code></td>
+<td>Daily KB ingest</td>
+</tr>
+<tr>
+<td>analyst</td>
+<td>nightly-metrics</td>
+<td><code>17 22 * * *</code></td>
+<td>collect daily metrics</td>
+</tr>
+<tr>
+<td>analyst</td>
+<td>auto-commit</td>
+<td><code>3 22 * * *</code></td>
+<td>commit seat files with a PII scan</td>
+</tr>
+<tr>
+<td>analyst</td>
+<td>check-upstream</td>
+<td><code>5 22 * * *</code></td>
+<td>compare with upstream cortextOS</td>
+</tr>
+<tr>
+<td>analyst</td>
+<td>theta-wave</td>
+<td><code>11 23 * * *</code></td>
+<td>system improvement cycle</td>
+</tr>
+<tr>
+<td>auditor</td>
+<td>audit-pass</td>
+<td>1h</td>
+<td>review recent returns</td>
+</tr>
+<tr>
+<td>auditor</td>
+<td>false-claim-catch-rate</td>
+<td><code>10 22 * * *</code></td>
+<td>score the truth-correction ledger</td>
+</tr>
+<tr>
+<td>sentinel</td>
+<td>heartbeat</td>
+<td>2h</td>
+<td></td>
+</tr>
+<tr>
+<td>sentinel</td>
+<td>crash-alert-relay</td>
+<td>1h</td>
+<td>relay crash alerts</td>
+</tr>
+</tbody>
+</table>
+<p>These are examples, not a default set. Add business crons (snapshots, healthchecks, polls) as needed. Each is a prompt surface and belongs in this registry.</p>
+<h3 id="62-cron-prompt-design-rules">6.2 Cron prompt design rules</h3>
+<ul>
+<li><strong>Point to a file, do not inline a program.</strong> "Read .claude/skills/morning-review/SKILL.md" keeps the logic versioned with the skill. A cron prompt of several thousand characters that runs every hour is a program written in English, with no version history (section 9). Move it into a skill or script.</li>
+<li><strong>One source for same-name prompts.</strong> If five seats run <code>kb-ingest-daily</code>, generate their prompts from one template. Otherwise each copy drifts after its first local edit.</li>
+<li><strong>Check the schedule says what the prompt says.</strong> <code>0 20 12 10 *</code> is a five-field cron that fires once a year (12 October, 20:00). A prompt that says "weekly" on that schedule fires once. For one-shot jobs, say "one-shot" in the prompt and include the removal step.</li>
+<li><strong>Prefer wall-clock expressions for long intervals.</strong> See <code>03-configuration-registry.md</code> for how interval crons interact with the scheduler.</li>
+<li><strong>Daemon crons run in local time.</strong> Name the zone in any prompt that quotes a time.</li>
+</ul>
+<h2 id="7-hook-injected-text">7. Hook-injected text</h2>
+<h3 id="71-which-events-inject-context">7.1 Which events inject context</h3>
+<p>Claude Code adds hook stdout to context on <code>SessionStart</code>, <code>UserPromptSubmit</code>, <code>PostToolUse</code> and <code>PostCompact</code>. <code>PreToolUse</code> guards that exit 2 send their stderr to the model as the block reason. Other events (<code>Stop</code>, <code>SessionEnd</code>, <code>PreCompact</code>, <code>PermissionRequest</code>) usually only act or notify.</p>
+<p>A common layout: the orchestrator carries the context-injecting hooks, and other seats carry only guards and notifiers. Decide per seat whether it needs the compaction kit (7.2).</p>
+<h3 id="72-context-injecting-hooks-in-the-ogl-layer">7.2 Context-injecting hooks in the OGL layer</h3>
+<table>
+<thead>
+<tr>
+<th>Hook</th>
+<th>Event</th>
+<th>Text injected</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Checkpoint re-inject</td>
+<td>SessionStart (all)</td>
+<td>a <code>[MECHANICAL CHECKPOINT INJECTION]</code> header, the last 4,000 chars of <code>memory/checkpoints/latest.md</code> if under 72 hours old, the last 3,000 chars of the current or previous day's daily memory, and short reminders</td>
+</tr>
+<tr>
+<td>STATE.md hand-back</td>
+<td>SessionStart, matcher <code>compact</code></td>
+<td>"The conversation was just compacted. This is STATE.md, your own record of where the work stands. Trust it over the summary where they differ" plus the full STATE.md</td>
+</tr>
+<tr>
+<td>Context meter</td>
+<td>PostToolUse (all)</td>
+<td>at a first threshold: "Context meter: Nk of your limit. Keep working..."; at a second: "Compaction is close. Your next action is to rewrite STATE.md in full". Thresholds live in a small <code>compaction.json</code></td>
+</tr>
+<tr>
+<td>Reply style router</td>
+<td>UserPromptSubmit</td>
+<td><code>[reply style: &lt;skin&gt;] &lt;text&gt;</code>, chosen by a cheap model call from a fixed list of skins. Only for the owner's own words; any failure injects nothing</td>
+</tr>
+<tr>
+<td>Client memory recall</td>
+<td>UserPromptSubmit</td>
+<td>a short header plus up to about 6,000 chars of recalled facts when a prompt names a known entity; skips cron turns</td>
+</tr>
+<tr>
+<td>Hunter notice</td>
+<td>PostToolUse on Bash</td>
+<td>a one-line notice that a fix commit started a background adversarial pass</td>
+</tr>
+</tbody>
+</table>
+<p>Non-injecting hooks that support these:</p>
+<ul>
+<li><code>precompact-checkpoint.sh</code> writes the checkpoint the SessionStart hook later reads.</li>
+<li>A <code>save_summary</code> hook stores each compaction summary in <code>compactions/</code>.</li>
+<li>A Stop hook may start background memory consolidation and print one line.</li>
+</ul>
+<p>Design guidance:</p>
+<ul>
+<li><strong>Wire hooks from a stable path.</strong> A hook wired from a build or deliverables folder disappears when someone cleans that folder, and a hook that exits 0 on any error disappears without a trace. Keep hooks under <code>.claude/hooks/</code> or <code>tools/</code>.</li>
+<li><strong>Fail quiet for injectors, fail closed for guards.</strong> An injector that crashes should inject nothing. A guard that crashes should block (exit 2) with a clear message.</li>
+<li><strong>Log what you inject.</strong> Only a router that writes a decision log (one JSON line per choice) lets you measure it later.</li>
+</ul>
+<h3 id="73-guard-hooks-block-reasons-are-prompts-too">7.3 Guard hooks: block reasons are prompts too</h3>
+<p>When a PreToolUse hook exits with code 2, Claude Code shows its stderr to the model. That text steers the next action, so write it as an instruction.</p>
+<table>
+<thead>
+<tr>
+<th>Guard</th>
+<th>Scope</th>
+<th>Model-facing text (shape)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Orwell send-guard</td>
+<td>user level, outgoing human-facing text</td>
+<td>"ORWELL SEND-GUARD BLOCKED this message. Rewrite and resend. Reasons: ..." with a one-time pass instruction for the "break any rule" case</td>
+</tr>
+<tr>
+<td>Attribution send-guard</td>
+<td>orchestrator, sends to the owner</td>
+<td>"ATTRIBUTION SEND-GUARD BLOCKED this message..." when a number has no source; fail-closed error text</td>
+</tr>
+<tr>
+<td>Brief guard</td>
+<td>orchestrator, task dispatch</td>
+<td>"BRIEF GUARD BLOCKED this dispatch..." when a task lacks TASK, FILES, BAR, RETURN lines; fail-closed</td>
+</tr>
+<tr>
+<td>Future-time guard</td>
+<td>orchestrator</td>
+<td>blocks claims about times that have not happened yet</td>
+</tr>
+<tr>
+<td>Shared-surface guard</td>
+<td>user level, Bash</td>
+<td>blocks destructive or config-writing commands on shared paths; supports a warn mode</td>
+</tr>
+<tr>
+<td>Account guard</td>
+<td>user level, a workspace MCP</td>
+<td>blocks calls bound to the wrong account</td>
+</tr>
+<tr>
+<td>Ship gate</td>
+<td>user level, Bash</td>
+<td>blocks deploy and publish commands without a passing security report</td>
+</tr>
+</tbody>
+</table>
+<p>Guard logic is in <code>04-failsafe-boundary-log.md</code>.</p>
+<h2 id="8-skills">8. Skills</h2>
+<table>
+<thead>
+<tr>
+<th>Location</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;seat&gt;/.claude/skills/</code></td>
+<td>that seat only</td>
+</tr>
+<tr>
+<td><code>~/.claude/skills/</code></td>
+<td>every Claude Code session on the machine</td>
+</tr>
+<tr>
+<td><code>~/.claude/plugins/</code></td>
+<td>plugin-provided skills; may contain duplicates between cache and marketplace folders</td>
+</tr>
+<tr>
+<td><code>$CORTEX_HOME/templates/&lt;template&gt;/.claude/skills/</code></td>
+<td>source copies for new seats</td>
+</tr>
+<tr>
+<td><code>$CORTEX_HOME/community/</code></td>
+<td>community catalog</td>
+</tr>
+</tbody>
+</table>
+<p><code>cortextos bus list-skills --format text</code> shows what a seat can see.</p>
+<p>Count with <code>find &lt;dir&gt; -name SKILL.md</code> (add <code>-L</code> to follow symlinks). Expect a user-level skills folder to hold many more nested SKILL.md files than invocable skills, because bundles ship sub-skills and examples.</p>
+<p><strong>Template drift.</strong> Compare seat skills with the template:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> d <span class="kw">in</span> <span class="op">&lt;</span>seat<span class="op">&gt;</span>/.claude/skills/<span class="pp">*</span>/<span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="va">n</span><span class="op">=</span><span class="va">$(</span><span class="fu">basename</span> <span class="st">&quot;</span><span class="va">$d</span><span class="st">&quot;</span><span class="va">)</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="va">t</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$CORTEX_HOME</span><span class="st">/templates/orchestrator/.claude/skills/</span><span class="va">$n</span><span class="st">/SKILL.md&quot;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> <span class="bu">[</span> <span class="ot">!</span> <span class="ot">-f</span> <span class="st">&quot;</span><span class="va">$t</span><span class="st">&quot;</span> <span class="bu">]</span><span class="kw">;</span> <span class="cf">then</span> <span class="bu">echo</span> <span class="st">&quot;local-only </span><span class="va">$n</span><span class="st">&quot;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">elif</span> <span class="fu">cmp</span> <span class="at">-s</span> <span class="st">&quot;</span><span class="va">$d</span><span class="st">/SKILL.md&quot;</span> <span class="st">&quot;</span><span class="va">$t</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">then</span> <span class="bu">echo</span> <span class="st">&quot;same </span><span class="va">$n</span><span class="st">&quot;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="bu">echo</span> <span class="st">&quot;differs </span><span class="va">$n</span><span class="st">&quot;</span><span class="kw">;</span> <span class="cf">fi</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span></code></pre></div>
+<p>Every "differs" skill has local edits that a template refresh would not carry and could overwrite. Keep that list in the seat's notes.</p>
+<p><strong>Subagent definitions are prompts too.</strong> Files in <code>&lt;seat&gt;/.claude/agents/</code> and <code>~/.claude/agents/</code> set a subagent's instructions, tools and model. Register them here.</p>
+<h2 id="9-versioning">9. Versioning</h2>
+<p>The target is "cryptographic versioning": every prompt change gets an immutable, content-addressed version, a record of who changed it and why, and the running system can prove which version it loaded.</p>
+<h3 id="91-surface-by-surface">9.1 Surface by surface</h3>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>Default state</th>
+<th>Recommended mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>~/.claude/CLAUDE.md</code></td>
+<td>not versioned</td>
+<td>put <code>~/.claude/CLAUDE.md</code>, <code>~/.claude/settings.json</code> and <code>~/.claude/hooks/</code> in a private git repo</td>
+</tr>
+<tr>
+<td><code>$CORTEX_HOME/CLAUDE.md</code></td>
+<td>framework git</td>
+<td>none needed</td>
+</tr>
+<tr>
+<td>Seat files</td>
+<td>not versioned: <code>$CORTEX_HOME/.gitignore</code> ignores <code>orgs/</code></td>
+<td><code>git init</code> in each seat folder; nightly commit cron with a PII scan (the analyst template's <code>auto-commit</code> pattern)</td>
+</tr>
+<tr>
+<td>Org files</td>
+<td>not versioned (same ignore)</td>
+<td>include in the same private repo or an org repo</td>
+</tr>
+<tr>
+<td>Cron prompts</td>
+<td><code>crons.json</code> plus one <code>crons.json.bak</code> written before each save (<code>src/bus/crons.ts</code>)</td>
+<td>export prompts nightly with fire counters stripped (9.2)</td>
+</tr>
+<tr>
+<td>User hooks</td>
+<td>not versioned</td>
+<td>private git repo plus the <code>.gated-&lt;sha8&gt;</code> freeze (9.3)</td>
+</tr>
+<tr>
+<td>Skills</td>
+<td>seat git if you set it up; templates in framework git</td>
+<td>seat git</td>
+</tr>
+<tr>
+<td>Daemon prompts</td>
+<td>framework git commit</td>
+<td>rebuild <code>dist/</code> after every pull and record the commit in the daily memory</td>
+</tr>
+<tr>
+<td>Hook-injected text</td>
+<td>inside hook source</td>
+<td>hook source in git; injectors write a decision log</td>
+</tr>
+</tbody>
+</table>
+<h3 id="92-why-cron-prompts-lose-history">9.2 Why cron prompts lose history</h3>
+<p>Each fire updates <code>last_fired_at</code>, <code>fire_count</code>, <code>last_fire_attempted_at</code> and the envelope <code>updated_at</code>. So the single <code>.bak</code> holds the state from one write ago, and an edited prompt survives only until the next fire. To keep real history, export a stripped copy:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-</span> <span class="op">&lt;&lt;&#39;PY&#39;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="st">import json, os, glob</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="st">root = os.path.expandvars(&quot;$CTX_ROOT/.cortextOS/state/agents&quot;)</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="st">out = {}</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="st">for f in sorted(glob.glob(f&quot;{root}/*/crons.json&quot;)):</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="st">    seat = f.split(&quot;/&quot;)[-2]</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="st">    data = json.load(open(f))</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="st">    crons = data.get(&quot;crons&quot;, data) if isinstance(data, dict) else data</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="st">    out[seat] = [{k: c.get(k) for k in (&quot;name&quot;, &quot;schedule&quot;, &quot;interval&quot;, &quot;enabled&quot;, &quot;prompt&quot;)} for c in crons]</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="st">print(json.dumps(out, indent=2, sort_keys=True))</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="op">PY</span></span></code></pre></div>
+<p>Write the output to a file in your prompt repo and commit it nightly. The file then changes only when a prompt or schedule changes. Check the envelope shape against <code>21-data-models-schema-registry.md</code> before relying on the key names.</p>
+<h3 id="93-the-gated-sha8-convention">9.3 The <code>.gated-&lt;sha8&gt;</code> convention</h3>
+<p>When a hook passes its gate, freeze a read-only copy named with the first 8 hex digits of its own sha256:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="va">f</span><span class="op">=</span>~/.claude/hooks/shared-surface-guard.py</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="va">s</span><span class="op">=</span><span class="va">$(</span><span class="ex">shasum</span> <span class="at">-a</span> 256 <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">cut</span> <span class="at">-c1-8</span><span class="va">)</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$f</span><span class="st">.gated-</span><span class="va">$s</span><span class="st">&quot;</span> <span class="kw">&amp;&amp;</span> <span class="fu">chmod</span> 400 <span class="st">&quot;</span><span class="va">$f</span><span class="st">.gated-</span><span class="va">$s</span><span class="st">&quot;</span></span></code></pre></div>
+<p>To check whether the live file is still the gated version:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="va">live</span><span class="op">=</span><span class="va">$(</span><span class="ex">shasum</span> <span class="at">-a</span> 256 <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">cut</span> <span class="at">-c1-8</span><span class="va">)</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> <span class="st">&quot;</span><span class="va">$f</span><span class="st">.gated-</span><span class="va">$live</span><span class="st">&quot;</span> <span class="dv">2</span><span class="op">&gt;</span>/dev/null <span class="kw">&amp;&amp;</span> <span class="bu">echo</span> <span class="st">&quot;live matches a gated copy&quot;</span> <span class="kw">||</span> <span class="bu">echo</span> <span class="st">&quot;live is ungated&quot;</span></span></code></pre></div>
+<p>Run that check before you trust a guard. A guard edited after its last freeze runs code nobody gated. Freeze before any post-gate edit, so the next change is a diff, not a re-test.</p>
+<p>Name ad hoc backups <code>&lt;file&gt;.bak-&lt;UTC stamp&gt;-&lt;reason&gt;</code> so the reason survives.</p>
+<h3 id="94-distance-from-the-ideal">9.4 Distance from the ideal</h3>
+<table>
+<thead>
+<tr>
+<th>Ideal property</th>
+<th>Default</th>
+<th>With the setup above</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Every prompt under version control</td>
+<td>framework only</td>
+<td>all surfaces</td>
+</tr>
+<tr>
+<td>Content-addressed IDs</td>
+<td>none</td>
+<td>git object ids, plus <code>.gated-&lt;sha8&gt;</code> for guards</td>
+</tr>
+<tr>
+<td>Immutable history</td>
+<td>none</td>
+<td>git; add an off-machine remote in case the disk fails</td>
+</tr>
+<tr>
+<td>Who and why per change</td>
+<td>none</td>
+<td>commit messages; <code>.bak</code> reason suffixes</td>
+</tr>
+<tr>
+<td>Runtime attestation</td>
+<td>none</td>
+<td>a SessionStart hook per seat that logs the sha256 of each loaded prompt file</td>
+</tr>
+</tbody>
+</table>
+<p>A minimal attestation hook:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co">#!/bin/bash</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># SessionStart: record which prompt files this session saw</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="va">log</span><span class="op">=</span><span class="st">&quot;</span><span class="va">$CTX_ROOT</span><span class="st">/logs/</span><span class="va">$CTX_AGENT_NAME</span><span class="st">/prompt-attest.jsonl&quot;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> f <span class="kw">in</span> CLAUDE.md AGENTS.md GUARDRAILS.md MEMORY.md<span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="bu">[</span> <span class="ot">-f</span> <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="bu">]</span> <span class="kw">&amp;&amp;</span> <span class="bu">printf</span> <span class="st">&#39;{&quot;ts&quot;:&quot;%s&quot;,&quot;file&quot;:&quot;%s&quot;,&quot;sha&quot;:&quot;%s&quot;}\n&#39;</span> <span class="dt">\</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;</span><span class="va">$(</span><span class="fu">date</span> <span class="at">-u</span> +%FT%TZ<span class="va">)</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$(</span><span class="ex">shasum</span> <span class="at">-a</span> 256 <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">cut</span> <span class="at">-c1-12</span><span class="va">)</span><span class="st">&quot;</span> <span class="op">&gt;&gt;</span> <span class="st">&quot;</span><span class="va">$log</span><span class="st">&quot;</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="bu">exit</span> 0</span></code></pre></div>
+<p>It prints nothing, so it adds no context. It exits 0 on every path, so it cannot block a boot. This is a design sketch; test it in your own seat before you wire it.</p>
+<h2 id="10-registry-checklist">10. Registry checklist</h2>
+<p>Run this when you add a seat, and monthly after that:</p>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>How to count</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Live seats</td>
+<td><code>cortextos bus list-agents</code></td>
+</tr>
+<tr>
+<td>CLAUDE.md files a seat loads</td>
+<td><code>ls</code> up the directory tree from the seat</td>
+</tr>
+<tr>
+<td>Auto-memory index length</td>
+<td><code>wc -l ~/.claude/projects/&lt;slug&gt;/memory/MEMORY.md</code> (stay under about 190)</td>
+</tr>
+<tr>
+<td>Bootstrap bytes per seat</td>
+<td><code>wc -c</code> over CLAUDE.md and the AGENTS.md boot list</td>
+</tr>
+<tr>
+<td>Cron prompts per seat</td>
+<td><code>cortextos bus list-crons &lt;seat&gt;</code></td>
+</tr>
+<tr>
+<td>Hook commands per seat</td>
+<td>count entries under <code>hooks</code> in <code>&lt;seat&gt;/.claude/settings.json</code></td>
+</tr>
+<tr>
+<td>Skills per seat</td>
+<td><code>find &lt;seat&gt;/.claude/skills -name SKILL.md</code></td>
+</tr>
+<tr>
+<td>Gated guard copies vs live</td>
+<td>the 9.3 check</td>
+</tr>
+</tbody>
+</table>
+<h2 id="known-limitations">Known limitations</h2>
+<ol type="1">
+<li>The framework ignores <code>orgs/</code> in git, so seat and org prompt files have no version history unless you add it.</li>
+<li><code>crons.json</code> changes on every fire, so its single <code>.bak</code> does not preserve prompt history.</li>
+<li>Claude Code truncates the auto-memory index at 200 lines without an error.</li>
+<li>Prose rules in bootstrap files are not enforced. Only hooks enforce.</li>
+<li>No built-in record shows which prompt version a session loaded. Section 9.4 sketches one.</li>
+</ol>
+<h2 id="design-notes">Design notes</h2>
+<ol type="1">
+<li>Version seat and org prompt files from the first day.</li>
+<li>Give cron prompts real history by exporting a stripped copy, or move counters into a separate state file.</li>
+<li>Keep the global CLAUDE.md a plain file you own. Mirror it to notes tools; do not let them write it.</li>
+<li>Give every live seat its own CLAUDE.md, and refresh template-derived files when you change a seat's runtime.</li>
+<li>Decide per seat which context-injecting hooks it needs. The compaction kit pays off on any seat with long sessions.</li>
+</ol>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/daemon/agent-process.ts</code> (boot, lean handoff, onboarding and continue prompts)</li>
+<li><code>src/daemon/agent-manager.ts</code> (cron fire line)</li>
+<li><code>src/daemon/fast-checker.ts</code> (Telegram and agent message wrappers)</li>
+<li><code>src/bus/crons.ts</code>, <code>src/bus/crons-schema.ts</code> (cron file path, <code>.bak</code> on write)</li>
+<li><code>src/types/index.ts</code> (cron and agent config types)</li>
+<li><code>templates/orchestrator/</code> (CLAUDE.md, AGENTS.md, bootstrap files, skills)</li>
+<li><code>.gitignore</code> (the <code>orgs/</code> ignore)</li>
+</ul>
+</article><nav class="pager"><a class="prev" href="21-data-models-schema-registry.html"><small>Previous</small>21 Data Models and Schema Registry</a><a class="next" href="23-evals-and-benchmarks.html"><small>Next</small>23 Evals and benchmarks</a></nav></main></div></body></html>

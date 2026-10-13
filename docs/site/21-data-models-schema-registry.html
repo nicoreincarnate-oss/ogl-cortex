@@ -1,0 +1,1162 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Data Models and Schema Registry · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li class="on"><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">21</div><div><p class="dg">Design, data and AI quality</p>
+<h1>Data Models and Schema Registry</h1><p class="meta">4,388 words · <a href="../21-data-models-schema-registry.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#how-schemas-work-in-ogl-cortex">How schemas work in OGL Cortex</a></li><li><a href="#where-the-data-lives">Where the data lives</a></li><li><a href="#1-task">1. Task</a></li><li><a href="#2-inbox-message-agent-to-agent-bus">2. Inbox message (agent-to-agent bus)</a></li><li><a href="#3-event">3. Event</a></li><li><a href="#4-truth_correction-event-the-false-claim-ledger">4. truth_correction event (the false-claim ledger)</a></li><li><a href="#5-heartbeat">5. Heartbeat</a></li><li><a href="#6-cron-records">6. Cron records</a></li><li><a href="#7-goalsjson">7. goals.json</a></li><li><a href="#8-approval">8. Approval</a></li><li><a href="#9-auto-memory-note-claude-code-memory">9. Auto-memory note (Claude Code memory)</a></li><li><a href="#10-skill-frontmatter">10. Skill frontmatter</a></li><li><a href="#11-hook-input-and-output-json">11. Hook input and output JSON</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document describes every data shape that moves through OGL Cortex: where it lives on disk, who writes it, its fields, an example, and how strictly it is validated. Use it when you write a tool that reads fleet state, build a dashboard, or debug a record that looks wrong.</p>
+<p>Path conventions:</p>
+<ul>
+<li><code>$CORTEX_HOME</code> is your cortextOS checkout (for example <code>~/cortextos</code>).</li>
+<li><code>$CTX_ROOT</code> is the runtime state root for one daemon instance (<code>~/.cortextos/&lt;instance&gt;</code>).</li>
+<li><code>&lt;org&gt;</code> is your org folder name. <code>&lt;seat&gt;</code> is one agent folder under <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/</code>.</li>
+</ul>
+<p>Related documents: architecture in <code>01-core-architecture.md</code>, how the daemon fires crons and injects prompts in <code>02-execution-engine.md</code>, <code>config.json</code> and <code>settings.json</code> in <code>03-configuration-registry.md</code>, prompt text carried inside these shapes in <code>22-prompt-registry.md</code>, and the tests that check them in <code>23-evals-and-benchmarks.md</code>.</p>
+<h2 id="how-schemas-work-in-ogl-cortex">How schemas work in OGL Cortex</h2>
+<p>A schema is a written rule for which fields a record must have and which values are allowed. OGL Cortex has no central schema registry (no JSON Schema, Avro or Protobuf files). It uses four mechanisms instead:</p>
+<ol type="1">
+<li><strong>TypeScript interfaces</strong> in <code>src/types/index.ts</code>. They describe what the framework code writes. TypeScript checks them at build time. Nothing checks files on disk against them at read time. They match the original bash version's JSON formats for backward compatibility.</li>
+<li><strong>Runtime validators</strong> for enum fields: agent names, priorities, event categories, severities, approval categories and task ids (<code>src/utils/validate.ts</code>). They run when the CLI writes, not when anything reads.</li>
+<li><strong>Writer scripts and hooks</strong> in the OGL layer that enforce stricter shapes than the bus. Example: the <code>truth_correction</code> event is validated by <code>tools/emit-truth-correction.sh</code>, not by the bus.</li>
+<li><strong>Convention only</strong> for some shapes: event names and metadata, auto-memory frontmatter, skill frontmatter, and <code>goals.json</code>.</li>
+</ol>
+<p><code>src/harness/schema.ts</code> defines an SQL store for the Cortex harness. It is a compatibility shadow store, marked not production-authoritative in its own schema, and is covered in <code>01-core-architecture.md</code>.</p>
+<h2 id="where-the-data-lives">Where the data lives</h2>
+<p><code>resolvePaths()</code> in <code>src/utils/paths.ts</code> builds every runtime path from the agent name, the instance id and the org.</p>
+<figure class="diagram"><img src="img/98d56cb298ef.svg" alt="Diagram"></figure>
+
+<table>
+<thead>
+<tr>
+<th>Shape</th>
+<th>Location</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Task</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/tasks/task_*.json</code></td>
+<td>Org</td>
+</tr>
+<tr>
+<td>Task audit line</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/tasks/audit/&lt;task_id&gt;.jsonl</code></td>
+<td>Org</td>
+</tr>
+<tr>
+<td>Inbox message</td>
+<td><code>$CTX_ROOT/{inbox,inflight,processed}/&lt;seat&gt;/*.json</code></td>
+<td>Seat</td>
+</tr>
+<tr>
+<td>Event</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/&lt;YYYY-MM-DD&gt;.jsonl</code></td>
+<td>Org, per seat</td>
+</tr>
+<tr>
+<td>Heartbeat</td>
+<td><code>$CTX_ROOT/state/&lt;seat&gt;/heartbeat.json</code></td>
+<td>Seat</td>
+</tr>
+<tr>
+<td>Cron definitions</td>
+<td><code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code></td>
+<td>Seat</td>
+</tr>
+<tr>
+<td>Cron execution log</td>
+<td><code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/cron-execution.log</code></td>
+<td>Seat</td>
+</tr>
+<tr>
+<td>Approval</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/approvals/{pending,resolved}/*.json</code></td>
+<td>Org</td>
+</tr>
+<tr>
+<td>Goals</td>
+<td><code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/goals.json</code> and <code>$CORTEX_HOME/orgs/&lt;org&gt;/goals.json</code></td>
+<td>Seat and org</td>
+</tr>
+<tr>
+<td>Auto-memory note</td>
+<td><code>~/.claude/projects/&lt;project&gt;/memory/*.md</code></td>
+<td>Claude Code project</td>
+</tr>
+<tr>
+<td>Skill</td>
+<td><code>&lt;seat&gt;/.claude/skills/*/SKILL.md</code>, <code>~/.claude/skills/*/SKILL.md</code></td>
+<td>Seat and user</td>
+</tr>
+<tr>
+<td>Hook registrations</td>
+<td><code>&lt;seat&gt;/.claude/settings.json</code>, <code>~/.claude/settings.json</code></td>
+<td>Seat and user</td>
+</tr>
+</tbody>
+</table>
+<h2 id="1-task">1. Task</h2>
+<p><strong>Type:</strong> <code>interface Task</code> in <code>src/types/index.ts</code>. Created by <code>createTask()</code> in <code>src/bus/task.ts</code>.</p>
+<p><strong>Location:</strong> one JSON file per task, <code>$CTX_ROOT/orgs/&lt;org&gt;/tasks/task_&lt;epochMs&gt;_&lt;8 digits&gt;.json</code>. Tasks are org-scoped: every seat in an org shares one task folder.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>string</td>
+<td>yes</td>
+<td><code>task_&lt;Date.now()&gt;_&lt;8 random digits&gt;</code>. Eight digits avoid same-millisecond collisions.</td>
+</tr>
+<tr>
+<td>title</td>
+<td>string</td>
+<td>yes</td>
+<td>Free text.</td>
+</tr>
+<tr>
+<td>description</td>
+<td>string</td>
+<td>yes</td>
+<td>Free text. The OGL brief guard requires four lines here for cross-seat dispatch (see below).</td>
+</tr>
+<tr>
+<td>type</td>
+<td><code>agent</code> or <code>human</code></td>
+<td>yes</td>
+<td><code>human</code> is a task for the owner.</td>
+</tr>
+<tr>
+<td>needs_approval</td>
+<td>boolean</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>status</td>
+<td><code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>blocked</code>, <code>cancelled</code></td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>assigned_to</td>
+<td>string</td>
+<td>yes</td>
+<td>Seat name or human.</td>
+</tr>
+<tr>
+<td>created_by</td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>org</td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>priority</td>
+<td><code>urgent</code>, <code>high</code>, <code>normal</code>, <code>low</code></td>
+<td>yes</td>
+<td>Validated on write.</td>
+</tr>
+<tr>
+<td>project</td>
+<td>string</td>
+<td>yes</td>
+<td>Often empty.</td>
+</tr>
+<tr>
+<td>kpi_key</td>
+<td>string or null</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>created_at, updated_at</td>
+<td>ISO 8601 string</td>
+<td>yes</td>
+<td>Second precision, no milliseconds.</td>
+</tr>
+<tr>
+<td>completed_at, due_date</td>
+<td>string or null</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>archived</td>
+<td>boolean</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>result</td>
+<td>string</td>
+<td>no</td>
+<td>Set on completion.</td>
+</tr>
+<tr>
+<td>outputs</td>
+<td>array of <code>{type: "file", value, label?}</code></td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td>blocked_by, blocks</td>
+<td>array of task ids</td>
+<td>no</td>
+<td>Dependency graph. Cycles are rejected before write.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example:</strong></p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;task_1790000000000_12345678&quot;</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;title&quot;</span><span class="fu">:</span> <span class="st">&quot;Build pricing page for the demo site&quot;</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;TASK: Build /pricing from the approved plan.</span><span class="ch">\n</span><span class="st">FILES: sites/demo/src/pages/pricing.tsx</span><span class="ch">\n</span><span class="st">BAR: npm run build passes; page renders at 390px with no horizontal overflow</span><span class="ch">\n</span><span class="st">RETURN: preview URL and the build log path&quot;</span><span class="fu">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;agent&quot;</span><span class="fu">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;needs_approval&quot;</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;status&quot;</span><span class="fu">:</span> <span class="st">&quot;pending&quot;</span><span class="fu">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;assigned_to&quot;</span><span class="fu">:</span> <span class="st">&quot;builder&quot;</span><span class="fu">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;created_by&quot;</span><span class="fu">:</span> <span class="st">&quot;boss&quot;</span><span class="fu">,</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;org&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;priority&quot;</span><span class="fu">:</span> <span class="st">&quot;normal&quot;</span><span class="fu">,</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;project&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;kpi_key&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;created_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T09:00:00Z&quot;</span><span class="fu">,</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;updated_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T09:00:00Z&quot;</span><span class="fu">,</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;completed_at&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;due_date&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;archived&quot;</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;result&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p><strong>Task audit log.</strong> Every transition appends one line to <code>tasks/audit/&lt;task_id&gt;.jsonl</code>. Shape <code>TaskAuditEntry</code> in <code>src/bus/task.ts</code>: <code>ts</code>, <code>event</code> (<code>create</code>, <code>claim</code>, <code>update</code>, <code>complete</code>), <code>agent</code>, and optional <code>from</code>, <code>to</code>, <code>note</code>. The audit log is an observability aid, not the source of truth. A failed audit write never blocks the task write.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;ts&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T09:00:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;event&quot;</span><span class="fu">:</span><span class="st">&quot;create&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;boss&quot;</span><span class="fu">,</span><span class="dt">&quot;to&quot;</span><span class="fu">:</span><span class="st">&quot;pending&quot;</span><span class="fu">,</span><span class="dt">&quot;note&quot;</span><span class="fu">:</span><span class="st">&quot;First-boot onboarding&quot;</span><span class="fu">}</span></span></code></pre></div>
+<p><strong>OGL convention: the four-line brief.</strong> <code>.claude/hooks/brief_guard.py</code> blocks a Bash call of the form <code>cortextos bus create-task ... --assignee &lt;other seat&gt;</code> unless <code>--desc</code> contains lines starting <code>TASK:</code>, <code>FILES:</code>, <code>BAR:</code> and <code>RETURN:</code>. The rule applies to the description string at the moment the seat's Bash tool runs the command. The bus itself does not enforce it, so tasks created by scripts, other seats without the hook, or the dashboard are not checked.</p>
+<p><strong>Validation:</strong> TypeScript interface plus write-time enum checks. Task files are not validated when read.</p>
+<h2 id="2-inbox-message-agent-to-agent-bus">2. Inbox message (agent-to-agent bus)</h2>
+<p><strong>Type:</strong> <code>interface InboxMessage</code> in <code>src/types/index.ts</code>. Written by <code>sendMessage()</code> in <code>src/bus/message.ts</code>.</p>
+<p><strong>Lifecycle:</strong></p>
+<figure class="diagram"><img src="img/bed8a2824fd6.svg" alt="Diagram"></figure>
+
+<p>A message file lands in <code>inbox/&lt;to&gt;/</code>. <code>check-inbox</code> moves it to <code>inflight/&lt;to&gt;/</code>. <code>ack-inbox</code> moves it to <code>processed/&lt;to&gt;/</code>. An inflight file older than 300 seconds returns to the inbox, so an un-acked message redelivers after five minutes.</p>
+<p><strong>Filename:</strong> <code>&lt;priorityNumber&gt;-&lt;epochMs&gt;-from-&lt;sender&gt;-&lt;rand5&gt;.json</code>. Priority numbers: urgent 0, high 1, normal 2, low 3. Sorting filenames sorts by priority, then time.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>string</td>
+<td>yes</td>
+<td><code>&lt;epochMs&gt;-&lt;from&gt;-&lt;rand5&gt;</code>. This is the <code>msg_id</code> a seat passes as <code>reply_to</code>.</td>
+</tr>
+<tr>
+<td>from, to</td>
+<td>string</td>
+<td>yes</td>
+<td>Validated agent names.</td>
+</tr>
+<tr>
+<td>priority</td>
+<td><code>urgent</code>, <code>high</code>, <code>normal</code>, <code>low</code></td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>ISO 8601</td>
+<td>yes</td>
+<td>Milliseconds forced to <code>.000Z</code>. The id carries the full precision.</td>
+</tr>
+<tr>
+<td>text</td>
+<td>string</td>
+<td>yes</td>
+<td>Free text. Wrapper headers live inside the text, not as fields.</td>
+</tr>
+<tr>
+<td>reply_to</td>
+<td>string or null</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>sig</td>
+<td>hex string</td>
+<td>no</td>
+<td>HMAC-SHA256 over <code>id:from:to:text</code>, keyed by <code>$CTX_ROOT/config/bus-signing-key</code>.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Signature handling.</strong> A message with a bad signature moves to <code>inbox/&lt;seat&gt;/.errors/</code>. A message with no signature is accepted with a warning as legacy. The signature covers <code>id</code>, <code>from</code>, <code>to</code> and <code>text</code>. Treat <code>priority</code>, <code>timestamp</code> and <code>reply_to</code> as unauthenticated.</p>
+<p><strong>Example:</strong></p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;1790000000000-builder-ab12c&quot;</span><span class="fu">,</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;from&quot;</span><span class="fu">:</span> <span class="st">&quot;builder&quot;</span><span class="fu">,</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;to&quot;</span><span class="fu">:</span> <span class="st">&quot;boss&quot;</span><span class="fu">,</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;priority&quot;</span><span class="fu">:</span> <span class="st">&quot;normal&quot;</span><span class="fu">,</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T09:05:00.000Z&quot;</span><span class="fu">,</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;text&quot;</span><span class="fu">:</span> <span class="st">&quot;Pricing page built. Preview and build log paths in the task result.&quot;</span><span class="fu">,</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reply_to&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;sig&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;64 hex chars&gt;&quot;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p><strong>Validation:</strong> TypeScript interface. Corrupt JSON is quarantined to <code>.errors/</code>, which is the only read-time check.</p>
+<h2 id="3-event">3. Event</h2>
+<p><strong>Type:</strong> <code>interface Event</code> in <code>src/types/index.ts</code>. Written by <code>logEvent()</code> in <code>src/bus/event.ts</code>, called by:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus log-event <span class="op">&lt;</span>category<span class="op">&gt;</span> <span class="op">&lt;</span>event<span class="op">&gt;</span> <span class="op">&lt;</span>severity<span class="op">&gt;</span> --meta <span class="st">&#39;&lt;json&gt;&#39;</span></span></code></pre></div>
+<p><strong>Location:</strong> append-only JSONL, one file per seat per UTC day: <code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/&lt;YYYY-MM-DD&gt;.jsonl</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>string</td>
+<td>yes</td>
+<td><code>&lt;epochSeconds&gt;-&lt;agent&gt;-&lt;rand5&gt;</code>. Seconds, not milliseconds.</td>
+</tr>
+<tr>
+<td>agent</td>
+<td>string</td>
+<td>yes</td>
+<td>From <code>CTX_AGENT_NAME</code>. Empty if that variable is unset.</td>
+</tr>
+<tr>
+<td>org</td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>ISO 8601</td>
+<td>yes</td>
+<td>Second precision.</td>
+</tr>
+<tr>
+<td>category</td>
+<td><code>action</code>, <code>error</code>, <code>metric</code>, <code>milestone</code>, <code>heartbeat</code>, <code>message</code>, <code>task</code>, <code>approval</code>, <code>agent_activity</code></td>
+<td>yes</td>
+<td>Validated on write.</td>
+</tr>
+<tr>
+<td>event</td>
+<td>string</td>
+<td>yes</td>
+<td>Free-text name. Not validated.</td>
+</tr>
+<tr>
+<td>severity</td>
+<td><code>info</code>, <code>warning</code>, <code>error</code>, <code>critical</code></td>
+<td>yes</td>
+<td>Validated on write.</td>
+</tr>
+<tr>
+<td>metadata</td>
+<td>object</td>
+<td>yes</td>
+<td>Free-form. If <code>--meta</code> is not valid JSON, it is replaced by <code>{}</code> without an error.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Side effect:</strong> every event also updates <code>last_heartbeat</code> in the seat's <code>heartbeat.json</code>. A fresh heartbeat means "logged anything recently", not "ran the heartbeat routine".</p>
+<p><strong>Common event names</strong> written by the framework and templates: <code>heartbeat</code>, <code>agent_message_sent</code>, <code>inbox_ack</code>, <code>telegram_sent</code>, <code>telegram_received</code>, <code>session_start</code>, <code>task_completed</code>, <code>task_dispatched</code>, <code>briefing_sent</code>. There is no allow-list. Any reader that counts events must agree with every writer on names and metadata keys.</p>
+<p><strong>Example:</strong></p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;1790000300-boss-9pv7s&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;boss&quot;</span><span class="fu">,</span><span class="dt">&quot;org&quot;</span><span class="fu">:</span><span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span><span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T09:05:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;category&quot;</span><span class="fu">:</span><span class="st">&quot;message&quot;</span><span class="fu">,</span><span class="dt">&quot;event&quot;</span><span class="fu">:</span><span class="st">&quot;inbox_ack&quot;</span><span class="fu">,</span><span class="dt">&quot;severity&quot;</span><span class="fu">:</span><span class="st">&quot;info&quot;</span><span class="fu">,</span><span class="dt">&quot;metadata&quot;</span><span class="fu">:{</span><span class="dt">&quot;msg_id&quot;</span><span class="fu">:</span><span class="st">&quot;1790000000000-builder-ab12c&quot;</span><span class="fu">}}</span></span></code></pre></div>
+<p><strong>Validation:</strong> envelope only (8 fields, 2 enums). Event names and metadata have no schema.</p>
+<h2 id="4-truth_correction-event-the-false-claim-ledger">4. truth_correction event (the false-claim ledger)</h2>
+<p>An OGL convention on top of the event shape: <code>category: action</code>, <code>event: truth_correction</code>, and a strict metadata shape. It records each time a seat said something false and someone (the seat itself, a peer, a guard, or the owner) caught it. The auditor role owns the collector and the schema.</p>
+<p><strong>Writer:</strong> <code>tools/emit-truth-correction.sh</code>. It validates inputs, builds the metadata, and calls:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus log-event action truth_correction info <span class="at">--meta</span> <span class="st">&quot;</span><span class="va">$META</span><span class="st">&quot;</span></span></code></pre></div>
+<p>The bus does not know this shape. A direct <code>log-event</code> call skips every check, so seats must use the script.</p>
+<p><strong>Allowed <code>kind</code> values:</strong> <code>self_correction</code>, <code>peer_catch</code>, <code>enforcer_catch</code>, <code>principal_catch</code>, <code>verify_cleared</code>, <code>artifact_catch</code>, <code>known_unrecordable_catch</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Metadata field</th>
+<th>Type</th>
+<th>When</th>
+<th>Set by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>kind</td>
+<td>enum above</td>
+<td>always</td>
+<td>caller, validated</td>
+</tr>
+<tr>
+<td>caught_agent</td>
+<td>slug</td>
+<td>always</td>
+<td>caller (default <code>CTX_AGENT_NAME</code>)</td>
+</tr>
+<tr>
+<td>caught_by</td>
+<td>slug</td>
+<td>always</td>
+<td>derived: from the catcher's message id for peer and enforcer catches, from the artifact's owning seat for <code>artifact_catch</code>, pinned to the owner for <code>principal_catch</code></td>
+</tr>
+<tr>
+<td>catcher_type</td>
+<td><code>party</code> or <code>instrument</code></td>
+<td>always</td>
+<td>default <code>party</code></td>
+</tr>
+<tr>
+<td>triggering_msg</td>
+<td>msg_id or null</td>
+<td>always</td>
+<td>caller, shape-checked</td>
+</tr>
+<tr>
+<td>occurred_at</td>
+<td>ISO 8601 <code>...SSZ</code></td>
+<td>always</td>
+<td>caller or now; future times rejected</td>
+</tr>
+<tr>
+<td>dedupe_key</td>
+<td><code>&lt;caught_agent&gt;.&lt;slug&gt;.&lt;occ_compact&gt;</code></td>
+<td>always</td>
+<td>built by the script; <code>.</code> cannot appear inside a part</td>
+</tr>
+<tr>
+<td>claim, correction</td>
+<td>string</td>
+<td>always</td>
+<td>caller</td>
+</tr>
+<tr>
+<td>evidence</td>
+<td>string or null</td>
+<td>always</td>
+<td>caller</td>
+</tr>
+<tr>
+<td>artifact_provenance</td>
+<td><code>{path, catch_time, evidence_anchor}</code></td>
+<td><code>artifact_catch</code> only</td>
+<td>script</td>
+</tr>
+<tr>
+<td>principal_evidence</td>
+<td><code>telegram:&lt;chat&gt;:&lt;message&gt;</code> handle</td>
+<td><code>principal_catch</code> only</td>
+<td>caller, existence checked</td>
+</tr>
+<tr>
+<td>near_miss</td>
+<td><code>true</code></td>
+<td>optional</td>
+<td>caller</td>
+</tr>
+<tr>
+<td>candidate_set, resolve_mode</td>
+<td>object, <code>propose-only</code></td>
+<td><code>known_unrecordable_catch</code> only</td>
+<td>script</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Dedupe rule</strong> (from the script's wire contract): for a plain duplicate <code>dedupe_key</code>, the first row in scan order wins (sorted by seat folder, then line order), not the earliest or latest by time. An explicit amendment is the only way to supersede a row. Amendments are separate <code>truth_correction_amendment</code> events written by <code>tools/emit-truth-correction-amendment.sh</code>.</p>
+<p><strong>Example:</strong></p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;1790000400-builder-k3m9q&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;builder&quot;</span><span class="fu">,</span><span class="dt">&quot;org&quot;</span><span class="fu">:</span><span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span><span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T09:06:40Z&quot;</span><span class="fu">,</span><span class="dt">&quot;category&quot;</span><span class="fu">:</span><span class="st">&quot;action&quot;</span><span class="fu">,</span><span class="dt">&quot;event&quot;</span><span class="fu">:</span><span class="st">&quot;truth_correction&quot;</span><span class="fu">,</span><span class="dt">&quot;severity&quot;</span><span class="fu">:</span><span class="st">&quot;info&quot;</span><span class="fu">,</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;metadata&quot;</span><span class="fu">:{</span><span class="dt">&quot;kind&quot;</span><span class="fu">:</span><span class="st">&quot;self_correction&quot;</span><span class="fu">,</span><span class="dt">&quot;caught_agent&quot;</span><span class="fu">:</span><span class="st">&quot;builder&quot;</span><span class="fu">,</span><span class="dt">&quot;caught_by&quot;</span><span class="fu">:</span><span class="st">&quot;builder&quot;</span><span class="fu">,</span><span class="dt">&quot;catcher_type&quot;</span><span class="fu">:</span><span class="st">&quot;party&quot;</span><span class="fu">,</span><span class="dt">&quot;triggering_msg&quot;</span><span class="fu">:</span><span class="kw">null</span><span class="fu">,</span><span class="dt">&quot;occurred_at&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T09:06:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;dedupe_key&quot;</span><span class="fu">:</span><span class="st">&quot;builder.backup-schedule-tz.20260115T090600Z&quot;</span><span class="fu">,</span><span class="dt">&quot;claim&quot;</span><span class="fu">:</span><span class="st">&quot;Daily backup runs at 09:00 UTC&quot;</span><span class="fu">,</span><span class="dt">&quot;correction&quot;</span><span class="fu">:</span><span class="st">&quot;launchd schedules use local time; the backup runs at 09:00 local&quot;</span><span class="fu">,</span><span class="dt">&quot;evidence&quot;</span><span class="fu">:</span><span class="st">&quot;launchctl print output&quot;</span><span class="fu">}}</span></span></code></pre></div>
+<p><strong>Validation:</strong> a validating writer script and a contract in its comments. No reader-side validation in the bus.</p>
+<h2 id="5-heartbeat">5. Heartbeat</h2>
+<p><strong>Type:</strong> <code>interface Heartbeat</code> in <code>src/types/index.ts</code>. Written by <code>updateHeartbeat()</code> in <code>src/bus/heartbeat.ts</code>. One file per seat, <code>$CTX_ROOT/state/&lt;seat&gt;/heartbeat.json</code>, rewritten atomically.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>agent</td>
+<td>string</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>org</td>
+<td>string</td>
+<td>yes</td>
+<td>Empty string if not passed.</td>
+</tr>
+<tr>
+<td>display_name</td>
+<td>string</td>
+<td>no</td>
+<td>Read from the seat's <code>IDENTITY.md</code>.</td>
+</tr>
+<tr>
+<td>status</td>
+<td>string</td>
+<td>yes</td>
+<td>Free text, usually one status sentence.</td>
+</tr>
+<tr>
+<td>current_task</td>
+<td>string</td>
+<td>yes</td>
+<td>Often empty.</td>
+</tr>
+<tr>
+<td>mode</td>
+<td><code>day</code> or <code>night</code></td>
+<td>yes</td>
+<td>Day is 08:00 to 22:00 in the configured timezone.</td>
+</tr>
+<tr>
+<td>last_heartbeat</td>
+<td>ISO 8601</td>
+<td>yes</td>
+<td>Also bumped by every <code>log-event</code>.</td>
+</tr>
+<tr>
+<td>loop_interval</td>
+<td>string</td>
+<td>yes</td>
+<td>May be empty.</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>string</td>
+<td>no</td>
+<td>Legacy.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>display_name resolution.</strong> The CLI looks for a name line in <code>IDENTITY.md</code>. If it finds none, it falls back to the first <code># </code> heading. An <code>IDENTITY.md</code> left at the template text yields <code>"display_name": "Agent Identity"</code>. Fill in the Name section during onboarding.</p>
+<p><strong>Example:</strong></p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;agent&quot;</span><span class="fu">:</span> <span class="st">&quot;boss&quot;</span><span class="fu">,</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;org&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;display_name&quot;</span><span class="fu">:</span> <span class="st">&quot;Boss&quot;</span><span class="fu">,</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;status&quot;</span><span class="fu">:</span> <span class="st">&quot;online: pricing page in review; waiting on owner approval&quot;</span><span class="fu">,</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;current_task&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;mode&quot;</span><span class="fu">:</span> <span class="st">&quot;day&quot;</span><span class="fu">,</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;last_heartbeat&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T09:06:40Z&quot;</span><span class="fu">,</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;loop_interval&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p><strong>Validation:</strong> TypeScript interface.</p>
+<h2 id="6-cron-records">6. Cron records</h2>
+<p>OGL Cortex has one live cron shape and two older records that can still exist on disk. Only <code>crons.json</code> drives the scheduler.</p>
+<h3 id="6a-crondefinition-live">6a. CronDefinition (live)</h3>
+<p><strong>Type:</strong> <code>interface CronDefinition</code> in <code>src/types/index.ts</code>. Read and written by <code>src/bus/crons.ts</code>. The path is built in <code>src/bus/crons-schema.ts</code>.</p>
+<p><strong>Location:</strong> <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code>. Use <code>cortextos bus list-crons &lt;seat&gt;</code> rather than reading the file.</p>
+<p><strong>File envelope:</strong></p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span> <span class="dt">&quot;updated_at&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;ISO 8601&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;crons&quot;</span><span class="fu">:</span> <span class="ot">[</span> <span class="er">/*</span> <span class="er">CronDefinition</span><span class="ot">,</span> <span class="er">...</span> <span class="er">*/</span> <span class="ot">]</span> <span class="fu">}</span></span></code></pre></div>
+<p>Each write keeps the previous file as <code>crons.json.bak</code>. A parse failure falls back to the backup.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>name</td>
+<td>string</td>
+<td>yes</td>
+<td>Unique per seat.</td>
+</tr>
+<tr>
+<td>prompt</td>
+<td>string</td>
+<td>yes</td>
+<td>Text typed into the seat's terminal.</td>
+</tr>
+<tr>
+<td>schedule</td>
+<td>string</td>
+<td>yes</td>
+<td>Interval shorthand (<code>20m</code>, <code>4h</code>, <code>168h</code>) or 5-field cron (<code>0 8 * * *</code>).</td>
+</tr>
+<tr>
+<td>enabled</td>
+<td>boolean</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>ISO 8601</td>
+<td>yes</td>
+<td></td>
+</tr>
+<tr>
+<td>last_fired_at</td>
+<td>ISO 8601</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td>last_fire_attempted_at</td>
+<td>ISO 8601</td>
+<td>no</td>
+<td>Set before dispatch so a daemon crash cannot double-fire.</td>
+</tr>
+<tr>
+<td>fire_count</td>
+<td>number</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td>fire_at</td>
+<td>ISO 8601</td>
+<td>no</td>
+<td>One-shot fire time.</td>
+</tr>
+<tr>
+<td>description</td>
+<td>string</td>
+<td>no</td>
+<td></td>
+</tr>
+<tr>
+<td>metadata</td>
+<td>object</td>
+<td>no</td>
+<td>Free-form. Crons migrated from <code>config.json</code> carry <code>{"migrated_from_config": true, "original_type": "recurring"}</code>.</td>
+</tr>
+<tr>
+<td>manualFireDisabled</td>
+<td>boolean</td>
+<td>no</td>
+<td>The only camelCase field.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example:</strong></p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;heartbeat&quot;</span><span class="fu">,</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;prompt&quot;</span><span class="fu">:</span> <span class="st">&quot;Read HEARTBEAT.md and follow its instructions. Update your heartbeat, check inbox, (...)&quot;</span><span class="fu">,</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;schedule&quot;</span><span class="fu">:</span> <span class="st">&quot;4h&quot;</span><span class="fu">,</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;created_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T16:35:19.821Z&quot;</span><span class="fu">,</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;last_fired_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T08:16:49.511Z&quot;</span><span class="fu">,</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;fire_count&quot;</span><span class="fu">:</span> <span class="dv">84</span><span class="fu">,</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;last_fire_attempted_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T08:16:49.511Z&quot;</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p><strong>One-shot jobs use <code>fire_at</code>.</strong> A dated 5-field expression such as <code>0 20 12 10 *</code> fires every year on that date, not once.</p>
+<h3 id="6b-cronentry-legacy-in-configjson">6b. CronEntry (legacy, in config.json)</h3>
+<p><strong>Type:</strong> <code>interface CronEntry</code> in <code>src/types/index.ts</code>, used by <code>AgentConfig.crons</code>. Fields: <code>name</code>, one of <code>interval</code>, <code>cron</code> or <code>fire_at</code>, <code>prompt</code>, and <code>type</code> (<code>recurring</code>, <code>once</code>, <code>disabled</code>).</p>
+<p>The daemon schedules from <code>crons.json</code>. A <code>crons</code> array left in a seat's <code>config.json</code> after migration is dead config: editing it changes nothing. Remove it after migration. See <code>03-configuration-registry.md</code>.</p>
+<h3 id="6c-cron-statejson-legacy">6c. cron-state.json (legacy)</h3>
+<p><code>$CTX_ROOT/state/&lt;seat&gt;/cron-state.json</code> holds <code>{updated_at, crons: [{name, last_fire, interval?}]}</code>. It can list crons that no longer exist in <code>crons.json</code>. Do not use it as a source for what is scheduled.</p>
+<h3 id="6d-cron-execution-log">6d. Cron execution log</h3>
+<p><strong>Type:</strong> <code>interface CronExecutionLogEntry</code> in <code>src/types/index.ts</code>. JSONL at <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/cron-execution.log</code>, written by <code>src/daemon/cron-execution-log.ts</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ts</td>
+<td>ISO 8601</td>
+<td></td>
+</tr>
+<tr>
+<td>cron</td>
+<td>string</td>
+<td>Cron name.</td>
+</tr>
+<tr>
+<td>status</td>
+<td><code>fired</code>, <code>retried</code>, <code>failed</code></td>
+<td></td>
+</tr>
+<tr>
+<td>attempt</td>
+<td>number</td>
+<td></td>
+</tr>
+<tr>
+<td>duration_ms</td>
+<td>number</td>
+<td>Time to type the prompt into the terminal, not the agent's work.</td>
+</tr>
+<tr>
+<td>error</td>
+<td>string or null</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Rotation keeps the last 1,000 lines once the file passes 200 KB.</p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;ts&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T08:16:49.511Z&quot;</span><span class="fu">,</span><span class="dt">&quot;cron&quot;</span><span class="fu">:</span><span class="st">&quot;heartbeat&quot;</span><span class="fu">,</span><span class="dt">&quot;status&quot;</span><span class="fu">:</span><span class="st">&quot;fired&quot;</span><span class="fu">,</span><span class="dt">&quot;attempt&quot;</span><span class="fu">:</span><span class="dv">1</span><span class="fu">,</span><span class="dt">&quot;duration_ms&quot;</span><span class="fu">:</span><span class="dv">0</span><span class="fu">,</span><span class="dt">&quot;error&quot;</span><span class="fu">:</span><span class="kw">null</span><span class="fu">}</span></span></code></pre></div>
+<p>"Fired" means the prompt reached the terminal. It does not mean the job succeeded. Confirm a job by its artifact.</p>
+<h3 id="6e-how-a-fired-cron-appears-in-the-prompt">6e. How a fired cron appears in the prompt</h3>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Format</th>
+<th>Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Scheduled fire</td>
+<td><code>[CRON FIRED &lt;firedAt&gt;] &lt;name&gt;: &lt;prompt&gt;</code></td>
+<td><code>src/daemon/agent-manager.ts</code></td>
+</tr>
+<tr>
+<td>Manual or test fire over the daemon's local IPC socket</td>
+<td><code>[CRON: &lt;name&gt;] &lt;prompt&gt;</code></td>
+<td><code>src/daemon/ipc-server.ts</code></td>
+</tr>
+</tbody>
+</table>
+<p>A hook that wants to skip cron prompts must match both prefixes.</p>
+<h2 id="7-goalsjson">7. goals.json</h2>
+<p><strong>Location:</strong> one file per seat (<code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/goals.json</code>) plus one org file (<code>$CORTEX_HOME/orgs/&lt;org&gt;/goals.json</code>). The seat file feeds <code>GOALS.md</code>, which <code>cortextos goals generate-md --agent &lt;seat&gt; --org &lt;org&gt;</code> regenerates (<code>src/cli/goals.ts</code>). The generated file carries the line "Auto-generated from goals.json. Do not edit this file directly."</p>
+<p><strong>Seat shape:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>focus</td>
+<td>string</td>
+<td>Rendered as the day's focus.</td>
+</tr>
+<tr>
+<td>goals</td>
+<td>array of string, or array of <code>{title}</code></td>
+<td>Both forms accepted.</td>
+</tr>
+<tr>
+<td>bottleneck</td>
+<td>string</td>
+<td></td>
+</tr>
+<tr>
+<td>updated_at</td>
+<td>ISO 8601</td>
+<td></td>
+</tr>
+<tr>
+<td>updated_by</td>
+<td>string</td>
+<td>Usually the orchestrator, which may write other seats' goals.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Org shape:</strong> <code>north_star</code>, <code>daily_focus</code>, <code>daily_focus_set_at</code>, <code>goals</code>, <code>bottleneck</code>, <code>updated_at</code>, <code>updated_by</code>. The org file uses <code>daily_focus</code> where the seat file uses <code>focus</code>.</p>
+<p><strong>Example:</strong></p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;focus&quot;</span><span class="fu">:</span> <span class="st">&quot;Ship the demo site pricing page&quot;</span><span class="fu">,</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;goals&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;Pricing page through ship.sh by end of day&quot;</span><span class="ot">,</span> <span class="st">&quot;Clear the inbox backlog&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;bottleneck&quot;</span><span class="fu">:</span> <span class="st">&quot;Waiting on owner approval of the plan&quot;</span><span class="fu">,</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;updated_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T08:00:00Z&quot;</span><span class="fu">,</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;updated_by&quot;</span><span class="fu">:</span> <span class="st">&quot;boss&quot;</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p><strong>Validation:</strong> none. <code>goals.ts</code> reads three keys with <code>typeof</code> checks and ignores the rest. A misspelled key renders as "(not set, check with your orchestrator)" in <code>GOALS.md</code> instead of an error.</p>
+<h2 id="8-approval">8. Approval</h2>
+<p>Approvals gate every external action. <strong>Type:</strong> <code>interface Approval</code> in <code>src/types/index.ts</code>. Files in <code>$CTX_ROOT/orgs/&lt;org&gt;/approvals/pending/</code> and <code>resolved/</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td><code>approval_&lt;epochSeconds&gt;_&lt;rand5&gt;</code></td>
+</tr>
+<tr>
+<td>title, description</td>
+<td>string</td>
+</tr>
+<tr>
+<td>requesting_agent, org</td>
+<td>string</td>
+</tr>
+<tr>
+<td>category</td>
+<td><code>external-comms</code>, <code>financial</code>, <code>deployment</code>, <code>data-deletion</code>, <code>other</code></td>
+</tr>
+<tr>
+<td>status</td>
+<td><code>pending</code>, <code>approved</code>, <code>rejected</code></td>
+</tr>
+<tr>
+<td>created_at, updated_at</td>
+<td>ISO 8601</td>
+</tr>
+<tr>
+<td>resolved_at, resolved_by</td>
+<td>string or null</td>
+</tr>
+</tbody>
+</table>
+<p><code>resolved_by</code> is free text. OGL seats record the channel and the owner's words there, which makes the approval citable later.</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;approval_1790000500_fdtl4&quot;</span><span class="fu">,</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;title&quot;</span><span class="fu">:</span> <span class="st">&quot;Pin MCP server versions in ~/.claude.json&quot;</span><span class="fu">,</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;requesting_agent&quot;</span><span class="fu">:</span> <span class="st">&quot;boss&quot;</span><span class="fu">,</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;org&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;category&quot;</span><span class="fu">:</span> <span class="st">&quot;other&quot;</span><span class="fu">,</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;status&quot;</span><span class="fu">:</span> <span class="st">&quot;approved&quot;</span><span class="fu">,</span></span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;Pin the four uvx MCP servers to their current resolved versions.&quot;</span><span class="fu">,</span></span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;created_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T09:10:00Z&quot;</span><span class="fu">,</span></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;updated_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T10:00:00Z&quot;</span><span class="fu">,</span></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;resolved_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-15T10:00:00Z&quot;</span><span class="fu">,</span></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;resolved_by&quot;</span><span class="fu">:</span> <span class="st">&quot;owner via dashboard: approved, re-check for useful updates monthly&quot;</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h2 id="9-auto-memory-note-claude-code-memory">9. Auto-memory note (Claude Code memory)</h2>
+<p><strong>Location:</strong> <code>~/.claude/projects/&lt;project&gt;/memory/</code>. <code>&lt;project&gt;</code> is Claude Code's encoding of the seat's working directory (slashes become dashes). The folder holds <code>MEMORY.md</code> (the index) and one markdown file per note. Claude Code loads the first 200 lines of <code>MEMORY.md</code> at session start and truncates the rest.</p>
+<p><strong>Frontmatter:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>name</td>
+<td>Slug that matches the file name.</td>
+</tr>
+<tr>
+<td>description</td>
+<td>One-line summary.</td>
+</tr>
+<tr>
+<td>metadata.type</td>
+<td><code>feedback</code>, <code>project</code>, <code>reference</code> or <code>user</code>.</td>
+</tr>
+<tr>
+<td>metadata.node_type</td>
+<td><code>memory</code>.</td>
+</tr>
+<tr>
+<td>metadata.originSessionId</td>
+<td>UUID of the session that wrote the note.</td>
+</tr>
+<tr>
+<td>metadata.modified</td>
+<td>ISO 8601 with milliseconds.</td>
+</tr>
+</tbody>
+</table>
+<p>Notes written by hand or by older writers may lack <code>node_type</code>, <code>originSessionId</code> or <code>modified</code>.</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> confirm-or-flag-for-claims</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="fu">description</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;Customer-facing claims need a positive source or a flag; a disprove-check passes invented claims&quot;</span></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="fu">metadata</span><span class="kw">:</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">node_type</span><span class="kw">:</span><span class="at"> memory</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">type</span><span class="kw">:</span><span class="at"> feedback</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">originSessionId</span><span class="kw">:</span><span class="at"> &lt;uuid&gt;</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">modified</span><span class="kw">:</span><span class="at"> 2026-01-15T09:00:00.000Z</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a><span class="at">A truth audit that asks &quot;can any source disprove this claim?&quot; passes invented claims automatically. (...)</span></span></code></pre></div>
+<p><strong>Index line shape:</strong> a bullet with a markdown link to the note, a separator, and a short hook. Use a plain separator such as <code>:</code> or <code>-</code>; the house style forbids the long dash.</p>
+<p><strong>Validation:</strong> none in OGL Cortex. The format is Claude Code's. Nothing checks that each note appears in the index or that each index line points at a real file.</p>
+<h2 id="10-skill-frontmatter">10. Skill frontmatter</h2>
+<p>A skill is a folder with a <code>SKILL.md</code> that starts with YAML frontmatter. Two readers parse it.</p>
+<table>
+<thead>
+<tr>
+<th>Reader</th>
+<th>Scans</th>
+<th>Parser</th>
+<th>Keys used</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude Code</td>
+<td><code>~/.claude/skills/</code> and the seat's <code>.claude/skills/</code></td>
+<td>Full YAML</td>
+<td><code>name</code>, <code>description</code>, and Claude Code's own optional keys</td>
+</tr>
+<tr>
+<td><code>cortextos bus list-skills</code> (<code>src/cli/bus.ts</code>, <code>src/cli/list-skills.ts</code>)</td>
+<td>Framework <code>.claude/skills/</code>, the template's skills, and the seat's skills (seat wins on a name clash). Not <code>~/.claude/skills/</code></td>
+<td>Line-by-line regex</td>
+<td><code>name</code>, <code>description</code> only</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Keys seen in OGL Cortex skills:</strong> <code>name</code>, <code>description</code>, <code>triggers</code>, <code>allowed-tools</code>, <code>license</code>, <code>metadata</code>, <code>argument-hint</code>, <code>user-invocable</code>, <code>compatibility</code>, <code>disable-model-invocation</code>, <code>tags</code>, <code>effort</code>, <code>version</code>.</p>
+<p>Rules for skill authors:</p>
+<ul>
+<li>Always include frontmatter. <code>list-skills</code> silently drops a skill with none.</li>
+<li>Write <code>description</code> on one line. <code>list-skills</code> reads a folded YAML description (<code>description: &gt;</code>) as the literal <code>&gt;</code>.</li>
+<li>Use one spelling per key across your skills (for example <code>user-invocable</code>, not a mix with <code>user-invokable</code>; <code>triggers</code>, not a mix with <code>trigger</code>).</li>
+</ul>
+<div class="sourceCode" id="cb15"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> tasks</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="fu">description</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;Use before any meaningful piece of work. Without a task, the work is invisible to the dashboard and the owner.&quot;</span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="fu">triggers</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="st">&quot;create task&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;start task&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;new task&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;track work&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;task lifecycle&quot;</span><span class="kw">]</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span></code></pre></div>
+<p><strong>Validation:</strong> none in OGL Cortex. Skill prompt content is catalogued in <code>22-prompt-registry.md</code>.</p>
+<h2 id="11-hook-input-and-output-json">11. Hook input and output JSON</h2>
+<p>Claude Code runs a hook command at a fixed event and sends it a JSON object on stdin. The hook answers with an exit code, stderr text, and optional JSON on stdout. The shapes are Claude Code's, documented by Anthropic. This section lists the parts OGL Cortex hooks use.</p>
+<h3 id="11a-hook-events-used-by-ogl-cortex">11a. Hook events used by OGL Cortex</h3>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Typical hooks on an orchestrator seat</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PermissionRequest</td>
+<td><code>cortextos bus hook-planmode-telegram</code>, <code>cortextos bus hook-permission-telegram</code></td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td><code>cortextos bus hook-ask-telegram</code>; <code>orwell-lint.py</code> (Bash sends and MCP sends); <code>gws-account-guard.py</code>; <code>shared-surface-guard.py</code>; <code>brief_guard.py</code>; <code>future_time_guard.py</code>; <code>attribution-lint.py</code>; the ship-gate hook</td>
+</tr>
+<tr>
+<td>PostToolUse</td>
+<td>compaction meter (<code>kem-compaction/meter.py</code>); fix-commit trigger (<code>fix_commit_hook.py</code>)</td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td>entity recall hook; prompt router (<code>router.py</code>)</td>
+</tr>
+<tr>
+<td>SessionStart</td>
+<td><code>sessionstart-inject.sh</code>; compaction hand-back (<code>kem-compaction/after_compact.py</code>, matcher <code>compact</code>)</td>
+</tr>
+<tr>
+<td>PreCompact</td>
+<td><code>cortextos bus hook-compact-telegram</code>; <code>precompact-checkpoint.sh</code>; session digest</td>
+</tr>
+<tr>
+<td>PostCompact</td>
+<td>compaction summary saver (<code>kem-compaction/save_summary.py</code>)</td>
+</tr>
+<tr>
+<td>Stop</td>
+<td><code>cortextos bus hook-idle-flag</code>; dream hook</td>
+</tr>
+<tr>
+<td>SessionEnd</td>
+<td><code>cortextos crash-alert</code>; session digest</td>
+</tr>
+</tbody>
+</table>
+<p>Commands that start with <code>cortextos</code> come from the framework. The rest are OGL layer scripts.</p>
+<h3 id="11b-input-fields-ogl-hooks-read">11b. Input fields OGL hooks read</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Read by</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>tool_name</td>
+<td>all PreToolUse guards, fix-commit trigger</td>
+<td>Tool about to run (<code>Bash</code>, <code>Write</code>, <code>Edit</code>, <code>mcp__...</code>).</td>
+</tr>
+<tr>
+<td>tool_input.command</td>
+<td>Bash guards, ship-gate hook</td>
+<td>Shell command text.</td>
+</tr>
+<tr>
+<td>tool_input.file_path, .content, .new_string</td>
+<td>future-time guard</td>
+<td>Write and Edit payloads.</td>
+</tr>
+<tr>
+<td>tool_input.user_google_email</td>
+<td>account guard</td>
+<td>Google account an MCP call targets.</td>
+</tr>
+<tr>
+<td>cwd</td>
+<td>send guard, surface guard, fix-commit trigger, compaction kit</td>
+<td>Working directory.</td>
+</tr>
+<tr>
+<td>prompt</td>
+<td>recall hook, prompt router</td>
+<td>Incoming prompt on UserPromptSubmit.</td>
+</tr>
+<tr>
+<td>transcript_path</td>
+<td>compaction meter</td>
+<td>Session JSONL, read to estimate context size.</td>
+</tr>
+<tr>
+<td>session_id</td>
+<td>compaction kit</td>
+<td>Keys the meter's "already warned" marks.</td>
+</tr>
+<tr>
+<td>compact_summary</td>
+<td>summary saver</td>
+<td>Summary text after compaction.</td>
+</tr>
+</tbody>
+</table>
+<p>PreToolUse input (trimmed to fields OGL hooks read):</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;session_id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;transcript_path&quot;</span><span class="fu">:</span> <span class="st">&quot;~/.claude/projects/&lt;project&gt;/&lt;uuid&gt;.jsonl&quot;</span><span class="fu">,</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;cwd&quot;</span><span class="fu">:</span> <span class="st">&quot;$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;hook_event_name&quot;</span><span class="fu">:</span> <span class="st">&quot;PreToolUse&quot;</span><span class="fu">,</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;tool_name&quot;</span><span class="fu">:</span> <span class="st">&quot;Bash&quot;</span><span class="fu">,</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;tool_input&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;cortextos bus create-task </span><span class="ch">\&quot;</span><span class="st">X</span><span class="ch">\&quot;</span><span class="st"> --assignee builder --desc </span><span class="ch">\&quot;</span><span class="st">...</span><span class="ch">\&quot;</span><span class="st">&quot;</span><span class="fu">}</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>UserPromptSubmit input:</p>
+<div class="sourceCode" id="cb17"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;session_id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;uuid&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;cwd&quot;</span><span class="fu">:</span> <span class="st">&quot;...&quot;</span><span class="fu">,</span> <span class="dt">&quot;hook_event_name&quot;</span><span class="fu">:</span> <span class="st">&quot;UserPromptSubmit&quot;</span><span class="fu">,</span> <span class="dt">&quot;prompt&quot;</span><span class="fu">:</span> <span class="st">&quot;=== TELEGRAM from &lt;name&gt; (chat_id:&lt;chat_id&gt;) === (...)&quot;</span><span class="fu">}</span></span></code></pre></div>
+<h3 id="11c-output-contracts">11c. Output contracts</h3>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Used by</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Block:</strong> exit code 2, reason on stderr</td>
+<td>send guard, account guard, surface guard, brief guard, future-time guard, attribution lint</td>
+<td>Claude Code cancels the tool call and shows the stderr text to the model.</td>
+</tr>
+<tr>
+<td><strong>Allow:</strong> exit 0, no stdout</td>
+<td>every guard on its pass path</td>
+<td>Nothing happens.</td>
+</tr>
+<tr>
+<td><strong>Inject context:</strong> exit 0, stdout <code>{"hookSpecificOutput":{"hookEventName":"&lt;Event&gt;","additionalContext":"&lt;text&gt;"}}</code></td>
+<td>recall hook, prompt router, <code>sessionstart-inject.sh</code>, compaction kit, fix-commit trigger</td>
+<td>Text is added to the model's context.</td>
+</tr>
+<tr>
+<td><strong>Permission decision:</strong> stdout <code>{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}</code> (or <code>"deny"</code> with an optional <code>"message"</code>)</td>
+<td>framework hooks via <code>outputDecision()</code> in <code>src/hooks/index.ts</code></td>
+<td>Answers a permission prompt after the owner taps a Telegram button.</td>
+</tr>
+</tbody>
+</table>
+<p>The framework's loop detector (<code>src/hooks/hook-loop-detector.ts</code>) writes a fifth shape, <code>{"decision":"block","reason":"..."}</code> on stdout. It is optional and not registered by default.</p>
+<p>Prompt-router output:</p>
+<div class="sourceCode" id="cb18"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;hookSpecificOutput&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;hookEventName&quot;</span><span class="fu">:</span> <span class="st">&quot;UserPromptSubmit&quot;</span><span class="fu">,</span> <span class="dt">&quot;additionalContext&quot;</span><span class="fu">:</span> <span class="st">&quot;[reply style: &lt;skin&gt;] &lt;style text&gt;&quot;</span><span class="fu">}}</span></span></code></pre></div>
+<p><strong>Fail-closed and fail-open.</strong> The brief guard, send guard and surface guard fail closed when they crash on input inside their scope, and open otherwise. The account guard, future-time guard and attribution lint fail open on any exception. Context-injecting hooks fail silent by design: a timeout or error injects nothing.</p>
+<p><strong>Pass-once tokens.</strong> The send guard and the surface guard accept a one-shot override file younger than 600 seconds: <code>~/.claude/hooks/.orwell-pass-once-&lt;seat&gt;</code> and <code>~/.claude/hooks/.surface-pass-once-&lt;seat&gt;</code>. A token never overrides a crash.</p>
+<p><strong>PermissionRequest under bypassPermissions.</strong> <code>AgentConfig.dangerously_skip_permissions</code> defaults to true when absent. With permissions skipped, Claude Code raises few permission prompts, so the PermissionRequest hooks rarely fire.</p>
+<h2 id="known-limitations">Known limitations</h2>
+<ol type="1">
+<li><strong>No central schema registry.</strong> Shapes live in TypeScript interfaces, writer scripts and conventions. Files on disk are not validated when read.</li>
+<li><strong>The truth_correction schema lives in a script, not the bus.</strong> A direct <code>log-event</code> call writes a non-conforming row. Collectors must tolerate or reject such rows explicitly.</li>
+<li><strong>Event names are unbounded.</strong> No allow-list exists, and invalid <code>--meta</code> JSON becomes <code>{}</code> without an error. Agree on names and metadata keys for any metric you build.</li>
+<li><strong>Timestamp precision varies.</strong> Tasks, events and heartbeats use seconds. Messages force milliseconds to <code>.000</code>. Crons and the cron log keep real milliseconds. Event ids use epoch seconds; message and task ids use epoch milliseconds. Events within the same second cannot be ordered from the record alone.</li>
+<li><strong>The agent field can be empty.</strong> A <code>log-event</code> call without <code>CTX_AGENT_NAME</code> writes <code>"agent": ""</code> and lands in the events root, not a seat folder.</li>
+<li><strong>Retired seats persist.</strong> Heartbeat files and event folders are never removed, so <code>read-all-heartbeats</code> lists retired and test seats until you archive them.</li>
+<li><strong>Legacy cron records.</strong> <code>config.json</code> <code>crons</code> and <code>cron-state.json</code> can outlive migration and mislead a reader. Only <code>crons.json</code> is live.</li>
+<li><strong>Unsigned message fields.</strong> The bus signature does not cover <code>priority</code>, <code>timestamp</code> or <code>reply_to</code>.</li>
+<li><strong>Hook field drift.</strong> OGL hooks read input fields with <code>.get()</code> and default to empty. If Claude Code renames a field, a guard passes silently instead of crashing. Pin your Claude Code version and re-run the guard tests after an upgrade.</li>
+</ol>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/types/index.ts</code></li>
+<li><code>src/utils/paths.ts</code></li>
+<li><code>src/utils/validate.ts</code></li>
+<li><code>src/bus/task.ts</code></li>
+<li><code>src/bus/message.ts</code></li>
+<li><code>src/bus/event.ts</code></li>
+<li><code>src/bus/heartbeat.ts</code></li>
+<li><code>src/bus/crons.ts</code></li>
+<li><code>src/bus/crons-schema.ts</code></li>
+<li><code>src/daemon/cron-execution-log.ts</code></li>
+<li><code>src/daemon/agent-manager.ts</code></li>
+<li><code>src/daemon/ipc-server.ts</code></li>
+<li><code>src/cli/bus.ts</code></li>
+<li><code>src/cli/list-skills.ts</code></li>
+<li><code>src/cli/goals.ts</code></li>
+<li><code>src/hooks/index.ts</code></li>
+<li><code>src/hooks/hook-loop-detector.ts</code></li>
+<li><code>src/harness/schema.ts</code></li>
+<li>OGL layer: <code>tools/emit-truth-correction.sh</code>, <code>tools/emit-truth-correction-amendment.sh</code>, <code>.claude/hooks/brief_guard.py</code>, <code>.claude/hooks/future_time_guard.py</code>, <code>.claude/hooks/kem-compaction/</code>, <code>~/.claude/hooks/orwell-lint.py</code>, <code>~/.claude/hooks/shared-surface-guard.py</code>, <code>~/.claude/hooks/gws-account-guard.py</code></li>
+</ul>
+</article><nav class="pager"><a class="prev" href="20-architecture-decision-records.html"><small>Previous</small>20 Architecture Decision Records</a><a class="next" href="22-prompt-registry.html"><small>Next</small>22 Prompt registry</a></nav></main></div></body></html>

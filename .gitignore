@@ -1,0 +1,7 @@
+.build-brief/
+docs/site/img/_*.json
+docs/site/img/*.mmd
+__pycache__/
+*.pyc
+.DS_Store
+security/

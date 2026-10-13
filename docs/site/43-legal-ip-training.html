@@ -1,0 +1,506 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Legal, IP, licences and training · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li class="on"><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">43</div><div><p class="dg">Business and assurance</p>
+<h1>Legal, IP, licences and training</h1><p class="meta">2,279 words · <a href="../43-legal-ip-training.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#1-component-licences">1. Component licences</a></li><li><a href="#2-how-third-party-code-enters-an-install">2. How third-party code enters an install</a></li><li><a href="#3-models-and-datasets">3. Models and datasets</a></li><li><a href="#4-client-material-and-client-ip">4. Client material and client IP</a></li><li><a href="#5-protecting-your-own-install">5. Protecting your own install</a></li><li><a href="#6-training-curriculum">6. Training curriculum</a></li><li><a href="#7-enterprise-items-and-their-equivalents">7. Enterprise items and their equivalents</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>What OGL Cortex is built from, the licence of each component, what those licences let you do, how to vet third-party code before it enters your install, and what a new seat or a new human operator must learn before they get access.</p>
+<p>This is not legal advice. It is an inventory of licence terms as published by each project. Get a lawyer's read before you redistribute OGL Cortex, sell work built on it, or ship any component inside a client deliverable.</p>
+<p>Related documents: <code>32-security-red-team-log.md</code> (third-party code risk), <code>40-finops-capacity.md</code> (model sizes), <code>34-changelog.md</code>.</p>
+<hr />
+<h2 id="1-component-licences">1. Component licences</h2>
+<h3 id="11-core">1.1 Core</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Role in OGL Cortex</th>
+<th>Licence</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cortextOS</td>
+<td>Daemon, bus, CLI, templates</td>
+<td>MIT (Cortext LLC)</td>
+<td>Modification and commercial use allowed. Keep the copyright and licence notice in copies</td>
+</tr>
+<tr>
+<td>Claude Code</td>
+<td>The agent runtime in every seat</td>
+<td>Anthropic commercial terms</td>
+<td>Not open source. Your use is governed by your Anthropic plan and its usage policy</td>
+</tr>
+<tr>
+<td>Claude models</td>
+<td>Reasoning for every seat</td>
+<td>Anthropic commercial terms</td>
+<td>Output use per Anthropic's terms</td>
+</tr>
+<tr>
+<td>Node.js</td>
+<td>Runtime for cortextOS and the dashboard</td>
+<td>MIT</td>
+<td></td>
+</tr>
+<tr>
+<td>pm2</td>
+<td>Keeps the daemon and dashboard running</td>
+<td>AGPL-3.0</td>
+<td>Run as a separate program. AGPL obligations attach if you modify pm2 and offer it to others over a network or distribute it. Using it unmodified as a process manager does not change the licence of your code</td>
+</tr>
+<tr>
+<td>commander, node-pty, chalk, ora, chokidar, strip-ansi, @inquirer/prompts</td>
+<td>cortextOS runtime dependencies</td>
+<td>MIT</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="12-dashboard">1.2 Dashboard</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Licence</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Next.js</td>
+<td>MIT</td>
+</tr>
+<tr>
+<td>better-sqlite3</td>
+<td>MIT</td>
+</tr>
+</tbody>
+</table>
+<h3 id="13-ship-and-security-tooling">1.3 Ship and security tooling</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Role</th>
+<th>Licence</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vercel CLI</td>
+<td>Deploys in <code>ship.sh</code></td>
+<td>Apache-2.0</td>
+<td>Hosting use is governed by Vercel's terms</td>
+</tr>
+<tr>
+<td>TruffleHog</td>
+<td>Secret scan in the pentest gate</td>
+<td>AGPL-3.0</td>
+<td>Run as a separate tool. Do not vendor a modified copy into a product without reviewing AGPL duties</td>
+</tr>
+<tr>
+<td>OWASP ZAP</td>
+<td>Web scan in the pentest gate, run in a container</td>
+<td>Apache-2.0 (per the ZAP project; not checked against an installed copy during writing)</td>
+<td></td>
+</tr>
+<tr>
+<td>Playwright</td>
+<td>Browser automation</td>
+<td>Apache-2.0</td>
+<td>Bundled browsers carry their own licences</td>
+</tr>
+</tbody>
+</table>
+<h3 id="14-media-and-speech">1.4 Media and speech</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Role</th>
+<th>Licence</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ffmpeg (Homebrew build)</td>
+<td>Audio and video conversion</td>
+<td>GPL-3.0-or-later</td>
+<td>The Homebrew build enables GPL parts. Use as a separate program; redistributing the binary brings GPL duties</td>
+</tr>
+<tr>
+<td>yt-dlp</td>
+<td>Video download</td>
+<td>Unlicense</td>
+<td>Downloading content can still breach a platform's terms or a creator's copyright. Use for private analysis</td>
+</tr>
+<tr>
+<td>whisper.cpp (<code>whisper-cli</code>)</td>
+<td>Voice-note transcription in the daemon</td>
+<td>MIT</td>
+<td>Model weights carry their own licence</td>
+</tr>
+<tr>
+<td>mlx-whisper</td>
+<td>Transcription on Apple silicon</td>
+<td>MIT</td>
+<td></td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td>Local model runner</td>
+<td>MIT</td>
+<td>Each model has its own licence (section 3)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="15-skills-commonly-installed-with-ogl-cortex">1.5 Skills commonly installed with OGL Cortex</h3>
+<p>Skills live in <code>~/.claude/skills/</code> (shared by every seat) or in a seat's <code>.claude/skills/</code>. Each keeps its own licence.</p>
+<table>
+<thead>
+<tr>
+<th>Skill or bundle</th>
+<th>Licence</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>frontend-design</td>
+<td>Apache-2.0 (Anthropic)</td>
+<td></td>
+</tr>
+<tr>
+<td>impeccable</td>
+<td>Apache-2.0</td>
+<td>Based on frontend-design; keep its <code>NOTICE.md</code> if you redistribute</td>
+</tr>
+<tr>
+<td>motionmaxxing</td>
+<td>Apache-2.0 for the skill's own code</td>
+<td><strong>Bundles third-party code under other licences.</strong> GSAP uses GreenSock's own "No Charge" licence, which is not open source and has its own terms. three.js and opentype.js are MIT. The Inter font is SIL OFL 1.1. Read <code>NOTICE</code> before you ship a GSAP-driven page or film to a client</td>
+</tr>
+<tr>
+<td>ogl-walk</td>
+<td>MIT (OGL edition of Glitch Walk by Glitch Cat Club)</td>
+<td>Keep the original copyright line and licence file with any copy</td>
+</tr>
+<tr>
+<td>taste-skill, huashu-design, design-motion-principles, app-store-screenshots, seo and its <code>seo-*</code> siblings</td>
+<td>MIT</td>
+<td></td>
+</tr>
+<tr>
+<td>Plugin marketplaces (for example the official Claude plugins, Cloudflare plugins)</td>
+<td>MIT or Apache-2.0 per marketplace</td>
+<td>Check the <code>LICENSE</code> at each marketplace root</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Skills with no licence file.</strong> A repository with no licence grants no rights beyond reading it where it was published. Use such skills privately at most. Do not redistribute them or bundle them into anything you sell. Course material from a paid community is licensed to the member for their own use; read the community's terms before you share it.</p>
+<h3 id="16-the-ogl-cortex-layer">1.6 The OGL Cortex layer</h3>
+<p>The hooks, guards, sentinels, ship wrapper, skills and docs in this repository are covered by the licence in the repository's <code>LICENSE</code> file. Where a guard implements a published idea (for example a writing guard based on Orwell's six rules, or an orchestration method from another author), the docstring credits the source. Ideas and methods are generally not protected by copyright; the code that implements them is. Keep the credit lines.</p>
+<hr />
+<h2 id="2-how-third-party-code-enters-an-install">2. How third-party code enters an install</h2>
+<figure class="diagram"><img src="img/048e061e5623.svg" alt="Diagram"></figure>
+
+<ol type="1">
+<li><strong>Identify.</strong> Repo URL, pinned commit, licence file and its type. Read <code>NOTICE</code> and any vendored directories; bundled code can carry a different licence from the top-level one.</li>
+<li><strong>Scan.</strong> Record network hosts the code contacts, environment variables it reads, files it writes outside its folder, <code>eval</code> or dynamic code, and model loaders with <code>trust_remote_code</code>. Save the scan as <code>CODE-SCAN.md</code> beside the clone.</li>
+<li><strong>Isolate.</strong> Untrusted code never runs in a seat that can both run commands and read secrets. Use a sandbox or a seat started with an empty environment and no keychain access.</li>
+<li><strong>Approve.</strong> Installs into shared <code>~/.claude</code> need the owner's go, cited in the install record.</li>
+<li><strong>Pin.</strong> Record the commit in the install record. A copy without <code>.git</code> loses its provenance unless you write it down.</li>
+<li><strong>Audit.</strong> The auditor seat re-checks pin, licence and the scan's claims.</li>
+<li><strong>Register.</strong> Keep a <code>THIRD-PARTY.md</code> beside any deliverable that ships third-party code, with name, version, licence and the notice text the licence requires.</li>
+</ol>
+<hr />
+<h2 id="3-models-and-datasets">3. Models and datasets</h2>
+<h3 id="31-model-provenance">3.1 Model provenance</h3>
+<p>OGL Cortex does not train or fine-tune models. Seats use hosted models through Claude Code, and optional local models through Ollama or Hugging Face for transcription, embeddings and OCR.</p>
+<table>
+<thead>
+<tr>
+<th>Model family (examples)</th>
+<th>Typical licence</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Qwen 2.5 and later (Ollama library)</td>
+<td>Apache-2.0 for many sizes; some sizes use a separate Qwen licence</td>
+<td><code>ollama show &lt;model&gt;</code> prints the licence</td>
+</tr>
+<tr>
+<td>BAAI bge embedding models</td>
+<td>MIT</td>
+<td>The <code>license:</code> line in the Hugging Face model card</td>
+</tr>
+<tr>
+<td>Whisper weights</td>
+<td>MIT (OpenAI release); community conversions may omit the card field</td>
+<td>Model card</td>
+</tr>
+<tr>
+<td>Any other weights</td>
+<td>Varies, including non-commercial licences</td>
+<td>Read the card before any commercial use</td>
+</tr>
+</tbody>
+</table>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">ollama</span> show <span class="op">&lt;</span>model<span class="op">&gt;</span> <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-A3</span> <span class="at">-i</span> license</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-m1</span> <span class="st">&#39;^license:&#39;</span> ~/.cache/huggingface/hub/models--<span class="op">&lt;</span>org<span class="op">&gt;</span>--<span class="op">&lt;</span>name<span class="op">&gt;</span>/snapshots/<span class="pp">*</span>/README.md</span></code></pre></div>
+<h3 id="32-benchmarks-and-evaluation-datasets">3.2 Benchmarks and evaluation datasets</h3>
+<p>Evaluation sets often carry attribution licences (for example CC-BY-4.0) and a canary string asking that items not be republished online, so they do not leak into training data. Keep benchmark items on your own machine. Never paste them into public pages, videos or client decks.</p>
+<h3 id="33-prompt-and-orchestration-tuning">3.3 Prompt and orchestration tuning</h3>
+<p>Searching over prompts and orchestration settings against a benchmark tunes your configuration, not model weights. It does not create a derived model.</p>
+<hr />
+<h2 id="4-client-material-and-client-ip">4. Client material and client IP</h2>
+<p>OGL Cortex seats often build sites, documents and campaigns for clients. Put the rights in writing before you start.</p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Recommended default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Who owns the final site, copy and design?</td>
+<td>The client, on full payment</td>
+</tr>
+<tr>
+<td>Who owns your tooling, templates, hooks and skills?</td>
+<td>You. The client receives a licence to use what is embedded in their deliverable</td>
+</tr>
+<tr>
+<td>Who owns domains bought for the client?</td>
+<td>The client. Register them in the client's name, or transfer on request</td>
+</tr>
+<tr>
+<td>Photos, videos and reviews supplied by the client</td>
+<td>The client warrants they hold the rights. Get that in writing, not by message</td>
+</tr>
+<tr>
+<td>Prospect material used before a sale (photos, reviews, business name in a demo)</td>
+<td>Use placeholders until the prospect agrees in writing</td>
+</tr>
+<tr>
+<td>Third-party components inside the deliverable</td>
+<td>Listed in <code>THIRD-PARTY.md</code> with their licences</td>
+</tr>
+</tbody>
+</table>
+<p>Never invent personas or first-person testimonials. A testimonial needs the named person's real words and consent.</p>
+<p>Client data is personal data. Keep excerpts of client or prospect messages out of chat alerts where you can, and keep retention short.</p>
+<hr />
+<h2 id="5-protecting-your-own-install">5. Protecting your own install</h2>
+<p>The value in a mature install is mostly know-how: guard code, seat rules, auto-memory lessons, and the history of what worked. The main risk to it is loss, not theft.</p>
+<table>
+<thead>
+<tr>
+<th>Protection</th>
+<th>Recommended setting</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Off-machine backup</td>
+<td>Encrypted backup of <code>$CORTEX_HOME</code>, <code>$CTX_ROOT</code>, <code>~/.claude</code> (hooks, skills, settings, auto-memory under <code>projects/</code>) and every seat repo</td>
+</tr>
+<tr>
+<td>Git remotes</td>
+<td>A private remote for each seat repo and for your fork of the framework. Scan full history for secrets first (<code>32-security-red-team-log.md</code>, section 6)</td>
+</tr>
+<tr>
+<td>Version control for <code>~/.claude</code></td>
+<td>Put hooks and skills you wrote in a repo; install them from there</td>
+</tr>
+<tr>
+<td>Confidentiality</td>
+<td>Mark internal documents <code>INTERNAL</code> in the file name. Keep guard code and seat rules private unless you choose to publish them</td>
+</tr>
+<tr>
+<td>Secrets out of repos</td>
+<td>Keep <code>.env</code>, token files and exports out of every repo; add them to <code>.gitignore</code> before the first commit</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Running a modified framework.</strong> MIT allows you to modify cortextOS. If you do, record your changes as commits on a named branch, keep upstream as a remote, and decide whether you will upstream them. A rule that says "run the framework unmodified" and a modified checkout cannot both stand; pick one and write it down.</p>
+<hr />
+<h2 id="6-training-curriculum">6. Training curriculum</h2>
+<h3 id="61-new-agent-seat">6.1 New agent seat</h3>
+<p>Seats onboard through the <code>onboarding</code> skill. A seat without <code>$CTX_ROOT/state/&lt;seat&gt;/.onboarded</code> runs onboarding before normal work.</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Read</th>
+<th>Do</th>
+<th>Gate before the next stage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0. Identity</td>
+<td><code>IDENTITY.md</code>, <code>SOUL.md</code>, <code>USER.md</code></td>
+<td>Write its own <code>IDENTITY.md</code> and <code>SOUL.md</code> per the onboarding skill</td>
+<td><code>.onboarded</code> stays absent until every stage passes</td>
+</tr>
+<tr>
+<td>1. Hard lines</td>
+<td>Org <code>knowledge.md</code> cardinal rules, <code>GUARDRAILS.md</code>, guardrails-reference skill</td>
+<td>State back the approval categories: external comms, financial, deployment, data deletion</td>
+<td>Send guard installed for the seat</td>
+</tr>
+<tr>
+<td>2. Fleet law</td>
+<td>Fleet conventions in <code>knowledge.md</code>; untrusted-content rules in <code>GUARDRAILS.md</code></td>
+<td>One dry-run task: <code>create-task</code>, <code>update-task</code>, <code>complete-task</code>, <code>log-event</code></td>
+<td>The task shows on the dashboard</td>
+</tr>
+<tr>
+<td>3. Tools and accounts</td>
+<td><code>TOOLS.md</code>, account rules (which Google account, which browser profile)</td>
+<td>List the accounts this seat may use</td>
+<td>No secrets in chat</td>
+</tr>
+<tr>
+<td>4. Operating rhythm</td>
+<td><code>AGENTS.md</code> session start and memory protocol, <code>HEARTBEAT.md</code>, cron-management skill</td>
+<td>Write the first daily memory entry and heartbeat</td>
+<td><code>cortextos bus list-crons &lt;seat&gt;</code> shows its daemon crons</td>
+</tr>
+<tr>
+<td>5. Scope</td>
+<td><code>GOALS.md</code>, <code>goals.json</code></td>
+<td>Accept a first real task through a four-line brief</td>
+<td>The brief guard passes on dispatches to it</td>
+</tr>
+</tbody>
+</table>
+<p>Keep bootstrap files current. A stale <code>USER.md</code> teaches every new seat the wrong business map. A workflow step that names a runtime you no longer use sends new seats down a dead path. Long boot reads are where rules get skipped; keep them short.</p>
+<h3 id="62-new-human-operator">6.2 New human operator</h3>
+<p>Grant access in stages. Reading comes with each stage.</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Access</th>
+<th>Must read</th>
+<th>Must do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A. Observer</td>
+<td>Dashboard or agent office, read-only</td>
+<td><code>01</code> architecture, this document, <code>41</code> FAQ</td>
+<td>Find one seat's heartbeat and last task</td>
+</tr>
+<tr>
+<td>B. Approver</td>
+<td>Telegram chat with the orchestrator, added to <code>ALLOWED_USER</code></td>
+<td>Approval categories in <code>USER.md</code>; cardinal rules</td>
+<td>Approve or reject one real approval</td>
+</tr>
+<tr>
+<td>C. Operator</td>
+<td>Host account and the <code>cortextos</code> CLI</td>
+<td><code>30</code> runbooks, the <code>--instance</code> rule, pre-restart guardrails</td>
+<td>Run read-only <code>status</code> and <code>list-crons</code>; no restarts alone</td>
+</tr>
+<tr>
+<td>D. Owner</td>
+<td>Secrets, billing, DNS</td>
+<td><code>32</code> security, <code>40</code> FinOps, sections 4 and 5 of this document</td>
+<td>Never paste a secret into chat</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Access review.</strong> Quarterly, confirm that <code>ALLOWED_USER</code> in every seat <code>.env</code>, the dashboard login and any mobile API token name only current people. Remove anyone who left.</p>
+<hr />
+<h2 id="7-enterprise-items-and-their-equivalents">7. Enterprise items and their equivalents</h2>
+<table>
+<thead>
+<tr>
+<th>Enterprise item</th>
+<th>Fit</th>
+<th>Closest equivalent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model cards for custom models</td>
+<td>No custom models</td>
+<td>Section 3.1</td>
+</tr>
+<tr>
+<td>Training data lineage</td>
+<td>No training</td>
+<td>Section 3.2 dataset rules</td>
+</tr>
+<tr>
+<td>Open-source programme office</td>
+<td>Small</td>
+<td>Section 1 as the register; <code>THIRD-PARTY.md</code> per deliverable</td>
+</tr>
+<tr>
+<td>Contributor licence agreements</td>
+<td>Only if others contribute</td>
+<td>Decide before accepting outside contributions</td>
+</tr>
+<tr>
+<td>Export control review</td>
+<td>Rarely relevant</td>
+<td>None needed unless you ship weights or cryptography</td>
+</tr>
+<tr>
+<td>Training completion records</td>
+<td>Small team</td>
+<td><code>.onboarded</code> flags for seats; stage sign-off for humans</td>
+</tr>
+</tbody>
+</table>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>LICENSE</code>, <code>package.json</code> (cortextOS licence and dependencies)</li>
+<li><code>dashboard/package.json</code></li>
+<li><code>community/</code> (catalog items inherit the repository licence)</li>
+<li><code>templates/agent/</code>, <code>templates/orchestrator/</code> (bootstrap files)</li>
+<li><code>templates/agent/.claude/skills/onboarding/SKILL.md</code> (seat onboarding)</li>
+</ul>
+</article><nav class="pager"><a class="prev" href="42-chaos-telemetry-determinism.html"><small>Previous</small>42 Chaos, telemetry and determinism</a></nav></main></div></body></html>

@@ -1,0 +1,459 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Support, known issues and FAQ · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li class="on"><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">41</div><div><p class="dg">Business and assurance</p>
+<h1>Support, known issues and FAQ</h1><p class="meta">2,443 words · <a href="../41-support-known-issues-faq.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#1-triage-flow">1. Triage flow</a></li><li><a href="#2-known-issues-and-failure-modes">2. Known issues and failure modes</a></li><li><a href="#3-deprecation-table">3. Deprecation table</a></li><li><a href="#4-faq">4. FAQ</a></li><li><a href="#5-enterprise-items-and-their-equivalents">5. Enterprise items and their equivalents</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>What to do when an agent acts strangely. This document has four parts: a three-tier triage flow, a registry of known issues and failure modes, a deprecation table, and an FAQ of the problems that come back.</p>
+<p>Related documents: <code>30-sre-runbooks.md</code> (step-by-step recovery), <code>31-observability-alerting.md</code> (logs and heartbeats), <code>40-finops-capacity.md</code> (quota and disk), <code>42-chaos-telemetry-determinism.md</code> (which guards are tested), <code>../TROUBLESHOOTING.md</code> (quick index). Path and role names follow <code>30-sre-runbooks.md</code>.</p>
+<p><strong>Scale.</strong> An enterprise support model assumes a help desk, a ticket queue and an on-call rota. OGL Cortex assumes one owner and a handful of seats. Tier 1 is the owner with a phone. Tier 2 is the orchestrator seat. Tier 3 is the specialist seats and the owner at the keyboard. The ticket queue is the cortextOS task list (<code>cortextos bus list-tasks</code>) plus the approvals queue (<code>cortextos bus list-approvals</code>).</p>
+<hr />
+<h2 id="1-triage-flow">1. Triage flow</h2>
+<figure class="diagram"><img src="img/69cdbc107dd3.svg" alt="Diagram"></figure>
+
+<h3 id="11-tier-1-the-owner-from-a-phone">1.1 Tier 1: the owner, from a phone</h3>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>What it can do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Telegram chat with the orchestrator</td>
+<td>Ask anything; approve by reply</td>
+</tr>
+<tr>
+<td>A mobile control API on a private network (optional)</td>
+<td>Fleet status, approvals, new task, message a seat, soft-restart a seat, stop and start</td>
+</tr>
+<tr>
+<td>The dashboard (if exposed on a private network)</td>
+<td>Activity, tasks, approvals</td>
+</tr>
+</tbody>
+</table>
+<p>Checklist, one tap or one message each:</p>
+<ol type="1">
+<li><strong>Is the orchestrator alive?</strong> Look at its last heartbeat. With the default <code>4h</code> heartbeat cron, under 4 hours old is normal. Over 4 hours with no Telegram reply is a real signal.</li>
+<li><strong>Is it the weekly cap?</strong> If every seat went quiet at once, read <code>resets_at</code> (RB-01). Do not restart.</li>
+<li><strong>Is something waiting on me?</strong> A seat that seems stuck is often waiting on an approval: <code>cortextos bus list-approvals --format text</code>.</li>
+<li><strong>Nudge it.</strong> Send an urgent message (<code>cortextos notify-agent &lt;seat&gt; "&lt;text&gt;"</code>) or create a task.</li>
+<li><strong>Restart one seat.</strong> <code>cortextos bus soft-restart &lt;seat&gt; "&lt;reason&gt;"</code> keeps conversation history. Use it only after steps 1 to 4.</li>
+<li><strong>Stop or start.</strong> Any control surface that calls <code>cortextos stop</code> or <code>cortextos start</code> must pass <code>--instance &lt;instance&gt;</code>. Test those buttons once on a quiet night.</li>
+</ol>
+<p>What the owner should not do from the phone: chase a "login expired" claim, flip a browser or OS setting because an agent asked, or approve a hook change with a one-word reply that does not name the artifact.</p>
+<h3 id="12-tier-2-the-orchestrators-checks">1.2 Tier 2: the orchestrator's checks</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Check</th>
+<th>Command (read-only)</th>
+<th>Bad looks like</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Who is alive</td>
+<td><code>cortextos bus read-all-heartbeats</code></td>
+<td>A live seat marked <code>[STALE]</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>Daemon up</td>
+<td><code>pm2 jlist</code></td>
+<td><code>cortextos-daemon</code> not <code>online</code>, or restart count climbing</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Seat status</td>
+<td><code>cortextos status --instance &lt;instance&gt;</code></td>
+<td>Missing PID, very short uptime repeating</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Crons firing</td>
+<td><code>cortextos bus list-crons &lt;seat&gt;</code>, <code>cortextos bus get-cron-log &lt;seat&gt;</code></td>
+<td>Last fire older than the schedule</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Disk and swap</td>
+<td><code>df -h /</code>, <code>sysctl vm.swapusage</code></td>
+<td>Free disk under your warn line, swap near full</td>
+</tr>
+<tr>
+<td>6</td>
+<td>MCP servers</td>
+<td><code>claude mcp list</code></td>
+<td>"failed to connect"</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Seat logs</td>
+<td><code>$CTX_ROOT/logs/&lt;seat&gt;/stdout.log</code>, <code>crashes.log</code>, <code>restarts.log</code></td>
+<td>Repeated <code>type=crash</code> lines</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Guards blocking</td>
+<td><code>~/.claude/hooks/orwell-lint.log</code>, <code>surface-guard.log</code></td>
+<td>The seat retries the same blocked call in a loop</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Context</td>
+<td><code>$CTX_ROOT/state/&lt;seat&gt;/context_status.json</code></td>
+<td>Near <code>ctx_handoff_threshold</code></td>
+</tr>
+</tbody>
+</table>
+<p>Rules during triage:</p>
+<ul>
+<li>Name the test that tells two causes apart before you say which one it is.</li>
+<li>A failing check often hit the wrong target (wrong window, wrong account, wrong instance), not a broken setting.</li>
+<li>Never test a send by breaking the environment. Use a sink.</li>
+</ul>
+<h3 id="13-tier-3-specialists">1.3 Tier 3: specialists</h3>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Steps in when</th>
+<th>Limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ops</td>
+<td>Daemon, dashboard, pm2, LaunchAgents, log growth, guard installs</td>
+<td>Read-only by default; acts on a dispatched task</td>
+</tr>
+<tr>
+<td>Analyst</td>
+<td>Health trends, heartbeat staleness, restart loops, usage meter, nightly metrics</td>
+<td>Proposes; does not execute without a go</td>
+</tr>
+<tr>
+<td>Infra watch</td>
+<td>Hosting, DNS, TLS, external sites, disk and swap pages</td>
+<td>Reports to the orchestrator</td>
+</tr>
+<tr>
+<td>Auditor</td>
+<td>A claim that may be false, a guardrail break, a gate on a guard change</td>
+<td>Escalates to the owner when a wrong fact reached them</td>
+</tr>
+<tr>
+<td>Owner at the keyboard</td>
+<td>Daemon down, host reboot, Claude login, a guard change that needs explicit approval</td>
+<td>Only the owner approves hook and guardrail changes, by named artifact</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-known-issues-and-failure-modes">2. Known issues and failure modes</h2>
+<p>Status: <strong>LIMITATION</strong> (property of the software today), <strong>WATCH</strong> (works, fragile under some conditions), <strong>DOC</strong> (a default doc or template can drift from your install).</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Issue</th>
+<th>Status</th>
+<th>Symptom</th>
+<th>Workaround</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>KI-01</td>
+<td>Retired seats keep heartbeat files</td>
+<td>LIMITATION</td>
+<td><code>read-all-heartbeats</code> lists many <code>[STALE]</code> lines that hide the live ones</td>
+<td>Archive retired seat state, or filter: <code>cortextos bus read-all-heartbeats | grep -v STALE</code></td>
+</tr>
+<tr>
+<td>KI-02</td>
+<td>Lifecycle commands default to instance <code>default</code></td>
+<td>LIMITATION</td>
+<td>"Daemon is not running" while seats run</td>
+<td>Pass <code>--instance &lt;instance&gt;</code>, or export <code>CTX_INSTANCE_ID</code></td>
+</tr>
+<tr>
+<td>KI-03</td>
+<td>MCP servers fail silently at session start</td>
+<td>WATCH</td>
+<td>Tools missing, "Connection closed" banner</td>
+<td>RB-07. Pin versions; fix broken config paths</td>
+</tr>
+<tr>
+<td>KI-04</td>
+<td>A knowledge-base MCP or local database can fail to open</td>
+<td>WATCH</td>
+<td>Search commands abort; MCP closes</td>
+<td>Keep the human-readable vault as the fallback record; restore from backup</td>
+</tr>
+<tr>
+<td>KI-05</td>
+<td>Interval crons can drift</td>
+<td>WATCH</td>
+<td>A long-interval cron never fires</td>
+<td>5-field wall-clock schedule (RB-10)</td>
+</tr>
+<tr>
+<td>KI-06</td>
+<td>Dated 5-field one-shots recur yearly</td>
+<td>LIMITATION</td>
+<td>A finished one-shot shows a next fire one year out</td>
+<td>Remove it in the prompt; check with <code>list-crons</code></td>
+</tr>
+<tr>
+<td>KI-07</td>
+<td>Cleanup scripts can remove browser binaries</td>
+<td>WATCH</td>
+<td>Playwright reports the browser missing</td>
+<td>Launch with <code>channel="chrome"</code>; reinstall browsers when disk allows</td>
+</tr>
+<tr>
+<td>KI-08</td>
+<td>Auto-memory index has a 200-line load cap</td>
+<td>LIMITATION</td>
+<td>The loader cuts lines past the cap</td>
+<td>Keep the index short; move detail to topic files</td>
+</tr>
+<tr>
+<td>KI-09</td>
+<td>Seat docs can name logs or paths that a given version does not write</td>
+<td>DOC</td>
+<td>A documented file is missing</td>
+<td>Trust the framework source; crons live in <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code></td>
+</tr>
+<tr>
+<td>KI-10</td>
+<td>Unfilled identity templates</td>
+<td>DOC</td>
+<td><code>list-agents</code> shows a placeholder role</td>
+<td>Complete <code>IDENTITY.md</code> during onboarding</td>
+</tr>
+<tr>
+<td>KI-11</td>
+<td>Crash-alert quiet hours use a fixed time zone</td>
+<td>LIMITATION</td>
+<td>Routine-end alerts suppressed at the wrong local hours</td>
+<td>Edit the constants in <code>src/hooks/hook-crash-alert.ts</code> for your zone</td>
+</tr>
+<tr>
+<td>KI-12</td>
+<td>Weekly cap stops every seat at once</td>
+<td>LIMITATION</td>
+<td>Fleet silent together</td>
+<td>RB-01; pre-reset burn; park before the cap</td>
+</tr>
+<tr>
+<td>KI-13</td>
+<td>Thin disk and swap headroom on a busy host</td>
+<td>WATCH</td>
+<td>Disk and swap pages</td>
+<td>RB-05; 2x model rule</td>
+</tr>
+<tr>
+<td>KI-14</td>
+<td>Human desktop sessions bypass seat guards</td>
+<td>LIMITATION</td>
+<td>Cleanups delete seat evidence; sends skip the outbound log</td>
+<td>Register the same guards in desktop sessions; send through the bus</td>
+</tr>
+<tr>
+<td>KI-15</td>
+<td>Disabled seats can keep enabled crons</td>
+<td>LIMITATION</td>
+<td>Cron audits show jobs that never fire</td>
+<td>Remove crons when you disable a seat</td>
+</tr>
+<tr>
+<td>KI-16</td>
+<td>One-shot temporary watchers exit after their first trip</td>
+<td>LIMITATION</td>
+<td>No cover after one page</td>
+<td>Re-arm after each page, or promote to launchd</td>
+</tr>
+<tr>
+<td>KI-17</td>
+<td>Model-calling hooks add latency</td>
+<td>LIMITATION</td>
+<td>Several seconds before a seat reads each message</td>
+<td>Make the hook async or turn it off</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-deprecation-table">3. Deprecation table</h2>
+<table>
+<thead>
+<tr>
+<th>Deprecated</th>
+<th>Status</th>
+<th>Replaced by</th>
+<th>Leftovers to clean</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Crons in <code>config.json</code></td>
+<td>Deprecated</td>
+<td><code>crons.json</code></td>
+<td>Run <code>cortextos bus migrate-crons [seat]</code></td>
+</tr>
+<tr>
+<td>In-session <code>/loop</code> and <code>CronCreate</code> for persistent jobs</td>
+<td>Deprecated</td>
+<td>Daemon crons</td>
+<td><code>cortextos bus upgrade-cron-teaching [seat]</code> finds stale teaching</td>
+</tr>
+<tr>
+<td>launchd <code>StartInterval</code> sentinels</td>
+<td>Deprecated</td>
+<td><code>StartCalendarInterval</code> jobs</td>
+<td>Boot out the originals after the twins are proven</td>
+</tr>
+<tr>
+<td>Auth probe from the system crontab</td>
+<td>Deprecated</td>
+<td>pm2 loop in the login session</td>
+<td>Remove the crontab line</td>
+</tr>
+<tr>
+<td>Cross-model verification that names a runtime you no longer pay for</td>
+<td>Remove</td>
+<td>A fresh read-only session on the same provider</td>
+<td>Update <code>AGENTS.md</code> in each seat</td>
+</tr>
+<tr>
+<td>Retired platform integrations</td>
+<td>Remove</td>
+<td>Whatever replaced them</td>
+<td>Watchers, crons, identity text and MCP entries that still name the old platform</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-faq">4. FAQ</h2>
+<h3 id="41-the-seat-keeps-rewriting-the-same-message-or-my-send-was-blocked">4.1 "The seat keeps rewriting the same message" or "my send was blocked"</h3>
+<p><strong>Cause.</strong> The send guard (<code>orwell-lint.py</code>). It lints every outgoing Telegram, email and post against a fixed rule set with word lists and regex, no model, and exits 2 with the broken rules listed.</p>
+<p><strong>Fix.</strong> Rewrite and resend. For one send that must break a rule: <code>touch ~/.claude/hooks/.orwell-pass-once-$CTX_AGENT_NAME</code> (valid 10 minutes, consumed and logged).</p>
+<h3 id="42-a-write-was-refused-for-a-time-stamp">4.2 "A write was refused for a time stamp"</h3>
+<p><strong>Cause.</strong> <code>future_time_guard.py</code> refuses writes to <code>memory/</code>, <code>STATE.md</code> and sends that stamp a UTC time more than 3 minutes ahead of the clock. It fails open on its own errors.</p>
+<p><strong>Fix.</strong> Print <code>date -u</code> in the same command and copy the time from the output. Stamps for other days, ranges like <code>10:3x</code>, and stamps after "yesterday" are ignored by design.</p>
+<h3 id="43-my-task-to-another-seat-was-refused">4.3 "My task to another seat was refused"</h3>
+<p><strong>Cause.</strong> <code>brief_guard.py</code>. A <code>cortextos bus create-task ... --assignee &lt;other seat&gt;</code> needs <code>TASK:</code>, <code>FILES:</code>, <code>BAR:</code> and <code>RETURN:</code> lines in <code>--desc</code>.</p>
+<p><strong>Fix.</strong> Add the four lines. Wrapping the call in a heredoc or script does not bypass the check.</p>
+<h3 id="44-a-price-arrived-as-binzsh042">4.4 "A price arrived as <code>/bin/zsh.042</code>"</h3>
+<p><strong>Cause.</strong> The shell expanded <code>$0</code> inside double quotes before the bus saw the text. The send exits 0, so it looks delivered.</p>
+<p><strong>Fix.</strong> Single quotes or a quoted heredoc for any text with <code>$</code>. Then grep the outbound log for the figure.</p>
+<h3 id="45-the-seat-opened-the-page-in-the-wrong-browser-profile">4.5 "The seat opened the page in the wrong browser profile"</h3>
+<p><strong>Cause.</strong> <code>open</code> and AppleScript <code>open location</code> land in whichever Chrome profile was last active.</p>
+<p><strong>Fix.</strong> <code>open -na "Google Chrome" --args --profile-directory="&lt;dir&gt;" "&lt;url&gt;"</code>, and name the profile in the message. Never sign up for anything in a fresh automation browser when the owner wants it in their own profile.</p>
+<h3 id="46-the-seat-asked-me-to-turn-on-allow-javascript-from-apple-events">4.6 "The seat asked me to turn on 'Allow JavaScript from Apple Events'"</h3>
+<p><strong>Cause.</strong> AppleScript error 12. The setting is per profile, and the call used <code>front window</code>, which belonged to another profile.</p>
+<p><strong>Fix.</strong> Address the window by id. On error 12, resolve the id again and retry. Ask the owner to change a setting only after a second independent check shows it is off.</p>
+<h3 id="47-google-says-404--token-expired--re-auth-needed">4.7 "Google says 404 / token expired / re-auth needed"</h3>
+<p><strong>Cause.</strong> Almost always the wrong account.</p>
+<p><strong>Fix.</strong> Retry with the other account through its direct token path. Escalate only if both fail. See RB-09.</p>
+<h3 id="48-a-whole-google-accounts-mail-went-blind">4.8 "A whole Google account's mail went blind"</h3>
+<p><strong>Cause.</strong> A Workspace MCP session bound to account A was called with account B's address and wrote A's token into B's credential file.</p>
+<p><strong>Fix.</strong> Install <code>gws-account-guard.py</code>, re-authorise B with an identity-checking script, and use the MCP only for its bound account.</p>
+<h3 id="49-restart-says-the-daemon-is-not-running">4.9 "Restart says the daemon is not running"</h3>
+<p><strong>Cause.</strong> <code>cortextos restart</code>, <code>stop</code>, <code>start</code> and <code>doctor</code> default to <code>--instance default</code>.</p>
+<p><strong>Fix.</strong> Pass <code>--instance &lt;instance&gt;</code>. Never run <code>cortextos start</code> on that error while pm2 shows the daemon online. See RB-03.</p>
+<h3 id="410-a-command-was-blocked-with-a-shared-surface-message">4.10 "A command was blocked with a shared-surface message"</h3>
+<p><strong>Cause.</strong> <code>shared-surface-guard.py</code> blocks changes to surfaces every seat shares: package cache prunes, global installs, <code>brew upgrade</code>, writes under <code>~/.claude*</code> outside <code>projects/</code>, credential folders, and deletes under <code>~/.claude/projects/</code>.</p>
+<p><strong>Fix.</strong> Check the consumers the block names, take a backup, then release once with <code>touch ~/.claude/hooks/.surface-pass-once-$CTX_AGENT_NAME</code> (10 minutes, one use).</p>
+<h3 id="411-playwright-says-the-browser-is-missing">4.11 "Playwright says the browser is missing"</h3>
+<p><strong>Cause.</strong> The bundled browsers were deleted by a cleanup.</p>
+<p><strong>Fix.</strong> Launch with <code>channel="chrome"</code> to use the installed Chrome. Reinstall with <code>npx playwright install</code> when disk allows.</p>
+<h3 id="412-every-seat-went-silent-at-the-same-time">4.12 "Every seat went silent at the same time"</h3>
+<p><strong>Cause.</strong> Usually the weekly Claude cap. From outside it looks like a hang.</p>
+<p><strong>Fix.</strong> Do not restart. Read <code>resets_at</code>. If it is not the cap, follow 1.2.</p>
+<h3 id="413-a-cron-i-added-never-ran">4.13 "A cron I added never ran"</h3>
+<p><strong>Cause.</strong> Disabled, seat down, interval drift, or wrong time zone.</p>
+<p><strong>Fix.</strong> RB-10. Use a 5-field wall-clock schedule and confirm the first fire by its artifact.</p>
+<h3 id="414-the-pentest-gate-passed-but-nothing-was-scanned">4.14 "The pentest gate passed but nothing was scanned"</h3>
+<p><strong>Cause.</strong> Without <code>--url</code>, the web scan is skipped and the gate can still report <code>pass</code>.</p>
+<p><strong>Fix.</strong> Run with <code>--url</code>, then print the ZAP return code and report mtime in the same command.</p>
+<h3 id="415-i-sent-a-file-and-the-seat-never-saw-it">4.15 "I sent a file and the seat never saw it"</h3>
+<p><strong>Cause.</strong> Telegram bots cannot download files over 20 MB. The daemon injects a <code>DOWNLOAD_FAILED</code> marker.</p>
+<p><strong>Fix.</strong> Share a cloud link, or split the file.</p>
+<hr />
+<h2 id="5-enterprise-items-and-their-equivalents">5. Enterprise items and their equivalents</h2>
+<table>
+<thead>
+<tr>
+<th>Enterprise item</th>
+<th>Fit</th>
+<th>Closest equivalent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ticketing with SLAs</td>
+<td>No</td>
+<td><code>cortextos bus list-tasks</code> and the approvals queue; Telegram is the intake</td>
+</tr>
+<tr>
+<td>On-call rota</td>
+<td>Partly</td>
+<td>Sentinel pages to the orchestrator; direct owner paths for cap, login, crash and billing</td>
+</tr>
+<tr>
+<td>Known-error database</td>
+<td>Partly</td>
+<td>This registry plus seat memory</td>
+</tr>
+<tr>
+<td>Support macros</td>
+<td>No</td>
+<td>The FAQ above, plus guards that make some answers mechanical</td>
+</tr>
+</tbody>
+</table>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/cli/stop.ts</code>, <code>src/cli/start.ts</code> (instance default)</li>
+<li><code>src/hooks/hook-crash-alert.ts</code> (quiet hours)</li>
+<li><code>src/telegram/media.ts</code> (20 MB limit)</li>
+<li><code>src/bus/crons-schema.ts</code> (cron storage path)</li>
+</ul>
+</article><nav class="pager"><a class="prev" href="40-finops-capacity.html"><small>Previous</small>40 FinOps and capacity</a><a class="next" href="42-chaos-telemetry-determinism.html"><small>Next</small>42 Chaos, telemetry and determinism</a></nav></main></div></body></html>

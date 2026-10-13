@@ -1,0 +1,354 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Vendor and third-party risk · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li class="on"><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">13</div><div><p class="dg">Strategy and governance</p>
+<h1>Vendor and third-party risk</h1><p class="meta">1,678 words · <a href="../13-vendor-risk.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#how-to-use-this-document">How to use this document</a></li><li><a href="#1-tier-1-required-foundations">1. Tier 1: required foundations</a></li><li><a href="#2-tier-2-common-hosting-and-client-facing-integrations">2. Tier 2: common hosting and client-facing integrations</a></li><li><a href="#3-retired-vendors">3. Retired vendors</a></li><li><a href="#4-tier-3-mcp-servers-and-tools">4. Tier 3: MCP servers and tools</a></li><li><a href="#5-cross-cutting-risks">5. Cross-cutting risks</a></li><li><a href="#6-monitoring-pattern">6. Monitoring pattern</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document lists the outside services OGL Cortex depends on, what each one does, what data reaches it, what fails when it stops, and how to reduce the risk. It also covers the optional integrations an owner usually adds. Which data each vendor receives in detail is in <code>12-data-privacy-compliance.md</code>. How the system is built is in <code>01-core-architecture.md</code> to <code>04-failsafe-boundary-log.md</code>.</p>
+<h2 id="how-to-use-this-document">How to use this document</h2>
+<p>An enterprise vendor programme has questionnaires, SOC 2 reports, contract reviews and annual re-assessment. A one-owner install needs a lighter version of the same thing:</p>
+<table>
+<thead>
+<tr>
+<th>Enterprise practice</th>
+<th>OGL Cortex equivalent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Vendor inventory</td>
+<td>Your copy of the tables below, kept in the org <code>knowledge.md</code></td>
+</tr>
+<tr>
+<td>Continuous monitoring</td>
+<td>A sentinel seat plus watcher crons (section 6)</td>
+</tr>
+<tr>
+<td>Billing and renewal tracking</td>
+<td>A billing-alert cron that reads vendor bills from your inbox</td>
+</tr>
+<tr>
+<td>Contract and DPA review</td>
+<td>Read each vendor's data terms once, before the first client data reaches it</td>
+</tr>
+</tbody>
+</table>
+<p>Tiers:</p>
+<ul>
+<li><strong>Tier 1</strong>: if it stops, the fleet stops or the owner loses the control channel.</li>
+<li><strong>Tier 2</strong>: if it stops, a client site, booking flow or paid campaign stops.</li>
+<li><strong>Tier 3</strong>: a tool or convenience. Work slows; nothing customer-facing breaks.</li>
+</ul>
+<hr />
+<h2 id="1-tier-1-required-foundations">1. Tier 1: required foundations</h2>
+<table>
+<thead>
+<tr>
+<th>Vendor</th>
+<th>Role in OGL Cortex</th>
+<th>Data sent</th>
+<th>If it stops</th>
+<th>Risk controls</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Anthropic (Claude, Claude Code)</strong></td>
+<td>Runtime for every <code>claude-code</code> seat</td>
+<td>Everything a seat reads or writes</td>
+<td>Seats stop reasoning. The daemon and crons keep firing into idle sessions</td>
+<td>Pin the Claude Code version and trial upgrades on one seat. Watch the weekly usage cap; a cap-out looks like a hung seat. Configure OAuth account rotation (<code>cortextos bus list-oauth-accounts</code> shows the pool)</td>
+</tr>
+<tr>
+<td><strong>Telegram</strong></td>
+<td>Control channel. One bot per seat</td>
+<td>All owner-to-fleet traffic, voice notes, photos, files</td>
+<td>The owner cannot direct the fleet by phone</td>
+<td><code>ALLOWED_USER</code> fail-closed check. Keep a second channel: the dashboard and a private-network control surface</td>
+</tr>
+<tr>
+<td><strong>Host OS and hardware</strong> (macOS or Linux)</td>
+<td>Runs the daemon, seats, dashboard and all state</td>
+<td>All of it</td>
+<td>Everything stops</td>
+<td>Disk encryption on. Off-machine backups of <code>$CORTEX_HOME</code> and the org folder. Free-disk alerts</td>
+</tr>
+<tr>
+<td><strong>Package registries</strong> (npm, PyPI, Homebrew, uv)</td>
+<td>Installs Claude Code, the framework, MCP servers launched with <code>npx</code> or <code>uvx</code>, Python tools</td>
+<td>Package requests</td>
+<td>New installs and on-start MCP servers fail</td>
+<td>Pin MCP server versions instead of fetching latest at start. Block global cache prunes and global installs behind a guard hook (document 04)</td>
+</tr>
+<tr>
+<td><strong>GitHub</strong></td>
+<td>Upstream framework repo; CI (<code>ci.yml</code>, <code>leak-guard.yml</code>); private repos</td>
+<td>Code and history</td>
+<td>Upstream updates stop. Running seats are unaffected</td>
+<td>Scan history for secrets before any repo goes public. Gate <code>git push</code> with the ship gate hook</td>
+</tr>
+<tr>
+<td><strong>Google Gemini API</strong></td>
+<td>Knowledge base embeddings (<code>gemini-embedding-2-preview</code> by default) and multimodal PDF ingest, via <code>knowledge-base/scripts/mmrag.py</code> and <code>GEMINI_API_KEY</code></td>
+<td>Every document ingested into the KB, and every query</td>
+<td><code>cortextos bus kb-ingest</code> and <code>kb-query</code> fail</td>
+<td>Watch for <code>kb_ingest_failed</code> events. A billing hold on the Google Cloud project returns permission errors that look like code bugs; check billing first</td>
+</tr>
+</tbody>
+</table>
+<h2 id="2-tier-2-common-hosting-and-client-facing-integrations">2. Tier 2: common hosting and client-facing integrations</h2>
+<p>None of these is required by the framework. They are the services an owner typically wires in. Replace the names with your own stack.</p>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Typical vendors</th>
+<th>Role</th>
+<th>If it stops</th>
+<th>Risk controls</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Static and serverless hosting</td>
+<td>Vercel, Netlify, Cloudflare Pages</td>
+<td>Client and owner websites; candidate deploys for the ship gate</td>
+<td>Every hosted site can go dark at once on an account-level billing hold</td>
+<td>Ship through the wrapper only (document 14). Billing watcher. A second card on critical accounts. After an alias change, the edge can serve the old deploy for a few minutes</td>
+</tr>
+<tr>
+<td>DNS, CDN, storage, tunnels</td>
+<td>Cloudflare (DNS, R2, Stream, <code>cloudflared</code>)</td>
+<td>Domains, media, tunnels to local services</td>
+<td>Media disappears; tunnelled services drop</td>
+<td>Track renewal and deletion deadlines. Quick tunnels change URL on restart; use named tunnels (<code>cortextos tunnel start</code>) for anything persistent</td>
+</tr>
+<tr>
+<td>Private network</td>
+<td>Tailscale (Funnel, Serve)</td>
+<td>Exposes local services publicly or to the owner's devices</td>
+<td>Remote control surfaces go offline</td>
+<td>Review exposed ports on a schedule. Remove any Funnel mapping whose local port has no listener</td>
+</tr>
+<tr>
+<td>Containers</td>
+<td>Docker Desktop</td>
+<td>Local services such as a booking system</td>
+<td>The service and its data volume</td>
+<td>Never treat a container disk image as a cache to reclaim. Back up volumes</td>
+</tr>
+<tr>
+<td>Workflow automation</td>
+<td>n8n (self-hosted or cloud)</td>
+<td>Webhooks, booking alerts, conversion events</td>
+<td>Alerts stop reaching the owner without error</td>
+<td>Health-check each workflow endpoint</td>
+</tr>
+<tr>
+<td>Booking and payments</td>
+<td>Booking platforms, Stripe</td>
+<td>Client bookings and checkout</td>
+<td>Bookings stop</td>
+<td>Keep card data inside the vendor. Allow the vendor's CDN in the site's Content Security Policy, or embedded checkouts fail silently</td>
+</tr>
+<tr>
+<td>Mail and productivity</td>
+<td>Google Workspace, Microsoft 365</td>
+<td>Mail reading, sending, files, calendars, billing detection</td>
+<td>Digests, billing alerts and owner email stop</td>
+<td>One OAuth credential per account. Guard against an MCP rewriting one account's token with another's (document 04). OAuth apps in testing mode expire tokens on a short cycle</td>
+</tr>
+<tr>
+<td>Ads and analytics</td>
+<td>Google Ads, GA4, Search Console, Meta Ads, PostHog</td>
+<td>Campaigns, reporting, indexing checks</td>
+<td>Paid acquisition reporting stops</td>
+<td>Store the ad account currency with the account. Expect API query rules to change; let watchers fail loudly</td>
+</tr>
+<tr>
+<td>Messaging automation</td>
+<td>ManyChat and similar</td>
+<td>Social DM automation</td>
+<td>DMs fall back to manual</td>
+<td>Platform AI permissions can block automated replies</td>
+</tr>
+<tr>
+<td>Cold outbound</td>
+<td>Smartlead and similar</td>
+<td>Sending, warm-up, inbox rotation</td>
+<td>Campaigns stop</td>
+<td>Read plan limits from the vendor's docs and confirm by API before you rely on a feature. Transactional mail services forbid cold mail in their terms</td>
+</tr>
+<tr>
+<td>Registrars and site hosts</td>
+<td>Namecheap, GoDaddy, WordPress hosts, Wix</td>
+<td>Domains and legacy sites</td>
+<td>Renewals lapse; mail on the domain stops</td>
+<td>Keep a renewal calendar. Record who owns each client account and who can revoke access</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3-retired-vendors">3. Retired vendors</h2>
+<p>A vendor you stop using can still hold data or keys.</p>
+<table>
+<thead>
+<tr>
+<th>Leftover</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API keys in scripts or <code>.env</code> files</td>
+<td>Rotate the key at the vendor, then delete it from code and history</td>
+</tr>
+<tr>
+<td>Subscriptions</td>
+<td>Cancel and confirm no further charges</td>
+</tr>
+<tr>
+<td>Webhooks and alert mail</td>
+<td>Remove them, or alerts fail silently</td>
+</tr>
+<tr>
+<td>Boot files naming the old vendor</td>
+<td>Update <code>knowledge.md</code> and seat files; seats act on what boot files say</td>
+</tr>
+<tr>
+<td>MCP servers for the old vendor</td>
+<td>Remove them from <code>~/.claude.json</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="4-tier-3-mcp-servers-and-tools">4. Tier 3: MCP servers and tools</h2>
+<p>Every MCP server in user-level <code>~/.claude.json</code> appears in every seat's tool list. Classify each one:</p>
+<table>
+<thead>
+<tr>
+<th>Launch type</th>
+<th>Example</th>
+<th>Risk</th>
+<th>Control</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Remote HTTP endpoint run by a third party</td>
+<td>A hosted MCP URL</td>
+<td>A third party's code path into every seat</td>
+<td>Add only if used daily. Scope to the seats that need it (project-level config)</td>
+</tr>
+<tr>
+<td><code>npx &lt;package&gt;</code> or <code>uvx &lt;package&gt;</code> at start</td>
+<td>Browser or workspace MCPs</td>
+<td>Unpinned fetch of new code on every start</td>
+<td>Pin versions</td>
+</tr>
+<tr>
+<td>Local binary or script</td>
+<td>Playwright, local knowledge tools</td>
+<td>Low</td>
+<td>Keep updated</td>
+</tr>
+<tr>
+<td>Account connectors in the Claude client</td>
+<td>Mail, Drive, design tools</td>
+<td>Each one can read or act on an outside account</td>
+<td>Review the connected list on a schedule</td>
+</tr>
+</tbody>
+</table>
+<p>Other common tools: voice AI, image generation APIs, a password manager CLI (Bitwarden <code>bw</code>) for secret storage, scraping services for lead or review data, stock asset libraries. Each one needs an owner, a key location and a removal step.</p>
+<h2 id="5-cross-cutting-risks">5. Cross-cutting risks</h2>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Effect</th>
+<th>Control</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>One card behind many vendors</td>
+<td>One decline takes down hosting and AI services together</td>
+<td>A second card for Tier 1 and hosting; billing watcher</td>
+</tr>
+<tr>
+<td>Billing holds look like outages or wrong accounts</td>
+<td>Seats misdiagnose a 402 or 403 as a code or config bug</td>
+<td>Diagnosis rule: "was there a bill?" before "which account?"</td>
+</tr>
+<tr>
+<td>Hard deadlines with data loss</td>
+<td>Media deletion, domain expiry</td>
+<td>A dated deadline list read by the morning review</td>
+</tr>
+<tr>
+<td>Client-owned accounts operated by the fleet</td>
+<td>Unclear renewal and revocation duty</td>
+<td>Record owner, operator and exit steps per account</td>
+</tr>
+<tr>
+<td>Stale vendor facts in boot files</td>
+<td>Seats act on retired vendors</td>
+<td>Update <code>knowledge.md</code> the day a vendor changes</td>
+</tr>
+<tr>
+<td>Vendor terms read by agents</td>
+<td>Plan limits and terms of service get misread</td>
+<td>Confirm limits against the vendor's docs and a live API call; the owner signs off</td>
+</tr>
+</tbody>
+</table>
+<h2 id="6-monitoring-pattern">6. Monitoring pattern</h2>
+<figure class="diagram"><img src="img/723fba4380b0.svg" alt="Diagram"></figure>
+
+<p>Add each check with <code>cortextos bus add-cron &lt;seat&gt; &lt;name&gt; "&lt;5-field expr&gt;" &lt;prompt...&gt;</code>. Watchers message the owner only on a change of state, not on every run.</p>
+<h2 id="known-limitations">Known limitations</h2>
+<ul>
+<li>The framework does not track vendors itself. The inventory is a file the owner keeps.</li>
+<li>Watchers detect failures; they do not renew, pay or restore anything.</li>
+<li>An MCP server added user-wide reaches every seat. Claude Code has no per-seat allow list for user-level servers; use project-level config to scope.</li>
+<li><code>npx</code> and <code>uvx</code> launches fetch code at start unless pinned.</li>
+</ul>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>knowledge-base/scripts/mmrag.py</code></li>
+<li><code>src/bus/knowledge-base.ts</code></li>
+<li><code>src/daemon/agent-manager.ts</code></li>
+<li><code>.github/workflows/ci.yml</code></li>
+<li><code>.github/workflows/leak-guard.yml</code></li>
+<li><code>package.json</code></li>
+</ul>
+</article><nav class="pager"><a class="prev" href="12-data-privacy-compliance.html"><small>Previous</small>12 Data Privacy and Compliance</a><a class="next" href="14-readme-quickstart.html"><small>Next</small>14 README and quickstart: install, run, change safely, ship</a></nav></main></div></body></html>

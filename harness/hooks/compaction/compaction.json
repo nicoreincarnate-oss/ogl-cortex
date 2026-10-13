@@ -1,0 +1,7 @@
+{
+  "nudge": 300000,
+  "warning": 360000,
+  "limit": 400000,
+  "state_file": "STATE.md",
+  "summaries_dir": "compactions"
+}

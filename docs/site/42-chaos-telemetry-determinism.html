@@ -1,0 +1,550 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chaos, telemetry and determinism · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li class="on"><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">42</div><div><p class="dg">Business and assurance</p>
+<h1>Chaos, telemetry and determinism</h1><p class="meta">2,427 words · <a href="../42-chaos-telemetry-determinism.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-summary">1. Summary</a></li><li><a href="#2-chaos-and-stress">2. Chaos and stress</a></li><li><a href="#3-telemetry">3. Telemetry</a></li><li><a href="#4-determinism-rule-versus-judgement">4. Determinism: rule versus judgement</a></li><li><a href="#5-test-suites">5. Test suites</a></li><li><a href="#6-enterprise-items-and-their-equivalents">6. Enterprise items and their equivalents</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>Three questions for any agent harness: what faults does it survive, what records does it keep, and which parts behave the same way every time?</p>
+<p>Related documents: <code>31-observability-alerting.md</code> (alert routing), <code>32-security-red-team-log.md</code> (guard testing method), <code>41-support-known-issues-faq.md</code>. Path and role names follow <code>30-sre-runbooks.md</code>.</p>
+<h2 id="terms">Terms</h2>
+<ul>
+<li><strong>Chaos test</strong>: breaking something on purpose to see whether the system survives.</li>
+<li><strong>Oracle</strong>: an independent source of truth used to grade a guard.</li>
+<li><strong>Mutant</strong>: a deliberately broken copy of a guard. A good suite fails on it.</li>
+<li><strong>Deterministic</strong>: the same input always gives the same output. Model judgement is not deterministic.</li>
+</ul>
+<hr />
+<h2 id="1-summary">1. Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Does OGL Cortex ship a chaos programme?</td>
+<td>No scheduled fault injection against the fleet. It ships fault classes to rehearse (section 2.3) and strong deliberate tests for guards and sentinels</td>
+</tr>
+<tr>
+<td>What gets tested on purpose?</td>
+<td>Guards (real-shell oracle, mutants, replay over real command history), sentinels (fixture suites with mutants and self-tests), fixes (hunter passes)</td>
+</tr>
+<tr>
+<td>One telemetry standard?</td>
+<td>The event log is the reference format. Sentinel and guard logs use their own line shapes; section 3.3 lists the differences</td>
+</tr>
+<tr>
+<td>How much is deterministic?</td>
+<td>Guards, sentinels and the ship wrapper are deterministic. Orchestration decisions are model judgement. A few hooks call a model</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-chaos-and-stress">2. Chaos and stress</h2>
+<h3 id="21-fault-classes-a-single-host-fleet-meets">2.1 Fault classes a single-host fleet meets</h3>
+<table>
+<thead>
+<tr>
+<th>Fault class</th>
+<th>Typical trigger</th>
+<th>What protects you</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Disk flood</td>
+<td>A model download, a scanner walking the wrong directory, a container build</td>
+<td>Disk sentinel, floor guard, infra-watch disk watch, 2x model rule</td>
+</tr>
+<tr>
+<td>Swap saturation</td>
+<td>Many seats plus a container VM plus a local model</td>
+<td>Swap watch; no deploys under heavy swap; stop heavy jobs</td>
+</tr>
+<tr>
+<td>Background spawn storm</td>
+<td>A Stop hook that starts <code>claude -p</code> sessions, firing in several seats at once</td>
+<td>Brake file checked first in the hook; stagger</td>
+</tr>
+<tr>
+<td>Shared dependency broken under live load</td>
+<td>Pruning a package cache that running MCP servers import from</td>
+<td>Shared-surface guard</td>
+</tr>
+<tr>
+<td>Daemon restarts</td>
+<td>Cleanups, network dips, external <code>pm2 restart</code></td>
+<td>Storm watch, commander watch, crash relay</td>
+</tr>
+<tr>
+<td>Provider limits</td>
+<td>Weekly cap, rate limits, free-tier 429s</td>
+<td>Quota ledger, auth sentinel, pre-reset burn</td>
+</tr>
+<tr>
+<td>Billing holds</td>
+<td>Declined card</td>
+<td>Billing alerts, site watchers</td>
+</tr>
+<tr>
+<td>Wrong-account credential writes</td>
+<td>OAuth flow finished with the wrong account</td>
+<td>Account guard, identity check</td>
+</tr>
+<tr>
+<td>Evicted LaunchAgents</td>
+<td>Jobs without <code>RunAtLoad</code> or <code>KeepAlive</code> lost on restart</td>
+<td>Pre-restart inventory of ancillary services</td>
+</tr>
+<tr>
+<td>Wedged seat</td>
+<td>Process up, model not reasoning (for example a session-limit screen)</td>
+<td>Session liveness watch; PID and heartbeat alone do not prove reasoning</td>
+</tr>
+</tbody>
+</table>
+<p>Most serious stress on a single-host fleet is self-inflicted by fleet work: a scan, a model, a storm, a prune. External faults are rarer. Memory and disk pressure is the dominant failure mode.</p>
+<h3 id="22-deliberate-tests-that-ship-with-the-harness">2.2 Deliberate tests that ship with the harness</h3>
+<table>
+<thead>
+<tr>
+<th>Target</th>
+<th>Method</th>
+<th>Pass bar</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shared-surface guard</td>
+<td>Real-shell oracle: each probe shape run in <code>bash</code>, <code>zsh</code> and <code>sh</code>, in script and inline forms, under <code>sandbox-exec</code>, with a must-find control first that voids the run on a miss</td>
+<td><code>MISS 0</code>, <code>over-flag 0</code>; every mutant killed</td>
+</tr>
+<tr>
+<td>Any guard change</td>
+<td><code>mutants.py</code>, unit tests (must-flag and must-allow), <code>replay_diff.py</code> over real command history</td>
+<td>Tests red on live, green on candidate; only intended verdict changes in the replay</td>
+</tr>
+<tr>
+<td>Heartbeat sentinel</td>
+<td>Fixture cases including a forged heartbeat and a reload case, plus mutants</td>
+<td>All fixtures pass; mutants red</td>
+</tr>
+<tr>
+<td>Session liveness watch</td>
+<td>Self-test with stale, fresh, process-down and orphan cases, and a named mutant</td>
+<td>All <code>PASS</code> lines</td>
+</tr>
+<tr>
+<td>Auth sentinel</td>
+<td>"Drive it to fail once": a bogus model id and a sink file instead of Telegram</td>
+<td>Alert written to the sink</td>
+</tr>
+<tr>
+<td>Account guard</td>
+<td>Live positive control with an invalid address</td>
+<td><code>BLOCK</code> line in the guard log</td>
+</tr>
+<tr>
+<td>Send guard and fail-closed paths</td>
+<td>Corpus replays and mutant suites</td>
+<td>Mutants killed; no new false positives on the corpus</td>
+</tr>
+<tr>
+<td>Any guard, hook or fix</td>
+<td><code>hunter.sh</code> fenced pass on one claim</td>
+<td>Reachable findings fixed test-first</td>
+</tr>
+</tbody>
+</table>
+<figure class="diagram"><img src="img/9996a93fcb65.svg" alt="Diagram"></figure>
+
+<h3 id="23-rehearsals-worth-running">2.3 Rehearsals worth running</h3>
+<p>These faults have no shipped automated test. Run each once on a quiet night with the owner's go, and record the result.</p>
+<table>
+<thead>
+<tr>
+<th>Rehearsal</th>
+<th>How</th>
+<th>Pass bar</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reboot recovery</td>
+<td>Planned host restart</td>
+<td>pm2 resurrects the daemon; every enabled seat writes a heartbeat within one interval; every launchd sentinel writes a fresh <code>.alive</code></td>
+</tr>
+<tr>
+<td>Daemon kill</td>
+<td><code>pm2 stop cortextos-daemon</code>, wait, <code>pm2 start cortextos-daemon</code></td>
+<td>Storm watch logs the event; crons catch up once; seats resume</td>
+</tr>
+<tr>
+<td>Telegram loss</td>
+<td>Block the Bot API host for 10 minutes</td>
+<td>Poller logs <code>fetch failed</code>, recovers without a restart; no messages lost</td>
+</tr>
+<tr>
+<td>Login loss</td>
+<td>Point the auth sentinel at a bogus model id with a sink</td>
+<td>Alert of kind <code>auth</code> or <code>probe</code> lands in the sink</td>
+</tr>
+<tr>
+<td>Guard down</td>
+<td>Rename a guard file for one minute in a test seat</td>
+<td>Liveness canary reports a landed write</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-telemetry">3. Telemetry</h2>
+<h3 id="31-where-records-go">3.1 Where records go</h3>
+<figure class="diagram"><img src="img/03f1f75dec13.svg" alt="Diagram"></figure>
+
+<h3 id="32-line-shapes">3.2 Line shapes</h3>
+<p><strong>Event log</strong> (the reference format), one JSON object per line, file named by UTC date:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;1767225600-orchestrator-a1b2c&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;orchestrator&quot;</span><span class="fu">,</span><span class="dt">&quot;org&quot;</span><span class="fu">:</span><span class="st">&quot;example&quot;</span><span class="fu">,</span><span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-01T00:00:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;category&quot;</span><span class="fu">:</span><span class="st">&quot;action&quot;</span><span class="fu">,</span><span class="dt">&quot;event&quot;</span><span class="fu">:</span><span class="st">&quot;task_dispatched&quot;</span><span class="fu">,</span><span class="dt">&quot;severity&quot;</span><span class="fu">:</span><span class="st">&quot;info&quot;</span><span class="fu">,</span><span class="dt">&quot;metadata&quot;</span><span class="fu">:{</span><span class="dt">&quot;to&quot;</span><span class="fu">:</span><span class="st">&quot;ops&quot;</span><span class="fu">,</span><span class="dt">&quot;task&quot;</span><span class="fu">:</span><span class="st">&quot;rotate webhook secret&quot;</span><span class="fu">}}</span></span></code></pre></div>
+<p><code>id</code> is epoch seconds, agent name and 5 random characters. <code>timestamp</code> is ISO 8601 UTC to the second. Writer: <code>src/bus/event.ts</code>.</p>
+<p>Sentinels can write into the same family under a non-seat agent name such as <code>sentinel</code>:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;1767225630-sentinel-x9y8z&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;sentinel&quot;</span><span class="fu">,</span><span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-01T00:00:30Z&quot;</span><span class="fu">,</span><span class="dt">&quot;category&quot;</span><span class="fu">:</span><span class="st">&quot;action&quot;</span><span class="fu">,</span><span class="dt">&quot;event&quot;</span><span class="fu">:</span><span class="st">&quot;disk_sentinel_alert&quot;</span><span class="fu">,</span><span class="dt">&quot;severity&quot;</span><span class="fu">:</span><span class="st">&quot;info&quot;</span><span class="fu">,</span><span class="dt">&quot;metadata&quot;</span><span class="fu">:{</span><span class="dt">&quot;avail_mb&quot;</span><span class="fu">:</span><span class="dv">11233</span><span class="fu">,</span><span class="dt">&quot;kind&quot;</span><span class="fu">:</span><span class="st">&quot;sudden-step&quot;</span><span class="fu">}}</span></span></code></pre></div>
+<p><strong>Outbound Telegram log</strong>:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-01T00:01:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;orchestrator&quot;</span><span class="fu">,</span><span class="dt">&quot;chat_id&quot;</span><span class="fu">:</span><span class="st">&quot;&lt;chat&gt;&quot;</span><span class="fu">,</span><span class="dt">&quot;text&quot;</span><span class="fu">:</span><span class="st">&quot;Deployed...&quot;</span><span class="fu">,</span><span class="dt">&quot;message_id&quot;</span><span class="fu">:</span><span class="st">&quot;1234&quot;</span><span class="fu">,</span><span class="dt">&quot;parse_mode&quot;</span><span class="fu">:</span><span class="st">&quot;html&quot;</span><span class="fu">}</span></span></code></pre></div>
+<p><strong>Inbound Telegram log</strong> fields: <code>message_id</code>, <code>from</code>, <code>from_name</code>, <code>chat_id</code>, <code>text</code>, <code>timestamp</code> (milliseconds), <code>archived_at</code> (seconds), <code>agent</code>.</p>
+<p><strong>Crash and restart logs</strong>:</p>
+<pre><code>2026-01-01T00:02:00.000Z type=daemon-stop reason=daemon shutdown (SIGTERM) session=&lt;uuid&gt; last_task=...
+[2026-01-01T00:03:00Z] HARD-RESTART: Context 80%; ...</code></pre>
+<p><strong>stdout.log</strong>: raw terminal capture with ANSI escape codes. Strip escapes before parsing (<code>strip-ansi</code> or <code>sed 's/\x1b\[[0-9;]*[A-Za-z]//g'</code>).</p>
+<p><strong>Sentinels</strong> (examples of the reference scripts):</p>
+<pre><code>2026-01-01T00:04:00Z avail=11233MB state=warn prev=warn orch=sudden-step
+2026-01-01T00:05:00Z | proc=status | watched=4 | IDLE-LATENT=0 | WEDGE(alarms)=0 | K=3 | orchestrator:OK(0h0m,ctx) | ...
+2026-01-01T00:06:00Z ok proc_up=1 ctx_age=0s ctx_basis=ctx-growth decided_by=primary (TTL 36000s)</code></pre>
+<p><strong>Quota ledger</strong> (JSON, <code>ts</code> key):</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;ts&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-01T00:05:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;reading&quot;</span><span class="fu">:{</span><span class="dt">&quot;five_hour&quot;</span><span class="fu">:{</span><span class="dt">&quot;pct&quot;</span><span class="fu">:</span><span class="dv">11</span><span class="fu">},</span><span class="dt">&quot;seven_day&quot;</span><span class="fu">:{</span><span class="dt">&quot;pct&quot;</span><span class="fu">:</span><span class="dv">62</span><span class="fu">},</span><span class="dt">&quot;source&quot;</span><span class="fu">:</span><span class="st">&quot;api&quot;</span><span class="fu">}}</span></span></code></pre></div>
+<p><strong>Guard logs</strong> (<code>~/.claude/hooks/&lt;guard&gt;.log</code>), one line per verdict:</p>
+<pre><code>2026-01-01T00:07:00Z PASS Bash 0 issues: &#39;Deployed...&#39;
+2026-01-01T00:08:00Z ops BLOCK [&#39;claude_config&#39;] &#39;&lt;command&gt;&#39;</code></pre>
+<p>Guard logs are fleet-wide: one file holds verdicts for every seat that runs the guard. Not every guard writes a log; the brief guard and the future-time guard report only through their exit code and stderr.</p>
+<h3 id="33-where-the-formats-differ">3.3 Where the formats differ</h3>
+<table>
+<thead>
+<tr>
+<th>Dimension</th>
+<th>Variants</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Timestamp key</td>
+<td><code>timestamp</code> (events, Telegram), <code>ts</code> (quota, pressure), <code>at</code> (prompt router), bare prefix (sentinels, guards), bracketed prefix (<code>restarts.log</code>)</td>
+</tr>
+<tr>
+<td>Precision</td>
+<td>Seconds (events strip milliseconds); milliseconds (inbound log, <code>crashes.log</code>)</td>
+</tr>
+<tr>
+<td>Line shape</td>
+<td>JSON, <code>key=value</code>, pipe-delimited, free text, raw TTY</td>
+</tr>
+<tr>
+<td>Id scheme</td>
+<td>Epoch seconds plus agent plus random (events); epoch milliseconds (inbox ids); <code>task_&lt;ms&gt;_&lt;rand&gt;</code> (tasks); Telegram integers</td>
+</tr>
+<tr>
+<td>Clock zone in content</td>
+<td>UTC (<code>Z</code>) everywhere</td>
+</tr>
+<tr>
+<td>Clock zone in schedules</td>
+<td>Host local time for 5-field crons and launchd calendar jobs</td>
+</tr>
+<tr>
+<td>Clock zone in file names</td>
+<td>UTC for event files; the seat's local date for daily memory files</td>
+</tr>
+</tbody>
+</table>
+<p>Practical effect: a question like "what happened at 05:03" needs several greps with different patterns. If you build a merged timeline, normalise to the event-log shape: <code>timestamp</code> key, ISO 8601 seconds, UTC.</p>
+<p><strong>Recommended standard for new logs.</strong> JSON lines with <code>timestamp</code> (ISO 8601 UTC, seconds), <code>agent</code>, <code>event</code>, <code>severity</code>, and a <code>metadata</code> object. Write through <code>cortextos bus log-event</code> when a seat is the producer.</p>
+<h3 id="34-retention">3.4 Retention</h3>
+<ul>
+<li>The framework does not rotate <code>stdout.log</code>. Rotate it yourself (for example a launchd job that moves files over a size limit to <code>stdout.log.1</code>).</li>
+<li>Event files are split per day per seat, so size-based cleanups usually spare them.</li>
+<li>A cleanup that empties large log files erases their history. Archive before you truncate.</li>
+<li>Guard logs live outside <code>$CTX_ROOT</code> and need their own rotation.</li>
+</ul>
+<hr />
+<h2 id="4-determinism-rule-versus-judgement">4. Determinism: rule versus judgement</h2>
+<h3 id="41-hooks-in-a-reference-orchestrator-seat">4.1 Hooks in a reference orchestrator seat</h3>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Hook</th>
+<th>Class</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PermissionRequest, PreToolUse AskUserQuestion</td>
+<td><code>cortextos bus hook-permission-telegram</code>, <code>hook-planmode-telegram</code>, and the AskUserQuestion relay</td>
+<td>Deterministic relay</td>
+</tr>
+<tr>
+<td>PreToolUse Bash and send MCPs</td>
+<td><code>orwell-lint.py</code></td>
+<td>Deterministic (regex and word lists)</td>
+</tr>
+<tr>
+<td>PreToolUse Google Workspace MCP</td>
+<td><code>gws-account-guard.py</code></td>
+<td>Deterministic (account list)</td>
+</tr>
+<tr>
+<td>PreToolUse Bash</td>
+<td><code>shared-surface-guard.py</code></td>
+<td>Deterministic (shell parser)</td>
+</tr>
+<tr>
+<td>PreToolUse Bash</td>
+<td><code>brief_guard.py</code></td>
+<td>Deterministic</td>
+</tr>
+<tr>
+<td>PreToolUse Bash, Write, Edit</td>
+<td><code>future_time_guard.py</code></td>
+<td>Deterministic, clock-dependent</td>
+</tr>
+<tr>
+<td>PreToolUse Bash</td>
+<td><code>attribution-lint.py</code></td>
+<td>Deterministic, shadow tier</td>
+</tr>
+<tr>
+<td>Stop</td>
+<td><code>cortextos bus hook-idle-flag</code></td>
+<td>Deterministic</td>
+</tr>
+<tr>
+<td>Stop</td>
+<td>memory consolidation hook</td>
+<td><strong>Spawns a model</strong> in the background</td>
+</tr>
+<tr>
+<td>SessionEnd, PreCompact</td>
+<td><code>cortextos crash-alert</code>, <code>hook-compact-telegram</code>, checkpoint script</td>
+<td>Deterministic</td>
+</tr>
+<tr>
+<td>SessionEnd, PreCompact</td>
+<td>memory digest</td>
+<td><strong>Spawns a model</strong> in the background</td>
+</tr>
+<tr>
+<td>SessionStart</td>
+<td>inject script; <code>after_compact.py</code></td>
+<td>Deterministic</td>
+</tr>
+<tr>
+<td>PostToolUse</td>
+<td>compaction meter; fix-commit trigger</td>
+<td>Deterministic</td>
+</tr>
+<tr>
+<td>PostCompact</td>
+<td><code>save_summary.py</code></td>
+<td>Deterministic</td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td>client recall hook</td>
+<td>Deterministic</td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td>prompt router</td>
+<td><strong>Model call on every owner message</strong> (headless small model, one turn). Injects nothing on timeout or failure</td>
+</tr>
+</tbody>
+</table>
+<p>All of these are <code>type: command</code> hooks. A command hook can still call a model; check the script, not the hook type.</p>
+<h3 id="42-schedulers">4.2 Schedulers</h3>
+<table>
+<thead>
+<tr>
+<th>Scheduler</th>
+<th>Deterministic part</th>
+<th>Judgement part</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cortextOS daemon crons</td>
+<td>When the prompt fires (30-second tick; one catch-up fire after downtime)</td>
+<td>Everything after: the prompt is text a model interprets</td>
+</tr>
+<tr>
+<td>launchd sentinels</td>
+<td>Shell scripts end to end</td>
+<td>None, except when a script pages a seat for a decision</td>
+</tr>
+<tr>
+<td>pm2 loops</td>
+<td>Schedule and pass or fail on exact output</td>
+<td>The auth probe calls a model as its test subject, by design</td>
+</tr>
+</tbody>
+</table>
+<p>Fires are not exact. A cron can run some minutes after its slot if the seat is busy. Design prompts to tolerate late fires.</p>
+<h3 id="43-the-design-pattern">4.3 The design pattern</h3>
+<figure class="diagram"><img src="img/189b0a1fed23.svg" alt="Diagram"></figure>
+
+<p>Model judgement does the work. Deterministic guards fence its outputs: every send passes the send guard, every dispatch passes the brief guard, every write to a shared surface passes the surface guard.</p>
+<p>Not fenced deterministically:</p>
+<ul>
+<li>The decision to call something "done". It rests on seat rules ("a return is a claim; run its BAR") and on the auditor, both model judgement. The brief audit script helps, but a seat must choose to run it.</li>
+<li>Memory written by consolidation and digest hooks.</li>
+<li>The auditor's verdict. The artefacts it checks are deterministic; the verdict is not.</li>
+</ul>
+<hr />
+<h2 id="5-test-suites">5. Test suites</h2>
+<table>
+<thead>
+<tr>
+<th>Suite</th>
+<th>How to run</th>
+<th>What it proves</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cortextOS framework</td>
+<td><code>npm test</code> (Vitest) in <code>$CORTEX_HOME</code></td>
+<td>The source tree. Run it before and after any framework change</td>
+</tr>
+<tr>
+<td>Framework CI</td>
+<td><code>.github/workflows/ci.yml</code> runs <code>npm test</code> on pushed commits</td>
+<td>Only commits that reach a remote with CI</td>
+</tr>
+<tr>
+<td>Guard packets</td>
+<td><code>python3 tests/test_&lt;guard&gt;.py</code>, <code>python3 mutants.py</code>, oracle and replay scripts in each packet folder</td>
+<td>The candidate guard, at install time</td>
+</tr>
+<tr>
+<td>Sentinel suites</td>
+<td><code>test-*.sh</code> beside the sentinel scripts; self-test modes</td>
+<td>Sentinel logic, at build time</td>
+</tr>
+<tr>
+<td>Hook builds</td>
+<td>Each build folder's <code>tests/</code></td>
+<td>The hook, when its build copy is byte-identical to the installed file (<code>diff -q</code>)</td>
+</tr>
+<tr>
+<td>Fleet lint</td>
+<td>Nightly launchd job</td>
+<td>Seat config and instructions, every night</td>
+</tr>
+</tbody>
+</table>
+<p>Two structural limits:</p>
+<ol type="1">
+<li><strong>Install-time proof, not standing proof.</strong> Guard suites prove the guard once. Nothing re-runs them after install unless you schedule it. Freeze each gated version as <code>&lt;file&gt;.gated-&lt;sha&gt;</code> so the live file can be diffed against the version that passed.</li>
+<li><strong>No composition suite.</strong> Each guard is tested alone. Several PreToolUse hooks can fire on one Bash call. Interactions between them are where bugs hide; add a test that runs the full hook chain on a fixed set of calls.</li>
+</ol>
+<hr />
+<h2 id="6-enterprise-items-and-their-equivalents">6. Enterprise items and their equivalents</h2>
+<table>
+<thead>
+<tr>
+<th>Enterprise item</th>
+<th>Fit</th>
+<th>Closest equivalent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chaos platform and game days</td>
+<td>No</td>
+<td>Section 2.3 rehearsals; guard oracles; hunter passes</td>
+</tr>
+<tr>
+<td>Load and soak testing</td>
+<td>No</td>
+<td>Disk and swap sentinels measure real load continuously</td>
+</tr>
+<tr>
+<td>Distributed tracing</td>
+<td>No</td>
+<td>Event ids and Telegram message ids</td>
+</tr>
+<tr>
+<td>Central log store</td>
+<td>No</td>
+<td>Plain files; the dashboard reads event JSONL</td>
+</tr>
+<tr>
+<td>Log schema standard</td>
+<td>Yes, cheaply</td>
+<td>Section 3.3 recommendation</td>
+</tr>
+<tr>
+<td>Deterministic replay of agent runs</td>
+<td>No</td>
+<td>Guard replay over real command logs, which is deterministic</td>
+</tr>
+<tr>
+<td>CI gate on every change</td>
+<td>Partly</td>
+<td>Install scripts that refuse without an auditor PASS</td>
+</tr>
+</tbody>
+</table>
+<h2 id="design-notes">Design notes</h2>
+<ul>
+<li>Run the framework suite on a schedule and page on red.</li>
+<li>Re-run each live guard's suite against the installed file nightly.</li>
+<li>Make model-calling hooks asynchronous where the seat does not need the result before it reads the message.</li>
+</ul>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/bus/event.ts</code> (event format)</li>
+<li><code>src/bus/hooks.ts</code> (hook dispatch)</li>
+<li><code>src/bus/metrics.ts</code> (event reader)</li>
+<li><code>src/daemon/cron-scheduler.ts</code> (tick and catch-up)</li>
+<li><code>package.json</code>, <code>.github/workflows/ci.yml</code> (framework tests)</li>
+</ul>
+</article><nav class="pager"><a class="prev" href="41-support-known-issues-faq.html"><small>Previous</small>41 Support, known issues and FAQ</a><a class="next" href="43-legal-ip-training.html"><small>Next</small>43 Legal, IP, licences and training</a></nav></main></div></body></html>

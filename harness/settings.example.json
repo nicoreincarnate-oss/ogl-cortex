@@ -1,0 +1,49 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/ship_gate.py", "timeout": 10 },
+          { "type": "command", "command": "SURFACE_CODE_MODE=warn python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/shared_surface_guard.py", "timeout": 20 },
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/orwell_lint.py", "timeout": 20 },
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/brief_guard.py", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "mcp__.*(send_gmail_message|send-a-new-message|create-post|reply|forward|create_draft).*",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/orwell_lint.py", "timeout": 20 }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/future_time_guard.py", "timeout": 5 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/compaction/meter.py", "timeout": 10 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/compaction/after_compact.py", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/compaction/save_summary.py", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

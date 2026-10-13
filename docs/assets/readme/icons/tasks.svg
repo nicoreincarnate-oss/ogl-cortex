@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="task bus">
+<rect x="4" y="4" width="42" height="42" fill="#0A0A0A"/>
+<rect x="1.5" y="1.5" width="41" height="41" fill="#F2EFE9" stroke="#0A0A0A" stroke-width="2.5"/>
+<g fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linejoin="miter" stroke-linecap="square">
+<rect x="9" y="11" width="26" height="9" fill="#FF4F00"/>
+<rect x="9" y="24" width="26" height="9" fill="#F2EFE9"/>
+<path d="M13 15.5 H22 M13 28.5 H22"/>
+</g>
+</svg>

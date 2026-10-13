@@ -1,0 +1,521 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Observability and alerting · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li class="on"><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">31</div><div><p class="dg">Operations and security</p>
+<h1>Observability and alerting</h1><p class="meta">2,327 words · <a href="../31-observability-alerting.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#1-three-kinds-of-signal">1. Three kinds of signal</a></li><li><a href="#2-signal-flow">2. Signal flow</a></li><li><a href="#3-where-records-are-written">3. Where records are written</a></li><li><a href="#4-signal-inventory-with-default-thresholds">4. Signal inventory with default thresholds</a></li><li><a href="#5-paths-that-reach-the-owner-without-the-orchestrator">5. Paths that reach the owner without the orchestrator</a></li><li><a href="#6-signals-that-look-live-but-are-not">6. Signals that look live but are not</a></li><li><a href="#7-known-limitations">7. Known limitations</a></li><li><a href="#8-design-notes-cheap-additions">8. Design notes: cheap additions</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>What OGL Cortex measures, where each record lands, what writes it, the default thresholds, and who hears about it.</p>
+<p>Related documents: <code>30-sre-runbooks.md</code> (what to do when an alert fires), <code>32-security-red-team-log.md</code> (guards as defences), <code>40-finops-capacity.md</code> (quota and capacity limits), <code>42-chaos-telemetry-determinism.md</code> (raw log formats). Path names (<code>$CTX_ROOT</code>, <code>$SENTINEL_DIR</code>, <code>&lt;seat&gt;</code>) and role names follow the conventions in <code>30-sre-runbooks.md</code>.</p>
+<h2 id="1-three-kinds-of-signal">1. Three kinds of signal</h2>
+<ol type="1">
+<li><strong>Self-reports.</strong> Seats write heartbeats, events and message logs about themselves through the cortextOS bus.</li>
+<li><strong>Sentinels.</strong> Shell or Python scripts run by launchd (or pm2) outside any model. They check the machine, the quota, credentials and websites. They keep working when every seat is down or capped.</li>
+<li><strong>Agent crons.</strong> The daemon injects a prompt into a seat on a schedule. The seat runs a check and decides whether to speak. These need a live seat with quota.</li>
+</ol>
+<p>A <strong>page</strong> means a <code>cortextos bus send-message &lt;seat&gt; high '&lt;text&gt;'</code> call. It lands in that seat's inbox. Most pages go to the orchestrator, which decides whether the owner hears about it. A short list of producers reaches the owner's Telegram directly (section 5), so that a capped or busy orchestrator cannot swallow them.</p>
+<h2 id="2-signal-flow">2. Signal flow</h2>
+<figure class="diagram"><img src="img/e538ceb80159.svg" alt="Diagram"></figure>
+
+<h2 id="3-where-records-are-written">3. Where records are written</h2>
+<table>
+<thead>
+<tr>
+<th>Store</th>
+<th>Path</th>
+<th>Written by</th>
+<th>Read by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Heartbeat</td>
+<td><code>$CTX_ROOT/state/&lt;seat&gt;/heartbeat.json</code></td>
+<td><code>cortextos bus update-heartbeat &lt;status&gt;</code>, usually from each seat's <code>heartbeat</code> cron</td>
+<td><code>cortextos bus read-all-heartbeats</code>, heartbeat sentinel, dashboard</td>
+</tr>
+<tr>
+<td>Event log</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/YYYY-MM-DD.jsonl</code> (UTC date)</td>
+<td><code>cortextos bus log-event &lt;category&gt; &lt;event&gt; &lt;severity&gt; --meta '&lt;json&gt;'</code></td>
+<td>Dashboard activity feed, metrics, auditor</td>
+</tr>
+<tr>
+<td>Outbound Telegram</td>
+<td><code>$CTX_ROOT/logs/&lt;seat&gt;/outbound-messages.jsonl</code></td>
+<td><code>cortextos bus send-telegram</code> (successful sends only)</td>
+<td>Send receipts, auditor</td>
+</tr>
+<tr>
+<td>Inbound Telegram</td>
+<td><code>$CTX_ROOT/logs/&lt;seat&gt;/inbound-messages.jsonl</code></td>
+<td>Daemon Telegram poller</td>
+<td>Reply-latency checks</td>
+</tr>
+<tr>
+<td>Crash and restart logs</td>
+<td><code>$CTX_ROOT/logs/&lt;seat&gt;/crashes.log</code>, <code>restarts.log</code></td>
+<td>SessionEnd hook <code>cortextos crash-alert</code>; restart commands</td>
+<td>Crash relay, storm watch</td>
+</tr>
+<tr>
+<td>Session output</td>
+<td><code>$CTX_ROOT/logs/&lt;seat&gt;/stdout.log</code></td>
+<td>Daemon PTY capture</td>
+<td>Humans (raw terminal, contains ANSI codes)</td>
+</tr>
+<tr>
+<td>Context meter</td>
+<td><code>$CTX_ROOT/state/&lt;seat&gt;/context_status.json</code></td>
+<td>statusLine command <code>cortextos bus hook-context-status</code></td>
+<td>Daemon fast-checker</td>
+</tr>
+<tr>
+<td>Cron state</td>
+<td><code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code> and the cron execution log</td>
+<td>Daemon scheduler</td>
+<td><code>cortextos bus list-crons</code>, <code>cortextos bus get-cron-log</code></td>
+</tr>
+<tr>
+<td>Metrics report</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/reports/latest.json</code></td>
+<td><code>cortextos bus collect-metrics</code></td>
+<td>Analyst seat, dashboard</td>
+</tr>
+<tr>
+<td>Sentinel logs and state</td>
+<td><code>$SENTINEL_DIR/logs/*.log</code>, <code>$SENTINEL_DIR/state/*</code></td>
+<td>launchd sentinels</td>
+<td>Humans and seats on demand; <code>.alive</code> files read by other sentinels</td>
+</tr>
+<tr>
+<td>Quota ledger</td>
+<td><code>$SENTINEL_DIR/state/quota-ledger.jsonl</code></td>
+<td>Quota ledger sentinel every 10 minutes</td>
+<td>Analyst meter, pre-reset burn governor</td>
+</tr>
+<tr>
+<td>Guard logs</td>
+<td><code>~/.claude/hooks/&lt;guard&gt;.log</code></td>
+<td>PreToolUse guard hooks</td>
+<td>Liveness canary, guard tallies</td>
+</tr>
+</tbody>
+</table>
+<h2 id="4-signal-inventory-with-default-thresholds">4. Signal inventory with default thresholds</h2>
+<p>The thresholds below are the defaults in the reference sentinel scripts and framework hooks. Tune them per host.</p>
+<h3 id="41-seat-and-daemon-health">4.1 Seat and daemon health</h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Producer</th>
+<th>Threshold</th>
+<th>Who hears</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Seat heartbeat</td>
+<td>Each seat's <code>heartbeat</code> cron (template default <code>4h</code>)</td>
+<td>None by itself. <code>read-all-heartbeats</code> labels old entries <code>[STALE]</code></td>
+<td>Nobody directly</td>
+<td>Read by the heartbeat sentinel and the orchestrator's heartbeat review</td>
+</tr>
+<tr>
+<td>Wedged seat</td>
+<td>Heartbeat sentinel, launchd every 10 min</td>
+<td>Heartbeat age at least 2x the seat's cadence <strong>and</strong> work pending</td>
+<td>Orchestrator</td>
+<td>Page, re-ping every 6 h. The sentinel excludes the ops seat that owns it; another seat must watch ops</td>
+</tr>
+<tr>
+<td>Mass idle</td>
+<td>Heartbeat sentinel</td>
+<td>At least K seats idle at once, K = max(3, ceil(n/4))</td>
+<td>Orchestrator</td>
+<td>Page</td>
+</tr>
+<tr>
+<td>Auto-poke of idle seat</td>
+<td>Heartbeat sentinel</td>
+<td>Cron fired but not drained after 30 min</td>
+<td>The idle seat</td>
+<td>Ships in dry-run mode (<code>POKE_DRY_RUN=1</code>). Review the WOULD-POKE lines before you enable it</td>
+</tr>
+<tr>
+<td>Daemon restart storm</td>
+<td>Storm watch, checks every 15 s</td>
+<td>At least 2 stops in 60 s = onset; at least 5 = rapid; recovered after 5 quiet minutes</td>
+<td>Orchestrator</td>
+<td>Page</td>
+</tr>
+<tr>
+<td>Who restarted the daemon</td>
+<td>Commander watch (launchd KeepAlive)</td>
+<td>Any <code>pm2 restart cortextos-daemon</code></td>
+<td>Orchestrator</td>
+<td>Page naming the parent process chain</td>
+</tr>
+<tr>
+<td>Session dark but up</td>
+<td>Session liveness watch, every 10 min</td>
+<td>Process up but no model output for the TTL (default 10 h)</td>
+<td>Orchestrator</td>
+<td>Page. Run one copy per seat you care about</td>
+</tr>
+<tr>
+<td>Real crash</td>
+<td>SessionEnd hook <code>cortextos crash-alert</code></td>
+<td>Any crash. Routine session ends are suppressed during quiet hours (22:00 to 07:00, fixed time zone in the hook source) with a 10-minute dedupe</td>
+<td><strong>Owner</strong></td>
+<td>Telegram via Bot API</td>
+</tr>
+<tr>
+<td>Crash alert relay</td>
+<td>Ops cron, hourly</td>
+<td>New alert files in the default crash inboxes</td>
+<td>Orchestrator</td>
+<td>One page per new alert</td>
+</tr>
+<tr>
+<td>Compaction notice</td>
+<td>PreCompact hook <code>cortextos bus hook-compact-telegram</code></td>
+<td>Every compaction</td>
+<td><strong>Owner</strong></td>
+<td>Telegram</td>
+</tr>
+<tr>
+<td>Context meter</td>
+<td>statusLine <code>hook-context-status</code>, about every 5 s</td>
+<td><code>ctx_warning_threshold</code> (default 30%), <code>ctx_handoff_threshold</code> (default 60%)</td>
+<td>The seat</td>
+<td>Fast-checker injects a warning, then a handoff and restart</td>
+</tr>
+<tr>
+<td>Event feed</td>
+<td>Every seat via <code>log-event</code></td>
+<td>None</td>
+<td>Nobody</td>
+<td>Dashboard Activity page and live stream</td>
+</tr>
+<tr>
+<td>Dashboard</td>
+<td>pm2 app <code>cortextos-dashboard</code></td>
+<td>None</td>
+<td>Nobody</td>
+<td>Pull only</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42-machine-capacity">4.2 Machine capacity</h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Producer</th>
+<th>Threshold</th>
+<th>Who hears</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Disk free</td>
+<td>Disk sentinel, launchd every 10 min</td>
+<td>States: ok at 20 GiB or more, warn under 20, critical under 10, emergency under 5. Pages under 6 GiB, on a drop of at least 900 MiB inside about 1,000 s, on a new top-level directory growing past 5 GB, or on a df parse failure. Re-ping every 2 h</td>
+<td>Orchestrator</td>
+<td>Page plus a <code>disk_sentinel_alert</code> event</td>
+</tr>
+<tr>
+<td>Disk floor</td>
+<td>Floor guard, launchd every 5 min</td>
+<td>Under 10 GiB: page once per 30 min, no automatic prune. Under 6 GiB: emergency page at most every 20 min plus a <code>disk_emergency_escalation</code> critical event</td>
+<td>Orchestrator</td>
+<td>Page and event</td>
+</tr>
+<tr>
+<td>Disk and swap watch</td>
+<td>Infra-watch seat script, every 60 s</td>
+<td>Disk at or below 7 GiB; swap file count at or above 17</td>
+<td>Orchestrator and infra watch</td>
+<td>Page. Exits after it trips, so re-arm it after each page</td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-quota-login-and-credentials">4.3 Quota, login and credentials</h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Producer</th>
+<th>Threshold</th>
+<th>Who hears</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude plan quota</td>
+<td>Quota ledger, launchd every 10 min</td>
+<td><code>PACE</code> (projects 100% before reset), <code>WARN80</code> (7d at least 80), <code>DEGRADED90</code> (at least 90), <code>STALE</code> (reading older than 15 min), <code>DAYBURN</code> (7d up more than 10 points in one UTC day), plus <code>SCHEMA</code>, <code>ANOMALY</code>, <code>READER</code></td>
+<td>Orchestrator; <strong>owner</strong> at 7d 90% and on a proven cap</td>
+<td>Page; direct Telegram for the owner paths. Exit code 3 means an episode is open</td>
+</tr>
+<tr>
+<td>Usage meter</td>
+<td>Analyst seat, hourly line</td>
+<td>None; it is a reading (<code>7d=</code> and <code>5h=</code> fields)</td>
+<td>Nobody</td>
+<td>Read by the pre-reset burn governor</td>
+</tr>
+<tr>
+<td>Claude login works</td>
+<td>Auth sentinel, pm2 loop every 20 min</td>
+<td>The probe must answer exactly <code>ok</code></td>
+<td><strong>Owner</strong></td>
+<td>Plain <code>curl</code> to the Bot API, so it works when no model works. Alert kinds: <code>cap</code>, <code>auth</code>, <code>probe</code></td>
+</tr>
+<tr>
+<td>Google credential identity</td>
+<td>Credential identity check, hourly</td>
+<td><code>MISMATCH</code> (a credential file holds another account, exit 5); <code>UNKNOWN</code> after 3 failed checks</td>
+<td>Orchestrator</td>
+<td>Page once per episode</td>
+</tr>
+<tr>
+<td>Settings change watch</td>
+<td>Same script</td>
+<td>Any hash change across watched files: every <code>settings.json</code> and <code>settings.local.json</code>, hook scripts, <code>~/.claude/CLAUDE.md</code>, skills, agents, commands, and the <code>mcpServers</code> block of <code>~/.claude.json</code></td>
+<td>Orchestrator</td>
+<td>Page once per change</td>
+</tr>
+</tbody>
+</table>
+<h3 id="44-guards">4.4 Guards</h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Producer</th>
+<th>Threshold</th>
+<th>Who hears</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Guard verdicts</td>
+<td>PreToolUse guards: shared-surface guard, send guard, attribution lint, Google account guard, brief guard, future-time guard</td>
+<td>Per guard (see <code>32-security-red-team-log.md</code>)</td>
+<td>The acting seat</td>
+<td>Exit 2 blocks the call; the reason goes to the model</td>
+</tr>
+<tr>
+<td>Guard liveness canary</td>
+<td>Each seat's heartbeat cron attempts one write the shared-surface guard must block</td>
+<td>A <code>BLOCK</code> line each window per seat. A landed file means the guard is dead</td>
+<td>Orchestrator and auditor</td>
+<td>Seat-run check</td>
+</tr>
+</tbody>
+</table>
+<h3 id="45-business-and-housekeeping">4.5 Business and housekeeping</h3>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Producer</th>
+<th>Threshold</th>
+<th>Who hears</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Domain expiry</td>
+<td>Domain expiry sentinel, daily</td>
+<td>60, 30, 14, 7 days; 7 is urgent. "Measured nothing" if every lookup failed</td>
+<td>Orchestrator</td>
+</tr>
+<tr>
+<td>Knowledge base freshness</td>
+<td>KB freshness sentinel, daily</td>
+<td>Newest <code>ingested_at</code> too old (exit 10)</td>
+<td>Orchestrator</td>
+</tr>
+<tr>
+<td>Fleet lint</td>
+<td>Nightly lint job</td>
+<td>Any non-clean verdict</td>
+<td>Orchestrator</td>
+</tr>
+<tr>
+<td>Database backup liveness</td>
+<td>Backup liveness watch, daily</td>
+<td>Last run older than 25 h, or not every database backed up</td>
+<td>Orchestrator</td>
+</tr>
+<tr>
+<td>Billing alerts</td>
+<td>Orchestrator cron running a billing-mail reader</td>
+<td>New or escalated bill, moved deadline, paid. Exit map: 0 ok; 3 void (no account read); 4 a send failed; 5 credential mismatch; 6 partial</td>
+<td><strong>Owner</strong></td>
+</tr>
+<tr>
+<td>Site and booking watches</td>
+<td>Infra-watch scripts</td>
+<td>Non-200, vendor payment page, or a changed checkout link count, confirmed by a re-probe</td>
+<td>Orchestrator</td>
+</tr>
+<tr>
+<td>Nightly metrics</td>
+<td>Analyst cron running <code>cortextos bus collect-metrics</code></td>
+<td>Per seat: tasks, errors, heartbeat staleness</td>
+<td>Orchestrator on anomaly</td>
+</tr>
+<tr>
+<td>Upstream drift</td>
+<td>Cron running <code>cortextos bus check-upstream</code></td>
+<td>Framework diverges from upstream</td>
+<td>Orchestrator</td>
+</tr>
+<tr>
+<td>Claim audit</td>
+<td>Auditor cron</td>
+<td>Unverified claim, guardrail break; high severity if a wrong fact reached the owner or the same root cause repeats 3 times in 7 days</td>
+<td>Offending seat; owner on high severity</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-paths-that-reach-the-owner-without-the-orchestrator">5. Paths that reach the owner without the orchestrator</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Trigger</th>
+<th>Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Auth sentinel</td>
+<td>Login or model probe not <code>ok</code></td>
+<td>Sentinel script, direct Bot API call</td>
+</tr>
+<tr>
+<td>Quota ledger</td>
+<td>7d at least 90%, or a proven cap</td>
+<td>Ledger script via <code>send-telegram</code></td>
+</tr>
+<tr>
+<td>Billing alerts</td>
+<td>New or escalated bill; credential mismatch</td>
+<td>Billing script via <code>send-telegram</code></td>
+</tr>
+<tr>
+<td>Crash hook</td>
+<td>Any real crash; routine ends outside quiet hours</td>
+<td><code>src/hooks/hook-crash-alert.ts</code></td>
+</tr>
+<tr>
+<td>Compaction hook</td>
+<td>Every compaction</td>
+<td><code>src/hooks/hook-compact-telegram.ts</code></td>
+</tr>
+</tbody>
+</table>
+<p>Model-run crons can also message the owner on a condition. Those need a live seat with quota.</p>
+<h2 id="6-signals-that-look-live-but-are-not">6. Signals that look live but are not</h2>
+<p>Check for these when you audit an install:</p>
+<ul>
+<li><strong>Dead meters that read zero.</strong> A usage file that stopped updating still reads <code>0</code>. Anyone who trusts it sees an idle plan. Rename retired meters to <code>RETIRED-&lt;name&gt;</code> so they cannot pass as healthy.</li>
+<li><strong>Duplicate jobs that never run.</strong> A crontab copy of a sentinel that cannot reach the login keychain logs <code>SKIP</code> every run. It looks like cover and gives none. Keep one working copy.</li>
+<li><strong>Disabled watchers.</strong> <code>launchctl print-disabled gui/$(id -u)</code> lists jobs that exist but never fire.</li>
+<li><strong>Optional hooks not registered.</strong> <code>cortextos bus hook-loop-detector</code> blocks repeated tool loops, but only on seats whose <code>settings.json</code> registers it.</li>
+<li><strong>Dated one-shot crons.</strong> A 5-field expression with a fixed day and month fires again a year later unless the prompt removes it.</li>
+</ul>
+<h2 id="7-known-limitations">7. Known limitations</h2>
+<ul>
+<li><strong>Most pages go to one inbox.</strong> If the orchestrator is capped, compacting or deep in a long job, pages queue. The direct owner paths in section 5 exist for that reason.</li>
+<li><strong>No reply-latency alert ships by default.</strong> Inbound and outbound logs both carry timestamps; see the design notes.</li>
+<li><strong>No per-seat token burn.</strong> The quota ledger shows the account total only.</li>
+<li><strong>No cost-per-day figure.</strong> Bills arrive by mail; usage APIs are per vendor.</li>
+<li><strong>Disk is measured by more than one sentinel</strong>, each with its own floor. Know which one is speaking.</li>
+<li><strong>The heartbeat sentinel cannot watch the seat that runs it.</strong> Assign another seat to watch ops.</li>
+<li><strong>Temporary watch scripts started with <code>nohup</code> die on reboot.</strong> Promote anything you want to keep to a launchd job.</li>
+</ul>
+<h2 id="8-design-notes-cheap-additions">8. Design notes: cheap additions</h2>
+<table>
+<thead>
+<tr>
+<th>Missing signal</th>
+<th>Cheapest way to add</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reply latency to the owner</td>
+<td>A short launchd script every 5 minutes: for each inbound owner message older than N minutes with no outbound since, page the orchestrator; past 15 minutes, send the owner one line saying the seat is busy. Add median and p90 to nightly metrics</td>
+</tr>
+<tr>
+<td>Token burn per seat</td>
+<td>Every Claude Code transcript line under <code>~/.claude/projects/&lt;project&gt;/*.jsonl</code> carries a <code>usage</code> object (input, cache creation, cache read, output). A nightly script can sum it per seat per UTC day. No API calls needed</td>
+</tr>
+<tr>
+<td>Cost per day</td>
+<td>Add a run-rate line to the billing reader built from the bills it already parses</td>
+</tr>
+<tr>
+<td>Dashboard and local servers up</td>
+<td>Add <code>curl</code> lines to an existing 10-minute sentinel</td>
+</tr>
+<tr>
+<td>Telegram delivery</td>
+<td>Daily canary to a sink chat; check its <code>message_id</code> lands in the outbound log; page through a second channel if not</td>
+</tr>
+<tr>
+<td>One status page</td>
+<td>List every <code>.alive</code> mtime against its expected cadence plus every open episode (quota, credentials, disk) into one JSON the dashboard can show</td>
+</tr>
+</tbody>
+</table>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/bus/event.ts</code> (event log writer)</li>
+<li><code>src/bus/metrics.ts</code> (<code>collect-metrics</code>)</li>
+<li><code>src/telegram/logging.ts</code> (outbound log)</li>
+<li><code>src/hooks/hook-crash-alert.ts</code>, <code>src/hooks/hook-compact-telegram.ts</code>, <code>src/hooks/hook-loop-detector.ts</code></li>
+<li><code>src/daemon/fast-checker.ts</code> (context thresholds)</li>
+<li><code>dashboard/src/lib/watcher.ts</code> (event feed)</li>
+</ul>
+</article><nav class="pager"><a class="prev" href="30-sre-runbooks.html"><small>Previous</small>30 SRE runbooks</a><a class="next" href="32-security-red-team-log.html"><small>Next</small>32 Security model and red-team practice</a></nav></main></div></body></html>

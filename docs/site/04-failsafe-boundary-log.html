@@ -1,0 +1,853 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fail-Safes and Boundaries · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li class="on"><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">04</div><div><p class="dg">Core system</p>
+<h1>Fail-Safes and Boundaries</h1><p class="meta">5,362 words · <a href="../04-failsafe-boundary-log.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-rule-enforcement-three-layers">1. Rule enforcement: three layers</a></li><li><a href="#2-tokens-and-context">2. Tokens and context</a></li><li><a href="#3-fallback-behaviour">3. Fallback behaviour</a></li><li><a href="#4-failure-classes-and-the-guard-for-each">4. Failure classes and the guard for each</a></li><li><a href="#5-known-limitations">5. Known limitations</a></li><li><a href="#6-risk-table">6. Risk table</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document describes what stops OGL Cortex agents from doing damage, what happens when a component fails, and how the system recovers. It covers the three enforcement layers, every guard in the OGL layer, the context and compaction lifecycle, the watchdog set, failure handling per component, and the failure classes each guard defends against.</p>
+<p>Related documents: <code>03-configuration-registry.md</code> covers how hooks are registered. <code>11-ai-safety-governance.md</code> lists the rules these guards enforce.</p>
+<h2 id="terms">Terms</h2>
+<ul>
+<li><strong>Hook</strong>: a script Claude Code runs at a fixed moment: before a tool call (PreToolUse), after one (PostToolUse), at compaction (PreCompact, PostCompact), at session start (SessionStart), on each prompt (UserPromptSubmit) or at session end (SessionEnd, Stop).</li>
+<li><strong>Block</strong>: a PreToolUse hook stops a call only when it exits with code 2. Claude Code treats any other non-zero exit code as a non-blocking error, and the call still runs. Every blocking guard in OGL Cortex exits 2 on purpose. This is the most important fact in this document.</li>
+<li><strong>Pass token</strong>: a file the agent touches to let one blocked command through. It is consumed on use and expires after 10 minutes.</li>
+<li><strong>Fail closed / fail open</strong>: when the guard itself crashes, "closed" blocks the command and "open" lets it run.</li>
+<li><strong>Seat</strong>: one running Claude Code agent with its own folder under <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/</code>.</li>
+<li><strong>Roles</strong>: the orchestrator (the seat the owner talks to), specialists (builder, analyst and other workers), the auditor (checks claims and gates installs) and the sentinel (watches machine health).</li>
+<li><strong>Compaction</strong>: Claude Code squeezing a long conversation into a summary so it fits the model's context window.</li>
+</ul>
+<hr />
+<h2 id="1-rule-enforcement-three-layers">1. Rule enforcement: three layers</h2>
+<p>Every rule in OGL Cortex is held by one or more of three layers:</p>
+<ol type="1">
+<li><strong>Mechanical</strong>: a hook or wrapper script refuses the action. It works even when the agent forgets the rule.</li>
+<li><strong>Instruction</strong>: the rule is written in <code>CLAUDE.md</code>, <code>GUARDRAILS.md</code>, <code>MEMORY.md</code> or a skill. It works only if the agent reads, remembers and obeys it.</li>
+<li><strong>Auditor</strong>: another party checks after the fact. The auditor seat runs hourly passes, peers log catches in a truth ledger, and the owner approves risky actions.</li>
+</ol>
+<p>The design principle is "prefer guards that work when you are wrong about yourself". A rule that fails under instruction alone is a candidate for a mechanical guard.</p>
+<figure class="diagram"><img src="img/394b75279f43.svg" alt="Diagram"></figure>
+
+<h3 id="11-where-hooks-are-registered">1.1 Where hooks are registered</h3>
+<p>Hooks load from two settings scopes. Each scope fences a different set of sessions.</p>
+<table>
+<thead>
+<tr>
+<th>Settings file</th>
+<th>Scope</th>
+<th>Default OGL Cortex content</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>~/.claude/settings.json</code></td>
+<td>Every Claude Code session for that OS user, including desktop sessions the owner opens by hand</td>
+<td>The ship gate</td>
+</tr>
+<tr>
+<td><code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/settings.json</code></td>
+<td>Sessions started in that seat folder</td>
+<td>The orchestrator template registers about two dozen hook commands across 9 events: PermissionRequest, PreToolUse, PostToolUse, Stop, SessionEnd, PreCompact, PostCompact, SessionStart, UserPromptSubmit. Every seat template registers the shared-surface guard</td>
+</tr>
+</tbody>
+</table>
+<p>Default guard placement:</p>
+<table>
+<thead>
+<tr>
+<th>Guard</th>
+<th>Seats that load it</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shared-surface guard</td>
+<td>All seats. The builder runs full block mode; other seats start with <code>SURFACE_CODE_MODE=warn</code> for the code-analysis rule</td>
+</tr>
+<tr>
+<td>Orwell send-guard</td>
+<td>Every seat that writes to a human</td>
+</tr>
+<tr>
+<td>Google Workspace account guard</td>
+<td>Seats that use the Google Workspace MCP</td>
+</tr>
+<tr>
+<td>Brief guard, future-time guard, attribution lint, compaction meter</td>
+<td>The orchestrator</td>
+</tr>
+</tbody>
+</table>
+<p>Option: a guard registered only in seat settings does not fence a desktop session the owner starts outside the seat folders. To put home-wide cleanups behind the same fences, also register the shared-surface guard in <code>~/.claude/settings.json</code> and give the owner a personal pass token.</p>
+<h3 id="12-mechanical-guards">1.2 Mechanical guards</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Guard (file)</th>
+<th>Event and matcher</th>
+<th>What it blocks</th>
+<th>Mode</th>
+<th>How to release</th>
+<th>Tests</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Shared-surface guard (<code>~/.claude/hooks/shared-surface-guard.py</code>, parser <code>surface.py</code>, code reader <code>codewrites.py</code>)</td>
+<td>PreToolUse, Bash</td>
+<td>Commands that change things every seat depends on: writes or deletes under <code>~/.claude</code>, <code>~/.claude.json</code>, the Google Workspace MCP credential folder, shared config folders and <code>~/.cache/uv</code>; <code>uv cache prune</code> and <code>uv cache clean</code>; global npm and pnpm installs; <code>brew upgrade</code></td>
+<td>Block (exit 2). Code-analysis hits are warn-only on seats in warn mode. A detected write to a guarded root blocks in every mode</td>
+<td><code>touch ~/.claude/hooks/.surface-pass-once-&lt;seat&gt;</code>, one use, 10 minutes. If the guard crashes on a guarded path it blocks, and the token does not apply</td>
+<td><code>--selftest</code>. Release suites carry block and allow rows, mutation tests, and a replay of a recorded command corpus that must show zero verdict changes</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Orwell send-guard (<code>~/.claude/hooks/orwell-lint.py</code>)</td>
+<td>PreToolUse on Bash and on MCP send tools (mail send, CRM send-message, social create-post, reply, forward, create-draft)</td>
+<td>Outgoing human-facing text that breaks Orwell's six rules or uses em or en dashes. Deterministic, no model involved</td>
+<td>Block (exit 2). An optional truth check runs warn-only</td>
+<td><code>touch ~/.claude/hooks/.orwell-pass-once-&lt;seat&gt;</code> (the rule 6 exception). A crash on a send fails closed</td>
+<td><code>--selftest</code>, plus fail-closed and truth-warn suites</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Google Workspace account guard (<code>~/.claude/hooks/gws-account-guard.py</code>)</td>
+<td>PreToolUse, <code>mcp__google-workspace__.*</code></td>
+<td>Any call for an account on the always-block list, any account in a live credential-mismatch episode, and any <code>start_google_auth</code> call</td>
+<td>Block (exit 2). Other internal errors fail open</td>
+<td>No pass token by design. Edit the always-block list once the MCP can no longer store a wrong account's token</td>
+<td>Guard and install suites</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Brief guard (<code>&lt;seat&gt;/.claude/hooks/brief_guard.py</code>)</td>
+<td>PreToolUse, Bash</td>
+<td><code>cortextos bus create-task --assignee &lt;other agent&gt;</code> whose description lacks the four lines TASK, FILES, BAR, RETURN</td>
+<td>Block (exit 2). Crash in scope fails closed; out of scope fails open</td>
+<td>None. Rewrite the brief</td>
+<td>Unit tests</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Future-time guard (<code>&lt;seat&gt;/.claude/hooks/future_time_guard.py</code>)</td>
+<td>PreToolUse, Bash, Write, Edit</td>
+<td>A UTC clock stamp more than 3 minutes in the future written to <code>memory/</code>, <code>STATE.md</code>, or a <code>send-telegram</code> / <code>send-message</code> call</td>
+<td>Block. Fails open on any error: it is a tripwire, not a gate</td>
+<td>None</td>
+<td><code>--selftest</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Attribution lint (<code>&lt;seat&gt;/.claude/hooks/attribution-lint.py</code>)</td>
+<td>PreToolUse, Bash</td>
+<td>In a send to the owner's chat: a figure framed as "a number, not my opinion", or a score stated as fact ("N/100") with no receipt or "estimate" label</td>
+<td>Tier A blocks. Tier B (unsourced numbers) is log-only shadow. Fails closed on an owner send it cannot parse, with a 5 s alarm</td>
+<td>None</td>
+<td><code>--selftest</code> (test mode writes to a temp log), mutants, over-block replay</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Pentest ship gate (<code>ship_gate_hook.py</code> in the <code>cortex-pentest-gate</code> skill)</td>
+<td>PreToolUse, Bash, user level</td>
+<td><code>git push</code>, <code>vercel deploy</code>, <code>npm publish</code>, <code>wrangler deploy</code>, <code>scp</code> and <code>rsync</code> to a remote, unless <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code> exists</td>
+<td>Block (exit 2). See 1.3</td>
+<td><code>CORTEX_PENTEST_OVERRIDE=accepted-risk</code> plus <code>security/pentest-risk-acceptance.md</code></td>
+<td>Sample payloads; see 1.3</td>
+</tr>
+</tbody>
+</table>
+<p>Wrapper gates are scripts the agent calls. They are mechanical only when used:</p>
+<table>
+<thead>
+<tr>
+<th>Wrapper</th>
+<th>What it enforces</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ship.sh</code> (builder)</td>
+<td>Deploys a preview, runs the pentest gate and a ZAP scan against it, checks indexing and noindex, and promotes to production only on pass. Exit map: 0 shipped, 3 aborted, 4 deploy failed, 5 live and wrong, 6 candidate failed, 7 promote did not take, 8 live with warning</td>
+</tr>
+<tr>
+<td><code>emit-truth-correction.sh</code></td>
+<td>Validates every truth-ledger entry: canonical kind, catcher derived from a real message id, unique dedupe key, real past timestamp, and a dry-run flag that cannot be swallowed</td>
+</tr>
+<tr>
+<td><code>kb-ingest-guarded.sh</code></td>
+<td>Refuses a knowledge-base ingest that would not replace by source, so repeated ingests cannot pile up duplicate chunks</td>
+</tr>
+<tr>
+<td><code>brief-audit/audit.py</code></td>
+<td>Checks a worker's return against its brief before the orchestrator accepts it</td>
+</tr>
+</tbody>
+</table>
+<p>Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; dream hook; session digest; compaction meter, state hand-back and summary saver; PreCompact checkpoint; session-start injection; prompt-time recall and routing; and the fix-commit hunter trigger, which starts a background adversarial Claude review after any commit whose subject says fix, guard, hook, bug, block or gate. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.</p>
+<p>Every guard writes a log under <code>~/.claude/hooks/</code> (<code>surface-guard.log</code>, <code>orwell-lint.log</code>, <code>gws-account-guard.log</code>, <code>attribution-lint.log</code>). Each line carries a verdict (PASS, BLOCK, WARN, NOTE, shadow, pass-once, FAIL-CLOSED, FAIL-OPEN) and the seat. A guard counts as live only after a real call leaves a line in its log.</p>
+<h3 id="13-ship-gate-requirements">1.3 Ship gate requirements</h3>
+<p>The ship gate is the guard most likely to look stronger than it is. It meets these requirements:</p>
+<ul>
+<li><strong>Exit 2 on block.</strong> A hook that prints "BLOCKED" and returns 1 does not stop the command.</li>
+<li><strong>Match every deploy form.</strong> <code>vercel --prod</code>, <code>npx vercel --prod --yes</code> and <code>vercel deploy --prod</code> are all production deploys. A pattern that requires the word <code>deploy</code> misses the first two.</li>
+<li><strong>Bind the report to the tree.</strong> A pass report in any parent folder with no date check lets any command under that folder through. Require the report to be newer than the last change in the tree being shipped, or route every deploy through <code>ship.sh</code> and block raw <code>vercel</code>.</li>
+<li><strong>Prove it with a sink.</strong> Feed the hook a payload that must be refused and check the exit code is 2. A passing selftest does not prove the live hook blocks.</li>
+<li><strong>Never let a wrapper rewrite a verdict.</strong> Risk acceptance lives in a separate file. The report always carries the true verdict.</li>
+</ul>
+<h3 id="14-shared-surface-parser-coverage">1.4 Shared-surface parser coverage</h3>
+<p>The shared-surface guard ships with a release process: the builder writes the change, the auditor gates it with a written report, and the install happens only on the auditor's PASS. The parser treats each of these forms as a delete or write, and each is a test row:</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Forms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Flag variants</td>
+<td><code>uv -q cache prune</code>, <code>uv cache clean --force</code></td>
+</tr>
+<tr>
+<td>Brace expansion</td>
+<td><code>rm -rf ~/{.cache,x}/uv</code></td>
+</tr>
+<tr>
+<td>Alternate delete verbs</td>
+<td><code>trash</code>, <code>osascript</code> Finder "delete POSIX file"</td>
+</tr>
+<tr>
+<td><code>find</code> deletes</td>
+<td><code>find ... -delete</code>, <code>find ... -exec rm</code>, `find</td>
+</tr>
+<tr>
+<td>Root as parent</td>
+<td><code>rm -rf /</code> counts as touching every protected root</td>
+</tr>
+<tr>
+<td>Session memory</td>
+<td>Deletes of a seat's <code>~/.claude/projects/&lt;project&gt;/</code> folder, its <code>memory/</code> folder, <code>MEMORY.md</code> or any <code>.jsonl</code> transcript. Writes stay allowed</td>
+</tr>
+</tbody>
+</table>
+<p>The code-analysis rule ships warn-only and flips to block per seat after a 48-hour window with zero false positives. Schedule that readout as a one-shot cron.</p>
+<h3 id="15-no-inline-llm-judge">1.5 No inline LLM judge</h3>
+<p>Every PreToolUse guard is deterministic Python. There is no inline LLM judge and no classifier model in the tool path. Model-based checks run after the fact:</p>
+<ul>
+<li>the fix-commit hunter, a fresh read-only Claude session that attacks one claim in a commit, in the background, never blocking;</li>
+<li>the <code>auditor</code> subagent type, a read-only checker the orchestrator uses before saying "done";</li>
+<li>the auditor seat, a full Claude seat doing hourly audits (1.7).</li>
+</ul>
+<p>This keeps the tool path fast and its verdicts reproducible.</p>
+<h3 id="16-rules-held-by-instruction-only">1.6 Rules held by instruction only</h3>
+<p>These rule classes have no hook behind them by default. They hold only if the agent remembers them. Each is a candidate for a guard.</p>
+<table>
+<thead>
+<tr>
+<th>Rule class</th>
+<th>Where written</th>
+<th>Mechanical cover</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No website change without the owner's explicit approval</td>
+<td><code>GUARDRAILS.md</code></td>
+<td>None checks for an approval id. The ship gate checks security, not approval</td>
+</tr>
+<tr>
+<td>Approval for external comms, financial, deployment, data deletion</td>
+<td><code>config.json</code> <code>approval_rules.always_ask</code></td>
+<td>Limited. Seats run with <code>--dangerously-skip-permissions</code>, so PermissionRequest relays rarely see a prompt</td>
+</tr>
+<tr>
+<td>Never edit your own bootstrap files, skills or core</td>
+<td><code>GUARDRAILS.md</code></td>
+<td>Partial. The surface guard covers <code>~/.claude</code>, not a seat's own <code>CLAUDE.md</code>, <code>AGENTS.md</code> or <code>.claude/skills</code></td>
+</tr>
+<tr>
+<td>Secrets never over chat</td>
+<td><code>GUARDRAILS.md</code></td>
+<td>None at send time. The pentest gate's TruffleHog scan covers shipped trees only</td>
+</tr>
+<tr>
+<td>Owner-facing dates in the owner's time zone, never raw <code>date -u</code></td>
+<td><code>STATE.md</code> clock rule</td>
+<td>Partial. The future-time guard catches only future UTC stamps</td>
+</tr>
+<tr>
+<td>Every number carries its source</td>
+<td><code>STATE.md</code></td>
+<td>Partial. Attribution lint blocks two narrow forms</td>
+</tr>
+<tr>
+<td>List the whole DNS zone before a nameserver switch; add then delete</td>
+<td><code>GUARDRAILS.md</code></td>
+<td>None</td>
+</tr>
+<tr>
+<td>Address UI controls by identity, never by a CSS state selector</td>
+<td><code>GUARDRAILS.md</code></td>
+<td>None</td>
+</tr>
+<tr>
+<td>Ask before any shared <code>~/.claude</code> skill install</td>
+<td><code>GUARDRAILS.md</code></td>
+<td>Partial. The surface guard blocks once; the agent can self-release</td>
+</tr>
+<tr>
+<td>"Stop" means stop; no screen input without a go</td>
+<td><code>STATE.md</code></td>
+<td>None</td>
+</tr>
+<tr>
+<td>Status lists come from task rows, not a compaction summary</td>
+<td>auto-memory</td>
+<td>None</td>
+</tr>
+</tbody>
+</table>
+<p>Pass tokens are a speed bump, not an approval. The agent that was blocked can release itself. The value is a forced second step and a log line the auditor reads.</p>
+<h3 id="17-rules-held-by-a-person-or-an-auditor-seat">1.7 Rules held by a person or an auditor seat</h3>
+<table>
+<thead>
+<tr>
+<th>Party</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Auditor seat</td>
+<td><code>forensic-audit-pass</code> every hour: scans the last 60 minutes of bus events and messages for unverified claims, writes coaching into the offending agent's memory, escalates high-severity items to the owner. Gates every guard install with a written GATE-REPORT. Keeps a daily digest and a false-claim catch-rate metric</td>
+</tr>
+<tr>
+<td>Truth ledger</td>
+<td>Every caught false claim is logged as a <code>truth_correction</code> event of kind <code>peer_catch</code>, <code>self_correction</code> or <code>principal_catch</code>, through the validator script</td>
+</tr>
+<tr>
+<td>Analyst seat</td>
+<td>Hourly <code>orphan-guard</code> sweep (daemon, stray processes, a "running is not emitting" check for control-tier seats), nightly metrics, daily theta-wave improvement cycle</td>
+</tr>
+<tr>
+<td>Owner</td>
+<td>Approves deploys, client sends, spending and access changes. Approvals arrive on Telegram or in the Agent Office from the owner's account</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-tokens-and-context">2. Tokens and context</h2>
+<h3 id="21-settings">2.1 Settings</h3>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model and window</td>
+<td><code>claude-opus-5-5[1m]</code>, 1,000,000 tokens</td>
+<td><code>config.json</code> <code>model</code>; daemon state <code>context_status.json</code></td>
+</tr>
+<tr>
+<td>Claude Code auto-compaction point</td>
+<td>430,000 tokens</td>
+<td><code>.claude/settings.json</code> <code>autoCompactWindow</code></td>
+</tr>
+<tr>
+<td>Compaction meter</td>
+<td>nudge at 300,000, warn at 360,000, "limit" label at 400,000</td>
+<td><code>.claude/hooks/kem-compaction/compaction.json</code></td>
+</tr>
+<tr>
+<td>Daemon context thresholds</td>
+<td>warn 80%, hand-off 88% of the window</td>
+<td><code>config.json</code> <code>ctx_warning_threshold</code>, <code>ctx_handoff_threshold</code>; logic in <code>src/daemon/fast-checker.ts</code></td>
+</tr>
+<tr>
+<td>Planned session rotation</td>
+<td>255,600 s = 71 hours</td>
+<td><code>config.json</code> <code>max_session_seconds</code>; <code>src/daemon/agent-process.ts</code></td>
+</tr>
+<tr>
+<td>Crash cap</td>
+<td>10 crashes per day</td>
+<td><code>config.json</code> <code>max_crashes_per_day</code></td>
+</tr>
+<tr>
+<td>Status line</td>
+<td><code>cortextos bus hook-context-status</code>, refresh 5 s</td>
+<td><code>.claude/settings.json</code> <code>statusLine</code></td>
+</tr>
+</tbody>
+</table>
+<p>Interaction: with a 1M window and auto-compaction at 430k, the daemon's 80% and 88% thresholds (800k and 880k) are not reached in normal use. The meter plus auto-compaction do the work. The daemon path that still applies is the hard overflow check, which force-restarts a seat when the terminal shows an overflow error and usage corroborates it. If you lower the window or raise <code>autoCompactWindow</code>, recheck which threshold fires first.</p>
+<h3 id="22-what-happens-as-context-fills">2.2 What happens as context fills</h3>
+<figure class="diagram"><img src="img/1adbc54783ca.svg" alt="Diagram"></figure>
+
+<h3 id="23-what-is-lost-and-how-it-comes-back">2.3 What is lost and how it comes back</h3>
+<table>
+<thead>
+<tr>
+<th>Lost at compaction</th>
+<th>How it comes back</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Exact tool output, file contents, reasoning</td>
+<td>Not recovered. The Compact Instructions in <code>CLAUDE.md</code> tell the summary to drop tool output already acted on</td>
+</tr>
+<tr>
+<td>Current checkpoint, promises to the owner, live changes and rollbacks, dead ends, owner rules</td>
+<td><code>STATE.md</code>, handed back in full after every compaction</td>
+</tr>
+<tr>
+<td>What survived in the summary</td>
+<td><code>compactions/&lt;time&gt;.md</code></td>
+</tr>
+<tr>
+<td>Last exchanges before compaction</td>
+<td>PreCompact checkpoint script into <code>memory/checkpoints/latest.md</code></td>
+</tr>
+<tr>
+<td>The current day's work log</td>
+<td>Tail of the daily memory file, injected at session start</td>
+</tr>
+<tr>
+<td>Session as a whole</td>
+<td>Session digest on PreCompact and SessionEnd</td>
+</tr>
+</tbody>
+</table>
+<p>Implementation note for checkpoint hooks: a shell hook that runs <code>python3 - &lt;&lt; 'EOF'</code> gives Python the script on stdin, so the hook's JSON payload never arrives and <code>transcript_path</code> is empty. Pass the script as a file or with <code>-c</code>, read the payload from stdin, write to a dedicated file rather than a shared boot card, and write nothing when zero messages are captured. Test with a real hook payload. Alert when a checkpoint reports zero messages.</p>
+<h3 id="24-session-rotation-and-restarts">2.4 Session rotation and restarts</h3>
+<p>The daemon restarts each seat after <code>max_session_seconds</code> with <code>--continue</code>, which keeps the conversation. The timer re-reads <code>config.json</code> on each fire, so a changed value takes effect without a daemon restart. After a daemon restart every seat comes back with <code>--continue</code> and re-reads its bootstrap files.</p>
+<p>Daemon commands take <code>--instance &lt;instance&gt;</code>. Without it the CLI targets the <code>default</code> instance and can report "Daemon is not running" while your instance is up.</p>
+<hr />
+<h2 id="3-fallback-behaviour">3. Fallback behaviour</h2>
+<h3 id="31-watchdog-set">3.1 Watchdog set</h3>
+<p>Run watchdogs that must survive a dead or capped agent session under launchd (or systemd), not as agent crons. Agent-session crons stop when the seat stops.</p>
+<table>
+<thead>
+<tr>
+<th>Watchdog</th>
+<th>Runs as</th>
+<th>Watches</th>
+<th>Action on a trip</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Disk and swap watch</td>
+<td>launchd, owned by the sentinel seat</td>
+<td>Free disk every 60 s; swap file count; swap free</td>
+<td>Messages the orchestrator and wakes the sentinel at a configurable floor (for example 7 GB free or 17 swap files)</td>
+</tr>
+<tr>
+<td>disk sentinel</td>
+<td>launchd</td>
+<td>Disk states: ok at 20 GiB or more, warn, critical under 10, emergency under 5</td>
+<td>Alerts on a state change; re-pings if stuck over 2 h. Never deletes</td>
+</tr>
+<tr>
+<td>floor-prune guard</td>
+<td>launchd</td>
+<td>Disk under 10 GiB</td>
+<td>Prunes Docker images and build cache only, never volumes, with a cooldown; tells the orchestrator</td>
+</tr>
+<tr>
+<td>heartbeat-sentinel</td>
+<td>launchd</td>
+<td>Wedged seats</td>
+<td>Alarms the orchestrator, pokes idle seats, circuit breaker on mass idle</td>
+</tr>
+<tr>
+<td>session-liveness watch</td>
+<td>launchd</td>
+<td>A seat whose model session is up but dark (for example on a usage cap)</td>
+<td>Alerts; never restarts</td>
+</tr>
+<tr>
+<td>daemon-storm watch</td>
+<td>launchd, 15 s cadence</td>
+<td>Two or more daemon stops in 60 s</td>
+<td>Alerts with a 180 s re-ping guard</td>
+</tr>
+<tr>
+<td>daemon-commander watch</td>
+<td>launchd</td>
+<td>Who runs <code>pm2 restart</code> on the daemon</td>
+<td>Logs the caller's process chain. Observe only</td>
+</tr>
+<tr>
+<td>pm2-resurrect check</td>
+<td>launchd, every 5 min</td>
+<td>Daemon not online in <code>pm2 jlist</code></td>
+<td>Resurrects only on a clean read; pages the orchestrator on a bad read; after 15 min of bad reads, sends one Telegram to the owner without the daemon</td>
+</tr>
+<tr>
+<td>Credential identity check</td>
+<td>Builder cron plus a launchd backstop</td>
+<td>That each Google credential file holds the account it is named for; hashes of settings and hook files</td>
+<td>Exit 5 on mismatch: pages once per episode and feeds the account guard's block list</td>
+</tr>
+<tr>
+<td>Crash-alert relay</td>
+<td>Builder cron, hourly</td>
+<td>Crash alerts the framework writes</td>
+<td>Relays undelivered alerts; reports relay failure by exit code</td>
+</tr>
+<tr>
+<td>Claude auth sentinel</td>
+<td>pm2, every 20 min, inside the login session</td>
+<td>That Claude answers "ok"</td>
+<td>Alerts on any other answer. A usage-cap answer is classed <code>kind=cap</code>: one page per outage with the reset time</td>
+</tr>
+<tr>
+<td>Orphan guard</td>
+<td>Analyst cron, hourly</td>
+<td>Daemon pid, stray model servers, control-tier seats that run but do not emit</td>
+<td>Flags HIGH only on control-tier down or unexpected processes</td>
+</tr>
+<tr>
+<td>Fast-checker idle heartbeat</td>
+<td>Inside the daemon, every 50 min per seat</td>
+<td>Seat idle</td>
+<td>Writes "[watchdog] <agent> alive" (<code>src/daemon/fast-checker.ts</code>)</td>
+</tr>
+<tr>
+<td>Business pollers</td>
+<td>Seat crons</td>
+<td>Inboxes, booking feeds, traffic</td>
+<td>Exit-code maps: 0 is ok and every other code names a distinct failure (nothing read, send failed, credential mismatch, partial read). A crashed poll never looks like a quiet one</td>
+</tr>
+<tr>
+<td>Site uptime watch</td>
+<td>launchd</td>
+<td>Each production site answers</td>
+<td>Pages on a site down. It cannot see billing state; pair it with a billing check</td>
+</tr>
+<tr>
+<td>Domain-expiry sentinel</td>
+<td>launchd</td>
+<td>WHOIS expiry dates</td>
+<td>Routes early warnings to the orchestrator</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32-failure-by-failure">3.2 Failure by failure</h3>
+<figure class="diagram"><img src="img/ff9685083af2.svg" alt="Diagram"></figure>
+
+<p><strong>Telegram fails.</strong> The send call throws on error and has no retry queue. A 429 rate limit is logged as a warning (<code>src/telegram/api.ts</code>). The poller fetches inbound messages and recovers next tick, so messages wait on Telegram's side. Fallback channels are the Agent Office and the mobile control API. Route every send through <code>cortextos bus send-telegram</code>: raw <code>curl</code> sends never reach <code>outbound-messages.jsonl</code> and leave no record.</p>
+<p><strong>The daemon fails.</strong> pm2 restarts it. If pm2 cannot be read, the launchd resurrect check pages the orchestrator, then the owner. Restart storms page within 15 s.</p>
+<p><strong>An MCP server fails.</strong> There is no built-in MCP watchdog. Add a session-start check that names failed MCP servers in the seat heartbeat, and remove dead entries from <code>~/.claude.json</code>. A stdio server whose command is a URL cannot start. The fallback for the knowledge layer is reading the source notes directly. Shared toolchain caches are a single point of failure: one <code>uv cache prune --force</code> can break every running <code>uvx</code> MCP server at once, which is why the surface guard blocks it.</p>
+<p><strong>The dashboard fails.</strong> The dashboard is a viewer. The bus, crons and Telegram work without it. Run it as a production build (<code>next build</code> then <code>next start</code>) and add it to the uptime watch if you depend on it.</p>
+<p><strong>Google auth fails.</strong> The identity check detects a credential file that holds the wrong account and pages once. The account guard then blocks that account in the MCP. Readers use the on-disk token, check the token's email and refuse a mismatch, so alerts exit non-zero instead of reporting a false read.</p>
+<p><strong>Hosting billing fails.</strong> An uptime watcher cannot see payment state. Track invoices separately.</p>
+<p><strong>Disk fills.</strong> Alert under 20 GiB, automatic prune of Docker images and build cache under 10 GiB, page at the floor. Nothing deletes agent data on its own. A full disk can corrupt a Docker VM and lose every container and volume, so keep the floor generous.</p>
+<p><strong>Swap fills.</strong> The sentinel pages at a swap-file threshold. Relief is manual: drop caches inside the Docker VM, restart Docker, stop stray crawls. While swap is high, hold heavy jobs (deploy scans, local browsers, local speech models).</p>
+<p><strong>A cron fails.</strong> The daemon owns schedules. A missed heartbeat write produces "Cron gap detected" nudges every 10 minutes. Write cron prompts to verify by receipt, never by silence. An interval cron as long as the heartbeat interval never fires, so long jobs use wall-clock five-field schedules (<code>src/bus/crons.ts</code>).</p>
+<p><strong>Backups.</strong> Decide per database whether it needs running backups. If you disarm backup jobs, keep frozen encrypted dumps and a written restore procedure, and record the decision.</p>
+<hr />
+<h2 id="4-failure-classes-and-the-guard-for-each">4. Failure classes and the guard for each</h2>
+<p>Each guard exists to stop a class of failure. This table maps class to defence and says whether the defence is mechanical.</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Failure class</th>
+<th>Mechanism</th>
+<th>Defence</th>
+<th>Mechanical?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>A home-wide cleanup from an unfenced session deletes agent evidence and restarts the daemon</td>
+<td>The session loads only user-level settings</td>
+<td>Surface guard covers <code>find</code> deletes and <code>~/.claude/projects</code>; optional user-level registration</td>
+<td>Partly. Seat sessions only unless registered at user level</td>
+</tr>
+<tr>
+<td>2</td>
+<td>A large download fills disk and swap mid-task</td>
+<td>Downloads are not guarded</td>
+<td>Pre-flight size check for any download over 1 GB; notify the sentinel first</td>
+<td>Alert only</td>
+</tr>
+<tr>
+<td>3</td>
+<td>A delete form the parser does not know reaches a protected root</td>
+<td>Parser gap</td>
+<td>Parser coverage table (1.4) and replay suites</td>
+<td>Yes, for seats</td>
+</tr>
+<tr>
+<td>4</td>
+<td>A shared cache prune breaks every running MCP server</td>
+<td><code>uv cache prune --force</code> overrides the in-use lock</td>
+<td>Shared-surface guard</td>
+<td>Yes (block once, then self-release)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>A credential file holds the wrong Google account and readers report the wrong inbox as read</td>
+<td>An MCP-started OAuth window completes with the wrong signed-in account</td>
+<td>Readers check the token email; account guard; identity check</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>6</td>
+<td>A seat goes dark on a usage cap and alerts point at the wrong fix</td>
+<td>A cap answer looks like a login failure</td>
+<td>Sentinel <code>kind=cap</code> branch; quota ledger every 10 min</td>
+<td>Detection only</td>
+</tr>
+<tr>
+<td>7</td>
+<td>A full disk resets the Docker VM</td>
+<td>Disk fills during a build</td>
+<td>Disk alerts and auto-prune</td>
+<td>Partly</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Sentinels vanish silently and still read as live</td>
+<td>Untracked files inside a git repo are removed by <code>git clean</code></td>
+<td>Sentinels live outside any repo</td>
+<td>Yes, by placement</td>
+</tr>
+<tr>
+<td>9</td>
+<td>A checkpoint hook writes empty checkpoints</td>
+<td>Heredoc takes stdin from the hook payload</td>
+<td>See 2.3</td>
+<td>Alert on zero</td>
+</tr>
+<tr>
+<td>10</td>
+<td>A guard is reported live before the running session has loaded it</td>
+<td>Settings edited mid-session are not reloaded</td>
+<td>A guard is live only after a real call leaves a log line</td>
+<td>Rule</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Sends built in <code>$MSG</code> variables or heredocs skip command-text guards</td>
+<td>Guards read the Bash command text, not the final message</td>
+<td>Send-boundary lint inside <code>cortextos bus send-telegram</code></td>
+<td>Planned</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Production deploy before the gate, ungated previews, a client file on a public URL</td>
+<td>Gate depends on vigilance</td>
+<td><code>ship.sh</code>, preview then promote</td>
+<td>Yes, when used</td>
+</tr>
+<tr>
+<td>13</td>
+<td>A site launches without search indexing</td>
+<td>No launch step asks</td>
+<td>Indexing and noindex gates in <code>ship.sh</code></td>
+<td>Yes, inside <code>ship.sh</code></td>
+</tr>
+<tr>
+<td>14</td>
+<td>A DNS move drops records</td>
+<td>Expected records are copied, not the zone</td>
+<td>List the whole zone; add then delete</td>
+<td>No</td>
+</tr>
+<tr>
+<td>15</td>
+<td>A UI automation loop toggles live switches</td>
+<td>Controls addressed by state, not identity</td>
+<td>Address controls by identity; read the result after</td>
+<td>No</td>
+</tr>
+<tr>
+<td>16</td>
+<td>Wrong dates or unsourced numbers reach the owner</td>
+<td><code>date -u</code> read as the owner's calendar; numbers stated from memory</td>
+<td>Clock rule; truth check (warn); attribution lint (narrow)</td>
+<td>Partly</td>
+</tr>
+</tbody>
+</table>
+<p>Smaller patterns: cron cannot reach the login keychain, so a sentinel that needs it runs inside the login session; a lint that reads only line 1 of a multi-line send misses the rest; a watcher that stops on one failed account stops on all of them unless it counts failures per account; a gate run from the wrong folder can scan gigabytes.</p>
+<hr />
+<h2 id="5-known-limitations">5. Known limitations</h2>
+<ol type="1">
+<li>Command-text guards do not see what interpreted code (Python, Node, AppleScript, JXA) does at run time, or paths assembled at run time.</li>
+<li>Pass tokens are self-released. They log; they do not authorise.</li>
+<li>No guard checks for an approval id before a website deploy.</li>
+<li>Seats run with <code>--dangerously-skip-permissions</code>, so the permission relay sees few prompts. Approval gates rely on the bus and on instruction.</li>
+<li>There is no MCP watchdog and no automatic restart of failed MCP servers.</li>
+<li>Heartbeat rows for parked or retired seats go stale but can still read "online". Prune retired agents from the fleet view.</li>
+<li>The daemon's idle watchdog heartbeat lands on a row named after the instance rather than the seat if the heartbeat call lacks the seat identity.</li>
+<li>One-shot crons do not remove themselves unless the prompt does it. Give them an end date or a checked self-remove step.</li>
+<li>Claude Code cuts auto-memory indexes over 200 lines at load. Keep the index short.</li>
+<li>Logs grow without bound unless added to a rotation job.</li>
+<li>The cron store lives under the instance state folder (<code>~/.cortextos/&lt;instance&gt;/.cortextOS/state/agents/&lt;agent&gt;/crons.json</code>). Templates that name <code>${CTX_ROOT}/state/&lt;agent&gt;/crons.json</code> describe an older layout.</li>
+</ol>
+<h2 id="6-risk-table">6. Risk table</h2>
+<p>Likelihood (L) and impact (I) are scored 1 to 5 for a typical single-owner install. Score = L x I. These are judgments.</p>
+<table>
+<thead>
+<tr>
+<th>Rank</th>
+<th>Risk</th>
+<th>L</th>
+<th>I</th>
+<th>Score</th>
+<th>Recommended control</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>A deploy reaches production without a gate pass</td>
+<td>4</td>
+<td>5</td>
+<td>20</td>
+<td>Ship gate exits 2, matches every deploy form, binds the report to the tree; or block raw <code>vercel</code> and require <code>ship.sh</code>. Prove with a sink deploy that must be refused</td>
+</tr>
+<tr>
+<td>2</td>
+<td>The host runs out of disk or memory mid-task</td>
+<td>4</td>
+<td>4</td>
+<td>16</td>
+<td>Permanent launchd disk and swap watch; pre-flight size check on large downloads; log rotation; scheduled host and Docker restarts</td>
+</tr>
+<tr>
+<td>3</td>
+<td>A human or desktop session deletes agent data</td>
+<td>3</td>
+<td>5</td>
+<td>15</td>
+<td>Register the surface guard at user level with an owner pass token, or keep agent evidence outside paths a cleanup sweeps</td>
+</tr>
+<tr>
+<td>4</td>
+<td>A false claim reaches the owner (dates, numbers, "done")</td>
+<td>5</td>
+<td>3</td>
+<td>15</td>
+<td>Send-boundary lint; local-date check on the send path; hourly audit</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Context lost at compaction</td>
+<td>5</td>
+<td>2</td>
+<td>10</td>
+<td>Working PreCompact checkpoint, tested with a real payload; <code>STATE.md</code> discipline</td>
+</tr>
+<tr>
+<td>6</td>
+<td>A usage cap takes a seat down before a dated event</td>
+<td>2</td>
+<td>5</td>
+<td>10</td>
+<td>Quota ledger with a page at a set level (for example 90%) when an event falls before the reset</td>
+</tr>
+<tr>
+<td>7</td>
+<td>A shared credential is overwritten or a wrong account is read</td>
+<td>2</td>
+<td>4</td>
+<td>8</td>
+<td>Account guard on every seat that uses the MCP; identity check</td>
+</tr>
+<tr>
+<td>8</td>
+<td>A silent knowledge-layer outage leads agents to answer from memory</td>
+<td>4</td>
+<td>2</td>
+<td>8</td>
+<td>Session-start MCP health line in the heartbeat; remove dead MCP entries</td>
+</tr>
+<tr>
+<td>9</td>
+<td>A shared toolchain breaks for all seats</td>
+<td>2</td>
+<td>4</td>
+<td>8</td>
+<td>Surface guard in block mode after the readout window; audit self-release tokens</td>
+</tr>
+<tr>
+<td>10</td>
+<td>Database loss with no current backup</td>
+<td>1</td>
+<td>4</td>
+<td>4</td>
+<td>Decide per database; arm backups for anything live</td>
+</tr>
+<tr>
+<td>11</td>
+<td>A one-shot cron fires again later</td>
+<td>1</td>
+<td>2</td>
+<td>2</td>
+<td>End date or a checked self-remove step</td>
+</tr>
+</tbody>
+</table>
+<h2 id="design-notes">Design notes</h2>
+<ul>
+<li>User-level registration of the surface guard fences every session, including the owner's. Leaving it seat-only keeps owner sessions free and leaves agent evidence open to cleanups.</li>
+<li>A hard ship gate at user level refuses every deploy that lacks a fresh pass. Turn it on knowingly.</li>
+<li>The send-boundary lint closes the variable and heredoc bypass. It changes <code>cortextos bus send-telegram</code> and ships with a test that drives it to fail once.</li>
+</ul>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/daemon/fast-checker.ts</code></li>
+<li><code>src/daemon/agent-process.ts</code></li>
+<li><code>src/daemon/agent-manager.ts</code></li>
+<li><code>src/telegram/api.ts</code></li>
+<li><code>src/bus/crons.ts</code></li>
+<li><code>src/hooks/hook-context-status.ts</code></li>
+<li><code>src/hooks/hook-permission-telegram.ts</code></li>
+<li><code>src/hooks/hook-planmode-telegram.ts</code></li>
+<li><code>src/hooks/hook-extract-facts.ts</code></li>
+<li>OGL layer: <code>hooks/shared-surface-guard.py</code>, <code>hooks/surface.py</code>, <code>hooks/codewrites.py</code>, <code>hooks/orwell-lint.py</code>, <code>hooks/gws-account-guard.py</code>; seat hooks <code>brief_guard.py</code>, <code>future_time_guard.py</code>, <code>attribution-lint.py</code>, <code>kem-compaction/</code>, <code>precompact-checkpoint.sh</code>, <code>sessionstart-inject.sh</code>; <code>cortex-pentest-gate/scripts/ship_gate_hook.py</code></li>
+</ul>
+</article><nav class="pager"><a class="prev" href="03-configuration-registry.html"><small>Previous</small>03 Configuration Registry</a><a class="next" href="10-prd.html"><small>Next</small>10 Product Requirements (PRD)</a></nav></main></div></body></html>

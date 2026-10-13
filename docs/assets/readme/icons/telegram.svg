@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Telegram control">
+<rect x="4" y="4" width="42" height="42" fill="#0A0A0A"/>
+<rect x="1.5" y="1.5" width="41" height="41" fill="#F2EFE9" stroke="#0A0A0A" stroke-width="2.5"/>
+<g fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linejoin="miter" stroke-linecap="square">
+<path d="M9 21 L35 10 L29 34 L21 26 Z" fill="#FF4F00"/>
+<path d="M21 26 L35 10"/><path d="M21 26 L20 33 L25 29"/>
+</g>
+</svg>

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OGL Cortex hero scene</title>
+<!--
+  Deterministic scene. Nothing animates on its own: render.py calls window.seek(t)
+  for every frame, so each frame is exact. Open in a browser and add ?play to preview.
+-->
+<style>
+@font-face { font-family: "Archivo"; src: url(fonts/Archivo.woff2) format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Space Mono"; src: url(fonts/SpaceMono-400.woff2) format("woff2"); font-weight: 400; }
+@font-face { font-family: "Space Mono"; src: url(fonts/SpaceMono-700.woff2) format("woff2"); font-weight: 700; }
+:root { --ink:#0A0A0A; --paper:#F2EFE9; --sheet:#FBFAF6; --leap:#FF4F00; --blue:#0B5FFF; --mute:#6E6A62; }
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1280px; height: 640px; overflow: hidden; background: var(--paper); }
+body { font-family: "Archivo", sans-serif; color: var(--ink); position: relative; }
+.mono { font-family: "Space Mono", monospace; }
+.abs { position: absolute; }
+.card { position: absolute; background: var(--sheet); border: 2.5px solid var(--ink); box-shadow: 7px 7px 0 var(--ink); }
+
+/* masthead */
+#mark { left: 40px; top: 30px; font-weight: 900; font-size: 30px; letter-spacing: -0.03em; line-height: 1; }
+#mark i { font-style: normal; color: var(--leap); }
+#sub { left: 42px; top: 66px; font-size: 13px; letter-spacing: 0.02em; color: var(--mute); }
+#clock { right: 40px; top: 34px; font-size: 15px; text-align: right; }
+#clock b { display: inline-block; width: 10px; height: 10px; background: var(--leap); margin-right: 8px; vertical-align: 0; }
+
+/* telegram column */
+#tg { left: 40px; top: 112px; width: 318px; height: 388px; }
+#tg header { height: 46px; border-bottom: 2.5px solid var(--ink); display: flex; align-items: center; padding: 0 16px; gap: 10px; font-weight: 800; font-size: 16px; }
+#tg header .dot { width: 22px; height: 22px; border-radius: 50%; background: var(--ink); position: relative; }
+#tg header .dot::after { content: ""; position: absolute; left: 6px; top: 6px; width: 10px; height: 10px; background: var(--leap); border-radius: 50%; }
+#tg header .mono { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--mute); }
+.bubble { position: absolute; padding: 12px 14px; font-size: 16px; line-height: 1.32; font-weight: 600; border: 2.5px solid var(--ink); transform-origin: left bottom; }
+#b-in { left: 16px; top: 66px; width: 248px; background: var(--leap); color: var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+#b-out { right: 16px; top: 196px; width: 266px; background: var(--ink); color: var(--paper); box-shadow: 4px 4px 0 var(--leap); transform-origin: right bottom; }
+.bubble .who { display: block; font-family: "Space Mono", monospace; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 5px; opacity: 0.75; }
+#typing { left: 18px; top: 70px; display: flex; gap: 5px; padding: 12px 14px; border: 2.5px solid var(--ink); background: var(--sheet); }
+#typing span { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
+
+/* orchestrator */
+#orch { left: 450px; top: 178px; width: 330px; height: 208px; background: var(--ink); color: var(--paper); box-shadow: 9px 9px 0 var(--leap); border-color: var(--ink); }
+#orch .role { position: absolute; left: 22px; top: 18px; font-size: 11px; letter-spacing: 0.14em; color: var(--leap); font-weight: 700; }
+#orch h2 { position: absolute; left: 20px; top: 38px; font-size: 40px; font-weight: 900; letter-spacing: -0.035em; line-height: 1; }
+#orch .rule { position: absolute; left: 22px; right: 22px; top: 92px; border-top: 2px solid #3A3936; }
+#orch .log { position: absolute; left: 22px; right: 14px; top: 104px; font-size: 11.5px; line-height: 1.62; color: #CFCAC0; white-space: pre; }
+#orch .log em { font-style: normal; color: var(--leap); }
+#orch .log .ok { color: var(--paper); }
+#daemon { left: 450px; top: 412px; width: 400px; display: flex; gap: 7px; flex-wrap: wrap; }
+.chip { font-family: "Space Mono", monospace; font-size: 11px; padding: 4px 7px; border: 2px solid var(--ink); background: var(--sheet); box-shadow: 3px 3px 0 var(--ink); }
+.chip.on { background: var(--ink); color: var(--paper); }
+
+/* specialists */
+.spec { width: 386px; height: 112px; left: 854px; }
+#s1 { top: 112px; }
+#s2 { top: 250px; }
+#s3 { top: 388px; }
+.spec .role { position: absolute; left: 16px; top: 12px; font-size: 10.5px; letter-spacing: 0.14em; color: var(--mute); font-weight: 700; }
+.spec h3 { position: absolute; left: 15px; top: 28px; font-size: 25px; font-weight: 900; letter-spacing: -0.03em; }
+.spec .state { position: absolute; right: 14px; top: 13px; font-size: 11px; font-weight: 700; padding: 2px 7px; border: 2px solid var(--ink); }
+.spec .term { position: absolute; left: 16px; right: 16px; bottom: 12px; height: 32px; background: var(--ink); color: var(--paper); font-size: 12.5px; line-height: 32px; padding: 0 10px; white-space: pre; overflow: hidden; }
+.spec .term em { font-style: normal; color: var(--leap); }
+.caret { display: inline-block; width: 7px; height: 14px; background: var(--leap); vertical-align: -2px; margin-left: 1px; }
+
+/* wires */
+svg#wires { position: absolute; left: 0; top: 0; width: 1280px; height: 640px; overflow: visible; }
+svg#wires path.base { fill: none; stroke: var(--ink); stroke-width: 2; stroke-dasharray: 3 6; opacity: 0.35; }
+svg#wires path.live { fill: none; stroke: var(--leap); stroke-width: 4; stroke-linecap: square; }
+
+/* tickets */
+.ticket { position: absolute; left: 0; top: 0; width: 168px; height: 50px; background: var(--paper); border: 2.5px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); padding: 6px 10px; font-size: 11.5px; line-height: 1.3; }
+.ticket b { display: block; font-family: "Archivo", sans-serif; font-size: 14px; font-weight: 800; letter-spacing: -0.01em; }
+.ticket::before { content: ""; position: absolute; left: -2.5px; top: 14px; width: 9px; height: 18px; background: var(--paper); border: 2.5px solid var(--ink); border-left: 0; border-radius: 0 10px 10px 0; }
+.ticket.back { background: var(--leap); }
+.ticket.back::before { background: var(--leap); }
+
+/* stamp */
+#stamp { left: 948px; top: 98px; width: 270px; padding: 10px 14px 9px; background: var(--leap); border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); transform-origin: 50% 50%; }
+#stamp b { display: block; font-size: 38px; font-weight: 900; letter-spacing: -0.02em; line-height: 0.95; }
+#stamp span { display: block; font-family: "Space Mono", monospace; font-size: 11.5px; margin-top: 5px; }
+
+/* step rail */
+#rail { left: 40px; right: 40px; top: 556px; height: 54px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+.step { position: relative; border: 2.5px solid var(--ink); background: var(--sheet); overflow: hidden; }
+.step .fill { position: absolute; inset: 0; background: var(--ink); transform-origin: left; transform: scaleX(0); }
+.step .n { position: absolute; left: 10px; top: 7px; font-family: "Space Mono", monospace; font-size: 11px; font-weight: 700; color: var(--leap); }
+.step .t { position: absolute; left: 10px; top: 22px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; mix-blend-mode: difference; color: #F2EFE9; }
+.step.done .t, .step.done .n { mix-blend-mode: normal; }
+</style>
+</head>
+<body>
+  <div id="mark" class="abs">OGL CORTEX<i>.</i></div>
+  <div id="sub" class="abs mono">persistent Claude Code agents, run as a fleet</div>
+  <div id="clock" class="abs mono"><b></b><span id="clk">09:41:00</span></div>
+
+  <svg id="wires" viewBox="0 0 1280 640">
+    <path id="w0" class="base" d="M358 236 C 400 236, 410 288, 450 288"/>
+    <path id="w1" class="base" d="M780 250 C 810 250, 812 168, 854 168"/>
+    <path id="w2" class="base" d="M780 288 C 810 288, 812 306, 854 306"/>
+    <path id="w3" class="base" d="M780 330 C 810 330, 812 444, 854 444"/>
+    <path id="l0" class="live" d="M358 236 C 400 236, 410 288, 450 288"/>
+    <path id="l1" class="live" d="M780 250 C 810 250, 812 168, 854 168"/>
+    <path id="l3" class="live" d="M780 330 C 810 330, 812 444, 854 444"/>
+    <path id="l3b" class="live" d="M854 444 C 812 444, 810 330, 780 330"/>
+    <path id="l0b" class="live" d="M450 288 C 410 288, 400 236, 358 236"/>
+  </svg>
+
+  <div id="tg" class="card">
+    <header><span class="dot"></span>Telegram<span class="mono">you ⇄ orchestrator</span></header>
+    <div id="typing" class="abs"><span></span><span></span><span></span></div>
+    <div id="b-in" class="bubble"><span class="who">you · 09:41</span>Fix the typo on the pricing page and ship it.</div>
+    <div id="b-out" class="bubble"><span class="who">orchestrator · 09:43</span>Done. Typo fixed and live. The ship gate held the deploy until the security scan passed.</div>
+  </div>
+
+  <div id="orch" class="card">
+    <div class="role mono">SEAT · ORCHESTRATOR</div>
+    <h2>orchestrator</h2>
+    <div class="rule"></div>
+    <div class="log mono" id="olog"></div>
+  </div>
+  <div id="daemon" class="abs">
+    <span class="chip on">daemon</span><span class="chip" id="c-inbox">inbox</span><span class="chip" id="c-hooks">guard hooks</span><span class="chip">crons</span><span class="chip" id="c-mem">memory</span>
+  </div>
+
+  <div id="s1" class="card spec">
+    <div class="role mono">SPECIALIST</div><h3>code</h3>
+    <div class="state mono" id="st1">idle</div>
+    <div class="term mono" id="t1"></div>
+  </div>
+  <div id="s2" class="card spec">
+    <div class="role mono">SPECIALIST</div><h3>content</h3>
+    <div class="state mono" id="st2">idle</div>
+    <div class="term mono" id="t2"><em>$</em> waiting for work</div>
+  </div>
+  <div id="s3" class="card spec">
+    <div class="role mono">AUDITOR</div><h3>auditor</h3>
+    <div class="state mono" id="st3">idle</div>
+    <div class="term mono" id="t3"></div>
+  </div>
+
+  <div id="k1" class="ticket mono"><b>t-0142 → code</b>fix typo, ship it</div>
+  <div id="k3" class="ticket mono"><b>t-0143 → auditor</b>verify t-0142</div>
+  <div id="k4" class="ticket mono back"><b>t-0143 complete</b>PASS · 3 checks</div>
+
+  <div id="stamp" class="abs"><b>BLOCKED</b><span>ship gate · exit 2<br>no passing security report</span></div>
+
+  <div id="rail" class="abs">
+    <div class="step"><div class="fill"></div><span class="n">01</span><span class="t">Message in</span></div>
+    <div class="step"><div class="fill"></div><span class="n">02</span><span class="t">Dispatch</span></div>
+    <div class="step"><div class="fill"></div><span class="n">03</span><span class="t">Work</span></div>
+    <div class="step"><div class="fill"></div><span class="n">04</span><span class="t">Guard blocks</span></div>
+    <div class="step"><div class="fill"></div><span class="n">05</span><span class="t">Verify</span></div>
+    <div class="step"><div class="fill"></div><span class="n">06</span><span class="t">Report</span></div>
+  </div>
+
+<script>
+const DUR = 12;
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const p = (t, a, b) => clamp((t - a) / (b - a));
+const outCubic = x => 1 - Math.pow(1 - x, 3);
+const outBack = x => { const c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); };
+const inOut = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const lerp = (a, b, k) => a + (b - a) * k;
+
+const lens = {};
+for (const id of ["l0", "l1", "l3", "l3b", "l0b"]) { const el = $(id); lens[id] = el.getTotalLength(); el.style.strokeDasharray = lens[id] + " " + lens[id]; }
+function wire(id, k, fade) {
+  const el = $(id), L = lens[id];
+  el.style.strokeDashoffset = L * (1 - k);
+  el.style.opacity = k <= 0 ? 0 : (1 - fade);
+}
+function pointOn(id, k) { const pt = $(id).getPointAtLength(lens[id] * k); return pt; }
+
+function type(str, k) { const n = Math.round(str.length * clamp(k)); return str.slice(0, n); }
+function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+
+function pop(el, k, back = true) {
+  const e = back ? outBack(k) : outCubic(k);
+  el.style.opacity = k > 0 ? 1 : 0;
+  el.style.transform = `scale(${lerp(0.6, 1, e)}) translateY(${lerp(10, 0, outCubic(k))}px)`;
+}
+function ticket(el, wireId, k, rot) {
+  if (k <= 0 || k >= 1.0001) { el.style.opacity = 0; return; }
+  const e = inOut(k);
+  const pt = pointOn(wireId, e);
+  el.style.opacity = clamp(k * 6) * clamp((1 - k) * 6);
+  el.style.transform = `translate(${pt.x - 84}px, ${pt.y - 25}px) rotate(${rot * Math.sin(e * Math.PI)}deg)`;
+}
+function state(el, label, mode) {
+  el.textContent = label;
+  el.style.background = mode === "busy" ? "#FF4F00" : mode === "ok" ? "#0A0A0A" : "#FBFAF6";
+  el.style.color = mode === "ok" ? "#F2EFE9" : "#0A0A0A";
+}
+
+window.seek = function (t) {
+  // global loop fade: everything dynamic eases back to rest at the end
+  const reset = p(t, 11.45, 11.95);
+
+  // clock
+  const secs = Math.floor(t * 11);
+  $("clk").textContent = `09:${String(41 + Math.floor(secs / 60)).padStart(2, "0")}:${String(secs % 60).padStart(2, "0")}`;
+
+  // 01 message in
+  const typing = t > 0.25 && t < 0.95;
+  $("typing").style.opacity = typing ? 1 : 0;
+  [...$("typing").children].forEach((d, i) => d.style.transform = `translateY(${-4 * Math.max(0, Math.sin((t * 9) - i * 0.9))}px)`);
+  pop($("b-in"), p(t, 0.9, 1.35));
+  $("b-in").style.opacity = t > 0.9 ? 1 - reset : 0;
+
+  wire("l0", p(t, 1.45, 1.95), p(t, 2.3, 2.7));
+  $("c-inbox").classList.toggle("on", t > 1.9 && t < 2.9);
+
+  // orchestrator log
+  const L = [];
+  if (t > 2.0) L.push(`<span class="ok">inbox</span>  1 message from you`);
+  if (t > 2.45) L.push(`<em>$</em> ${esc(type('create-task "fix typo" --assignee code', p(t, 2.45, 2.95)))}`);
+  if (t > 3.05) L.push(`<em>$</em> ${esc(type('create-task "verify" --assignee auditor', p(t, 3.05, 3.55)))}`);
+  if (t > 9.6) L.push(`<span class="ok">t-0143</span>  PASS · reporting back`);
+  else if (t > 4.0) L.push(`<span class="ok">watching</span>  2 tasks in progress`);
+  $("olog").innerHTML = L.slice(-4).join("\n");
+  $("olog").style.opacity = 1 - reset;
+
+  // 02 dispatch
+  wire("l1", p(t, 2.95, 3.6), p(t, 4.2, 4.6));
+  wire("l3", p(t, 3.55, 4.2), p(t, 4.6, 5.0));
+  ticket($("k1"), "l1", p(t, 2.95, 3.75), -4);
+  ticket($("k3"), "l3", p(t, 3.55, 4.35), 4);
+
+  // 03 work (code specialist)
+  const t1 = $("t1");
+  let s1 = ["idle", "idle"];
+  if (t < 3.75) t1.innerHTML = `<em>$</em> waiting for work`;
+  else if (t < 5.75) { s1 = ["working", "busy"]; t1.innerHTML = `<em>$</em> ${esc(type("vercel --prod", p(t, 4.2, 5.2)))}<span class="caret"></span>`; }
+  else if (t < 7.0) { s1 = ["blocked", "busy"]; t1.innerHTML = `<em>✕</em> refused by ship_gate.py`; }
+  else if (t < 7.65) { s1 = ["scanning", "busy"]; t1.innerHTML = `<em>▸</em> ${esc(type("run pentest gate → security/", p(t, 7.05, 7.5)))}<span class="caret"></span>`; }
+  else if (t < 7.85) { s1 = ["scanning", "busy"]; t1.innerHTML = `<em>✓</em> report "status": "pass"`; }
+  else if (t < 8.3) { s1 = ["working", "busy"]; t1.innerHTML = `<em>$</em> ${esc(type("vercel --prod", p(t, 7.9, 8.2)))}<span class="caret"></span>`; }
+  else { s1 = ["done", "ok"]; t1.innerHTML = `<em>✓</em> live · gate passed`; }
+  if (t > 11.6) { s1 = ["idle", "idle"]; t1.innerHTML = `<em>$</em> waiting for work`; }
+  state($("st1"), s1[0], s1[1]);
+  $("c-hooks").classList.toggle("on", t > 5.7 && t < 7.0);
+
+  // 04 guard stamp
+  const sk = p(t, 5.7, 6.05);
+  const st = $("stamp");
+  const stampOut = p(t, 6.95, 7.25);
+  st.style.opacity = sk > 0 ? 1 - stampOut : 0;
+  st.style.transform = `rotate(${lerp(-14, -5, outCubic(sk))}deg) scale(${lerp(1.6, 1, outBack(sk)) * lerp(1, 0.92, stampOut)})`;
+  // card jolt when the stamp lands
+  const jolt = t > 5.95 && t < 6.25 ? Math.sin((t - 5.95) * 60) * (1 - p(t, 5.95, 6.25)) * 3 : 0;
+  $("s1").style.transform = `translateX(${jolt}px)`;
+
+  // 05 verify (auditor)
+  const t3 = $("t3");
+  let s3 = ["idle", "idle"];
+  if (t < 4.35) t3.innerHTML = `<em>$</em> waiting for work`;
+  else if (t < 8.3) { s3 = ["queued", "idle"]; t3.innerHTML = `<em>…</em> waits for t-0142`; }
+  else if (t < 9.3) { s3 = ["checking", "busy"]; t3.innerHTML = `<em>$</em> ${esc(type("open diff · run the bar · read live page", p(t, 8.3, 9.1)))}<span class="caret"></span>`; }
+  else { s3 = ["pass", "ok"]; t3.innerHTML = `<em>✓</em> PASS  3 of 3 checks`; }
+  if (t > 11.6) { s3 = ["idle", "idle"]; t3.innerHTML = `<em>$</em> waiting for work`; }
+  state($("st3"), s3[0], s3[1]);
+
+  wire("l3b", p(t, 9.3, 9.9), p(t, 10.4, 10.8));
+  ticket($("k4"), "l3b", p(t, 9.3, 10.1), -3);
+
+  // 06 report
+  wire("l0b", p(t, 10.05, 10.45), p(t, 10.9, 11.3));
+  $("c-mem").classList.toggle("on", t > 10.1 && t < 11.4);
+  pop($("b-out"), p(t, 10.4, 10.85));
+  $("b-out").style.opacity = t > 10.4 ? 1 - reset : 0;
+
+  // rail
+  const marks = [[0.9, 1.9], [2.45, 4.35], [3.75, 5.7], [5.7, 7.0], [8.3, 9.3], [10.05, 10.85]];
+  document.querySelectorAll(".step").forEach((el, i) => {
+    const [a, b] = marks[i];
+    const k = outCubic(p(t, a, b)) * (1 - reset);
+    el.querySelector(".fill").style.transform = `scaleX(${k})`;
+    el.style.boxShadow = (t > a && t < b + 0.6 && reset === 0) ? "4px 4px 0 #FF4F00" : "none";
+    el.style.transform = (t > a && t < b + 0.6 && reset === 0) ? "translate(-2px,-2px)" : "none";
+  });
+};
+
+window.DUR = DUR;
+seek(0);
+if (location.search.includes("play")) {
+  const t0 = performance.now();
+  const loop = () => { seek(((performance.now() - t0) / 1000) % DUR); requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>

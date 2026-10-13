@@ -1,0 +1,611 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Architecture Decision Records · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li class="on"><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">20</div><div><p class="dg">Design, data and AI quality</p>
+<h1>Architecture Decision Records</h1><p class="meta">5,298 words · <a href="../20-architecture-decision-records.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#index">Index</a></li><li><a href="#adr-001-one-named-knowledge-source-of-truth-with-seat-boot-files-as-fallback">ADR-001: one named knowledge source of truth, with seat boot files as fallback</a></li><li><a href="#adr-002-crons-are-daemon-managed-not-croncreate-or-loop">ADR-002: crons are daemon-managed, not CronCreate or /loop</a></li><li><a href="#adr-003-1m-token-context-is-the-default-for-new-agents">ADR-003: 1M-token context is the default for new agents</a></li><li><a href="#adr-004-agent-templates-default-to-bypasspermissions">ADR-004: agent templates default to bypassPermissions</a></li><li><a href="#adr-005-the-auditor-keeps-a-discipline-ledger-with-3-strike-counters">ADR-005: the auditor keeps a discipline ledger with 3-strike counters</a></li><li><a href="#adr-006-daemon-restarts-are-gated-by-an-ancillary-service-inventory">ADR-006: daemon restarts are gated by an ancillary-service inventory</a></li><li><a href="#adr-007-no-undisclosed-persona-or-astroturf-infrastructure">ADR-007: no undisclosed persona or astroturf infrastructure</a></li><li><a href="#adr-008-entitiesmd-is-the-noun-index-read-first">ADR-008: ENTITIES.md is the noun index, read first</a></li><li><a href="#adr-009-durable-memory-has-a-source-ranked-write-gate">ADR-009: durable memory has a source-ranked write gate</a></li><li><a href="#adr-010-a-pentest-gate-runs-before-anything-ships">ADR-010: a pentest gate runs before anything ships</a></li><li><a href="#adr-011-memorymd-is-a-compact-index-detail-lives-in-topic-files">ADR-011: MEMORY.md is a compact index; detail lives in topic files</a></li><li><a href="#adr-012-the-orchestrator-delegates-it-does-not-do-specialist-work">ADR-012: the orchestrator delegates; it does not do specialist work</a></li><li><a href="#adr-013-model-and-runtime-are-explicit-per-seat">ADR-013: model and runtime are explicit per seat</a></li><li><a href="#adr-014-independent-review-before-any-lane-is-done">ADR-014: independent review before any lane is "done"</a></li><li><a href="#adr-015-model-routing-by-pipeline-stage">ADR-015: model routing by pipeline stage</a></li><li><a href="#adr-016-each-seat-folder-is-its-own-git-repo">ADR-016: each seat folder is its own git repo</a></li><li><a href="#adr-017-model-swaps-follow-a-deviation-protocol">ADR-017: model swaps follow a deviation protocol</a></li><li><a href="#adr-018-projects-run-a-staged-pipeline-with-two-owner-gates">ADR-018: projects run a staged pipeline with two owner gates</a></li><li><a href="#adr-019-context-handoff-threshold-is-per-seat">ADR-019: context handoff threshold is per seat</a></li><li><a href="#adr-020-g-untrusted-reads">ADR-020: G-UNTRUSTED-READS</a></li><li><a href="#adr-021-no-seat-runs-with-a-full-access-sandbox">ADR-021: no seat runs with a full-access sandbox</a></li><li><a href="#adr-022-a-source-fix-is-live-only-after-dist-is-rebuilt">ADR-022: a source fix is live only after dist is rebuilt</a></li><li><a href="#adr-023-truth_correction-events-use-a-closed-kind-enum-and-a-writer-tool">ADR-023: truth_correction events use a closed kind enum and a writer tool</a></li><li><a href="#adr-024-usage-cap-protocol-park-hand-off-never-retry-loop">ADR-024: usage-cap protocol: park, hand off, never retry-loop</a></li><li><a href="#adr-025-codex-sandbox-is-workspace-write-auto-commit-stages-agentdir-only">ADR-025: Codex sandbox is workspace-write; auto-commit stages agentDir only</a></li><li><a href="#adr-026-untrusted-text-is-never-written-verbatim-into-memory">ADR-026: untrusted text is never written verbatim into memory</a></li><li><a href="#adr-027-memory-files-have-one-writer-and-labelled-inferences">ADR-027: memory files have one writer and labelled inferences</a></li><li><a href="#adr-028-long-interval-crons-use-wall-clock-schedules">ADR-028: long-interval crons use wall-clock schedules</a></li><li><a href="#adr-029-a-brake-file-stops-all-memory-consolidation-runs">ADR-029: a brake file stops all memory-consolidation runs</a></li><li><a href="#adr-030-default-seat-model-is-the-strongest-available-claude-model">ADR-030: default seat model is the strongest available Claude model</a></li><li><a href="#adr-031-a-deterministic-plain-language-guard-runs-on-every-outgoing-message">ADR-031: a deterministic plain-language guard runs on every outgoing message</a></li><li><a href="#adr-032-every-website-deploy-goes-through-shipsh">ADR-032: every website deploy goes through ship.sh</a></li><li><a href="#adr-033-dashboard-approvals-from-the-owner-login-carry-telegram-authority">ADR-033: dashboard approvals from the owner login carry Telegram authority</a></li><li><a href="#adr-034-harness-stages-run-on-claude-code-codex-app-server-is-refused-on-roster-rows">ADR-034: harness stages run on Claude Code; codex-app-server is refused on roster rows</a></li><li><a href="#adr-035-shared-surface-guard-and-account-guard-run-as-hooks">ADR-035: shared-surface guard and account guard run as hooks</a></li><li><a href="#adr-036-operator-discipline-builds">ADR-036: operator-discipline builds</a></li><li><a href="#adr-037-freeze-the-gated-copy-before-an-edit-a-wrapper-never-rewrites-a-verdict">ADR-037: freeze the gated copy before an edit; a wrapper never rewrites a verdict</a></li><li><a href="#adr-038-the-shared-surface-guard-covers-every-delete-form">ADR-038: the shared-surface guard covers every delete form</a></li><li><a href="#patterns-across-the-records">Patterns across the records</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document records the design decisions behind OGL Cortex. Each record states the problem, the choice, and what the choice costs. Read it to learn why the system works the way it does before you change a default.</p>
+<p>OGL Cortex has two layers:</p>
+<ul>
+<li><strong>cortextOS</strong>, the upstream MIT framework. It provides the daemon, the message bus, crons, tasks, approvals, the dashboard and the agent templates.</li>
+<li><strong>The OGL layer</strong> on top. It adds seat roles, hooks and guards, the memory protocol, the delivery pipeline, the approval gates and the ship gate.</li>
+</ul>
+<p>Each record names the layer it belongs to.</p>
+<h2 id="terms">Terms</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Seat</td>
+<td>One long-running Claude Code agent with its own folder, bootstrap files and Telegram bot.</td>
+</tr>
+<tr>
+<td>Orchestrator</td>
+<td>The seat the owner talks to. It plans, dispatches, monitors and gates. Example name in config: <code>boss</code>.</td>
+</tr>
+<tr>
+<td>Specialist</td>
+<td>A seat that does domain work (engineering, deploys, content, research).</td>
+</tr>
+<tr>
+<td>Auditor</td>
+<td>A read-only reviewer seat. It checks claims and gates guard changes.</td>
+</tr>
+<tr>
+<td>Sentinel</td>
+<td>A maintenance seat that watches fleet health and shared infrastructure.</td>
+</tr>
+<tr>
+<td>Hook</td>
+<td>A script Claude Code runs at a fixed point (before a tool call, after it, at prompt submit, at compaction). A PreToolUse hook blocks the call by exiting with code 2.</td>
+</tr>
+<tr>
+<td>Cron</td>
+<td>A scheduled prompt that the cortextOS daemon types into a seat's terminal.</td>
+</tr>
+<tr>
+<td>Owner</td>
+<td>The one human who runs the fleet and approves external actions.</td>
+</tr>
+</tbody>
+</table>
+<p>Path conventions: <code>$CORTEX_HOME</code> is your cortextOS checkout. <code>$CTX_ROOT</code> is the runtime state root for one daemon instance (<code>~/.cortextos/&lt;instance&gt;</code>). <code>&lt;org&gt;</code> and <code>&lt;seat&gt;</code> are folder names under <code>$CORTEX_HOME/orgs/</code>.</p>
+<p>Related documents: architecture in <code>01-core-architecture.md</code>, the execution engine in <code>02-execution-engine.md</code>, configuration in <code>03-configuration-registry.md</code>, the enforcement layers in <code>04-failsafe-boundary-log.md</code>, data shapes in <code>21-data-models-schema-registry.md</code>, prompt surfaces in <code>22-prompt-registry.md</code>, tests in <code>23-evals-and-benchmarks.md</code>, and model management in <code>24-model-lifecycle.md</code>.</p>
+<h2 id="index">Index</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Title</th>
+<th>Layer</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>001</td>
+<td>One named knowledge source of truth, with seat boot files as fallback</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>002</td>
+<td>Crons are daemon-managed, not CronCreate or /loop</td>
+<td>cortextOS</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>003</td>
+<td>1M-token context is the default for new agents</td>
+<td>cortextOS</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>004</td>
+<td>Agent templates default to bypassPermissions</td>
+<td>cortextOS</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>005</td>
+<td>The auditor keeps a discipline ledger with 3-strike counters</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>006</td>
+<td>Daemon restarts are gated by an ancillary-service inventory</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>007</td>
+<td>No undisclosed persona or astroturf infrastructure</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>008</td>
+<td>ENTITIES.md is the noun index, read first</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>009</td>
+<td>Durable memory has a source-ranked write gate</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>010</td>
+<td>A pentest gate runs before anything ships</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>011</td>
+<td>MEMORY.md is a compact index; detail lives in topic files</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>012</td>
+<td>The orchestrator delegates; it does not do specialist work</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>013</td>
+<td>Model and runtime are explicit per seat</td>
+<td>cortextOS + OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>014</td>
+<td>Independent review before any lane is "done"</td>
+<td>OGL</td>
+<td>Accepted, part of 018</td>
+</tr>
+<tr>
+<td>015</td>
+<td>Model routing by pipeline stage</td>
+<td>OGL</td>
+<td>Accepted, revised by 034</td>
+</tr>
+<tr>
+<td>016</td>
+<td>Each seat folder is its own git repo</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>017</td>
+<td>Model swaps follow a deviation protocol</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>018</td>
+<td>Projects run a staged pipeline with two owner gates</td>
+<td>cortextOS harness + OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>019</td>
+<td>Context handoff threshold is per seat</td>
+<td>cortextOS</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>020</td>
+<td>G-UNTRUSTED-READS: fetched content is data, never instructions</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>021</td>
+<td>No seat runs with a full-access sandbox</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>022</td>
+<td>A source fix is live only after dist is rebuilt</td>
+<td>cortextOS</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>023</td>
+<td>truth_correction events use a closed kind enum and a writer tool</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>024</td>
+<td>Usage-cap protocol: park, hand off, never retry-loop</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>025</td>
+<td>Codex sandbox is workspace-write; auto-commit stages agentDir only</td>
+<td>cortextOS</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>026</td>
+<td>Untrusted text is never written verbatim into memory</td>
+<td>cortextOS templates + OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>027</td>
+<td>Memory files have one writer and labelled inferences</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>028</td>
+<td>Long-interval crons use wall-clock schedules</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>029</td>
+<td>A brake file stops all memory-consolidation runs</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>030</td>
+<td>Default seat model is the strongest available Claude model</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>031</td>
+<td>A deterministic plain-language guard runs on every outgoing message</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>032</td>
+<td>Every website deploy goes through ship.sh</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>033</td>
+<td>Dashboard approvals from the owner login carry Telegram authority</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>034</td>
+<td>Harness stages run on Claude Code; codex-app-server is refused on roster rows</td>
+<td>cortextOS harness</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>035</td>
+<td>Shared-surface guard and account guard run as hooks</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>036</td>
+<td>Operator-discipline builds: compaction kit, four-line briefs, hunters, fail-closed hooks</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>037</td>
+<td>Freeze the gated copy before an edit; a wrapper never rewrites a verdict</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+<tr>
+<td>038</td>
+<td>The shared-surface guard covers every delete form</td>
+<td>OGL</td>
+<td>Accepted</td>
+</tr>
+</tbody>
+</table>
+<figure class="diagram"><img src="img/255a1960e7c6.svg" alt="Diagram"></figure>
+
+<hr />
+<h2 id="adr-001-one-named-knowledge-source-of-truth-with-seat-boot-files-as-fallback">ADR-001: one named knowledge source of truth, with seat boot files as fallback</h2>
+<ul>
+<li><strong>Context.</strong> Knowledge can live in many places: a vault of markdown notes, a graph export, a database, and each seat's own files. Agents need to know which one wins when they disagree.</li>
+<li><strong>Decision.</strong> The owner names one knowledge store as the source of truth in the user-level <code>~/.claude/CLAUDE.md</code> (the reference install uses GBrain, a local PGLite store with a CLI and an MCP server). A human-readable vault mirrors it. Seats query the store first. Each seat's <code>MEMORY.md</code> and <code>ENTITIES.md</code> are the fallback because the seat reads them at every boot.</li>
+<li><strong>Consequences.</strong> If the store's MCP server fails to connect, seats fall back to their boot files without saying so. Add a boot health check for the store and state the fallback order in the seat CLAUDE.md, or the boot files become the real source of truth by default.</li>
+</ul>
+<h2 id="adr-002-crons-are-daemon-managed-not-croncreate-or-loop">ADR-002: crons are daemon-managed, not CronCreate or /loop</h2>
+<ul>
+<li><strong>Context.</strong> Claude Code's in-session <code>CronCreate</code> and <code>/loop</code> die when the session restarts. Concurrent updates to one cron file can lose writes, and a daemon crash mid-fire can fire a job twice.</li>
+<li><strong>Decision.</strong> Each seat's crons live in a daemon-owned file, <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code>. The daemon scheduler fires them. Agents manage them only through <code>cortextos bus add-cron</code>, <code>update-cron</code>, <code>remove-cron</code> and <code>list-crons</code>. The scheduler stamps <code>last_fire_attempted_at</code> before dispatch so a crash cannot double-fire. Templates do not teach CronCreate.</li>
+<li><strong>Consequences.</strong> Crons survive restarts. Interval crons interact with other fires on the same seat (see ADR-028). Seat prose that names a cron file path can drift from the code; tell agents to use <code>list-crons</code>, not the file.</li>
+</ul>
+<h2 id="adr-003-1m-token-context-is-the-default-for-new-agents">ADR-003: 1M-token context is the default for new agents</h2>
+<ul>
+<li><strong>Context.</strong> A 200K window forces frequent compaction on long-running seats.</li>
+<li><strong>Decision.</strong> New agents get the 1M-context model id (the <code>[1m]</code> suffix). 200K is opt-in.</li>
+<li><strong>Consequences.</strong> Seats can run for many hours between compactions. That makes compaction and handoff design (ADR-019, ADR-036) more important, and it raises per-turn cost on long sessions.</li>
+</ul>
+<h2 id="adr-004-agent-templates-default-to-bypasspermissions">ADR-004: agent templates default to bypassPermissions</h2>
+<ul>
+<li><strong>Context.</strong> Unattended agents stall on permission prompts that nobody is there to answer.</li>
+<li><strong>Decision.</strong> All agent templates set <code>permissions.defaultMode</code> to <code>bypassPermissions</code>. <code>AgentConfig.dangerously_skip_permissions</code> defaults to true when absent.</li>
+<li><strong>Consequences.</strong> Seats run unattended. The permission prompt stops being a boundary, so the boundary moves to two places: what a seat reads (ADR-020) and PreToolUse hooks that block on exit code 2 (ADR-031, ADR-035, ADR-038). With permissions skipped, PermissionRequest hooks rarely fire.</li>
+</ul>
+<h2 id="adr-005-the-auditor-keeps-a-discipline-ledger-with-3-strike-counters">ADR-005: the auditor keeps a discipline ledger with 3-strike counters</h2>
+<ul>
+<li><strong>Context.</strong> Agents repeat the same classes of error: claiming done before verifying, stating names without a source, asking for credentials over chat.</li>
+<li><strong>Decision.</strong> The auditor keeps per-seat counters per failure class, for example <code>completion-claim-before-owned-verification 2/3</code>. At 3/3 the class moves to a stricter path with a mechanical self-check and an expiry date. The counters appear as a header in the seat's <code>MEMORY.md</code>.</li>
+<li><strong>Consequences.</strong> Repeated failures become visible and get a rising response. The ledger is the precursor of the truth_correction event (ADR-023) and of rules enforced by hooks instead of memory.</li>
+</ul>
+<h2 id="adr-006-daemon-restarts-are-gated-by-an-ancillary-service-inventory">ADR-006: daemon restarts are gated by an ancillary-service inventory</h2>
+<ul>
+<li><strong>Context.</strong> A daemon restart can stop side services (LaunchAgents) that lack <code>RunAtLoad</code> and <code>KeepAlive</code>, and nothing reports it.</li>
+<li><strong>Decision.</strong> Before any daemon restart, list every LaunchAgent the fleet depends on, check its persistence flags, and send the owner a checklist for an explicit go. Restart commands always pass <code>--instance &lt;instance&gt;</code>. The CLI defaults to an instance named <code>default</code>, and against the wrong instance it reports "Daemon is not running" while the real daemon is up.</li>
+<li><strong>Consequences.</strong> Restarts are slower and gated. Side services stop vanishing on restart. Guardrail code: <code>G-PRE-RESTART-ANCILLARY-INVENTORY</code>.</li>
+</ul>
+<h2 id="adr-007-no-undisclosed-persona-or-astroturf-infrastructure">ADR-007: no undisclosed persona or astroturf infrastructure</h2>
+<ul>
+<li><strong>Context.</strong> A fleet of agents can be asked to run many fake accounts.</li>
+<li><strong>Decision.</strong> Seats do not build spawned-agent personas, fingerprint or IP rotation, fake post histories, or coordinated multi-account posting. They can help with disclosed playbooks on the owner's own accounts. The rule sits in <code>GUARDRAILS.md</code> and holds on the first ask.</li>
+<li><strong>Consequences.</strong> An ethics boundary, not a technical one. It decides which tools the fleet builds.</li>
+</ul>
+<h2 id="adr-008-entitiesmd-is-the-noun-index-read-first">ADR-008: ENTITIES.md is the noun index, read first</h2>
+<ul>
+<li><strong>Context.</strong> Agents quote stale facts about people, prices and products when those facts are spread across long memory files.</li>
+<li><strong>Decision.</strong> Each seat keeps <code>ENTITIES.md</code>: one entry per person, place or thing, with a source rank and an as-of date. The seat reads it right after <code>MEMORY.md</code> at boot and answers noun questions from it first. A write gate at the top of the file states who may change entries.</li>
+<li><strong>Consequences.</strong> One small boot surface answers most noun questions. An optional entity graph (ADR-036) lets a hook inject one entity instead of the whole file.</li>
+</ul>
+<h2 id="adr-009-durable-memory-has-a-source-ranked-write-gate">ADR-009: durable memory has a source-ranked write gate</h2>
+<ul>
+<li><strong>Context.</strong> Without ranking, a fact from a scraped web page lands in memory at the same weight as a fact from the owner.</li>
+<li><strong>Decision.</strong> Every fact written to durable memory carries a source and an as-of date. Sources rank: the system's own operational data, then the owner, then client documents, then transcripts, then the web. A conflict is re-checked against the highest-ranked source. Unverified facts are marked.</li>
+<li><strong>Consequences.</strong> Memory stays traceable. Agent habit enforces this rule; no hook checks memory writes for provenance.</li>
+</ul>
+<h2 id="adr-010-a-pentest-gate-runs-before-anything-ships">ADR-010: a pentest gate runs before anything ships</h2>
+<ul>
+<li><strong>Context.</strong> Agents can deploy sites and send deliverables with no security check.</li>
+<li><strong>Decision.</strong> Nothing ships, deploys, publishes or goes to a client until <code>cortex_pentest_gate.py</code> writes <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code>, or the owner accepts the risk in <code>security/pentest-risk-acceptance.md</code>. Web surfaces need <code>--url &lt;url&gt;</code>. Apps with accounts, roles or user data need <code>--requires-authz</code>.</li>
+<li><strong>Consequences.</strong> Every ship has a security record. A gate run without <code>--url</code> skips the web scan, so ADR-032 wraps the gate in a script that requires the URL and checks the report's own scan return codes.</li>
+</ul>
+<h2 id="adr-011-memorymd-is-a-compact-index-detail-lives-in-topic-files">ADR-011: MEMORY.md is a compact index; detail lives in topic files</h2>
+<ul>
+<li><strong>Context.</strong> Boot memory grows into long narratives that crowd the context window. Claude Code truncates its auto-memory index past 200 lines.</li>
+<li><strong>Decision.</strong> <code>MEMORY.md</code> is an index of at most 200 lines. Narratives move to <code>memory/topics/*.md</code> and dated archives, with one-line pointers left in the index.</li>
+<li><strong>Consequences.</strong> Boot cost stays bounded only if something enforces the cap. Add a hook or a nightly job that counts lines and flags the file.</li>
+</ul>
+<h2 id="adr-012-the-orchestrator-delegates-it-does-not-do-specialist-work">ADR-012: the orchestrator delegates; it does not do specialist work</h2>
+<ul>
+<li><strong>Context.</strong> An orchestrator that does the work itself leaves the fleet idle and loses the review step.</li>
+<li><strong>Decision.</strong> Every project goes to its owning specialist. The orchestrator dispatches, monitors heartbeats, routes approvals and keeps the quality gate. Small live fixes done with the owner watching are the exception. A dispatch is a task assigned to the specialist with a four-line brief (ADR-036).</li>
+<li><strong>Consequences.</strong> Work is visible on the dashboard and reviewable. Before handing work out, the orchestrator applies four tests: the work splits into independent pieces, each piece fits a four-line brief, the orchestrator will verify every return, and the split is worth the extra tokens. Any "no" means do it in one window.</li>
+</ul>
+<h2 id="adr-013-model-and-runtime-are-explicit-per-seat">ADR-013: model and runtime are explicit per seat</h2>
+<ul>
+<li><strong>Context.</strong> Implicit or inherited models make it unclear which model a seat runs.</li>
+<li><strong>Decision.</strong> Every seat <code>config.json</code> sets <code>runtime</code> (for example <code>claude-code</code>) and <code>model</code> (for example <code>claude-opus-5-5[1m]</code>). The daemon reads them at start. A change needs a seat restart.</li>
+<li><strong>Consequences.</strong> Model identity is auditable from one file per seat. A config edit without a restart changes nothing, so the restart is part of every swap (ADR-017).</li>
+</ul>
+<h2 id="adr-014-independent-review-before-any-lane-is-done">ADR-014: independent review before any lane is "done"</h2>
+<ul>
+<li><strong>Context.</strong> A worker that reviews its own output tends to pass it.</li>
+<li><strong>Decision.</strong> No lane reaches the owner as done until an independent pass checks originality, function, security, the absence of real external actions, and spec adherence. The OGL layer ships a read-only <code>auditor</code> subagent (<code>.claude/agents/auditor.md</code>) for this. Seat rule: "A return is a claim. Open the files it names and run its BAR."</li>
+<li><strong>Consequences.</strong> More tokens per lane, fewer false "done" reports. Folded into the pipeline in ADR-018.</li>
+</ul>
+<h2 id="adr-015-model-routing-by-pipeline-stage">ADR-015: model routing by pipeline stage</h2>
+<ul>
+<li><strong>Context.</strong> One model for every stage overspends on simple stages and underpowers hard ones.</li>
+<li><strong>Decision.</strong> The pipeline routes by stage: the strongest reasoning model for planning and final review, a fast model for research fan-out and bulk build work.</li>
+<li><strong>Consequences.</strong> Stage cost tracks stage difficulty. ADR-034 sets the harness pool to Claude Sonnet 5.5.</li>
+</ul>
+<h2 id="adr-016-each-seat-folder-is-its-own-git-repo">ADR-016: each seat folder is its own git repo</h2>
+<ul>
+<li><strong>Context.</strong> The framework repo ignores <code>orgs/</code>, so a framework-level auto-commit records nothing for seat files.</li>
+<li><strong>Decision.</strong> Each seat folder is a nested git repo. The daily auto-commit cron commits it.</li>
+<li><strong>Consequences.</strong> Seat history is real. Git is a periodic snapshot, not a record of every edit. Track hook scripts in git too, so a reviewer can diff them (ADR-037). Check that a backup or commit job produced an artifact before you trust its "success".</li>
+</ul>
+<h2 id="adr-017-model-swaps-follow-a-deviation-protocol">ADR-017: model swaps follow a deviation protocol</h2>
+<ul>
+<li><strong>Context.</strong> A new model can fail at boot, hang, or behave differently, and a seat that will not boot is dark until someone notices.</li>
+<li><strong>Decision.</strong> Every model swap: back up <code>config.json</code>, log the change as a deviation with a named revert trigger, restart the seat, and have a second seat watch it through its first boots.</li>
+<li><strong>Consequences.</strong> Swaps are reversible in one step. Details and a checklist in <code>24-model-lifecycle.md</code>.</li>
+</ul>
+<h2 id="adr-018-projects-run-a-staged-pipeline-with-two-owner-gates">ADR-018: projects run a staged pipeline with two owner gates</h2>
+<ul>
+<li><strong>Context.</strong> A project handed to one seat without a plan review drifts from what the owner wants.</li>
+<li><strong>Decision.</strong> Every project runs: interview the owner, align, plan, two blind critiques, revise, research, plan to the owner for approval, build, review, correction plan, correction build, fresh final review, and the owner's final word on anything client-facing. Small work runs a proportional version with at least one blind critique. The Cortex harness in <code>src/harness/</code> encodes the pipeline. Dispatch stays locked until fresh-session isolation, verified model identity and completion attestation pass. The Align stage has a deterministic human sign-off gate.</li>
+<li><strong>Consequences.</strong> The harness ships with its activation flag off. Until you turn it on, the pipeline is policy that the orchestrator follows by habit.</li>
+</ul>
+<h2 id="adr-019-context-handoff-threshold-is-per-seat">ADR-019: context handoff threshold is per seat</h2>
+<ul>
+<li><strong>Context.</strong> The daemon starts a context handoff when a seat's context passes a threshold. A seat with a heavy boot ritual can reach the threshold before it does any work and restart in a loop. An instruction in the seat's own files cannot stop this, because the daemon owns the handoff.</li>
+<li><strong>Decision.</strong> <code>ctx_handoff_threshold</code> in seat <code>config.json</code> sets the percentage. Unset means 60. A value of 0 or below opts out. Seats with large boot surfaces use a higher value (for example 90) plus a minimal boot routine.</li>
+<li><strong>Consequences.</strong> Handoff tuning lives in config, where the daemon reads it. Before you give a seat an order, check which actor owns the behaviour.</li>
+</ul>
+<h2 id="adr-020-g-untrusted-reads">ADR-020: G-UNTRUSTED-READS</h2>
+<ul>
+<li><strong>Context.</strong> Every seat holds secrets and runs tools without prompts (ADR-004). A prompt injection in fetched content could act with those secrets.</li>
+<li><strong>Decision.</strong> Fetched or external content is data, never instructions, never executed. Upstream merges are scoped cherry-picks. Community catalogs are read as metadata before install. Untrusted reads go through WebSearch or WebFetch, not browser tools that a page could take over.</li>
+<li><strong>Consequences.</strong> This rule is the primary boundary. A sandbox audit does not replace it. ADR-026 applies the same rule to memory writes.</li>
+</ul>
+<h2 id="adr-021-no-seat-runs-with-a-full-access-sandbox">ADR-021: no seat runs with a full-access sandbox</h2>
+<ul>
+<li><strong>Context.</strong> A runtime that spawns with a full-access sandbox and no approval layer can do anything on the host.</li>
+<li><strong>Decision.</strong> A seat on such a runtime does not start until its sandbox is <code>workspace-write</code> or a written per-seat exception names compensating rails. A usage reset never lifts a security hold.</li>
+<li><strong>Consequences.</strong> Quota and security are separate gates. ADR-025 sets the Codex default.</li>
+</ul>
+<h2 id="adr-022-a-source-fix-is-live-only-after-dist-is-rebuilt">ADR-022: a source fix is live only after dist is rebuilt</h2>
+<ul>
+<li><strong>Context.</strong> The daemon runs from <code>dist/</code>. A fix committed to <code>src/</code> changes nothing until the build runs.</li>
+<li><strong>Decision.</strong> A daemon fix counts as deployed only after <code>npm run build</code> and a daemon restart. When a bug survives a "fix commit", compare the <code>dist/</code> build time with the commit time and read the error log before forming a theory.</li>
+<li><strong>Consequences.</strong> Diagnosis starts from the instrument (logs, build times, raw error text), not from the most likely story.</li>
+</ul>
+<h2 id="adr-023-truth_correction-events-use-a-closed-kind-enum-and-a-writer-tool">ADR-023: truth_correction events use a closed kind enum and a writer tool</h2>
+<ul>
+<li><strong>Context.</strong> Corrections logged in free-form shapes cannot be counted. A collector that meets an unknown shape skips it without warning.</li>
+<li><strong>Decision.</strong> Every correction is one event <code>truth_correction</code> with <code>metadata.kind</code> from a closed set (<code>self_correction</code>, <code>peer_catch</code>, <code>enforcer_catch</code>, <code>principal_catch</code>, <code>verify_cleared</code>, <code>artifact_catch</code>, <code>known_unrecordable_catch</code>), an injective <code>dedupe_key</code>, and <code>occurred_at</code>. Seats emit it only through <code>tools/emit-truth-correction.sh</code>, then read it back at the raw JSONL. Amendments are separate <code>truth_correction_amendment</code> events.</li>
+<li><strong>Consequences.</strong> The false-claim catch rate becomes a real metric. The bus does not know the shape, so a seat that calls <code>log-event</code> directly bypasses validation. Shape in <code>21-data-models-schema-registry.md</code>.</li>
+</ul>
+<h2 id="adr-024-usage-cap-protocol-park-hand-off-never-retry-loop">ADR-024: usage-cap protocol: park, hand off, never retry-loop</h2>
+<ul>
+<li><strong>Context.</strong> A seat that hits a usage cap or loses subscription access can loop on retries, burn the next window, or go silent.</li>
+<li><strong>Decision.</strong> On a cap-out: park state in <code>STATE.md</code>, write a handoff, tell the owner when the window resets, and stop. Read the raw error text first: a usage limit and an organization-level access block look alike from outside but need different remedies (wait versus an admin re-enable).</li>
+<li><strong>Consequences.</strong> Outages stay short and diagnosed. Watch the 7-day usage figure before large overnight runs.</li>
+</ul>
+<h2 id="adr-025-codex-sandbox-is-workspace-write-auto-commit-stages-agentdir-only">ADR-025: Codex sandbox is workspace-write; auto-commit stages agentDir only</h2>
+<ul>
+<li><strong>Context.</strong> ADR-021 requires a safe sandbox. Separately, an auto-commit that stages the project root can sweep in files from outside the seat.</li>
+<li><strong>Decision.</strong> The Codex PTY spawns with <code>workspace-write</code>. Auto-commit stages <code>agentDir</code> only and runs a credential scan before commit.</li>
+<li><strong>Consequences.</strong> Codex seats pass ADR-021. Make sure the credential scan covers new untracked directories as well as tracked files.</li>
+</ul>
+<h2 id="adr-026-untrusted-text-is-never-written-verbatim-into-memory">ADR-026: untrusted text is never written verbatim into memory</h2>
+<ul>
+<li><strong>Context.</strong> Memory files load into every future session. Verbatim external text written into memory becomes an injection that runs at every boot.</li>
+<li><strong>Decision.</strong> The agent templates carry a guardrail row: never write untrusted content verbatim into memory; re-express it in the seat's own words at the write boundary.</li>
+<li><strong>Consequences.</strong> Agent habit enforces it. No hook checks memory writes for verbatim external text. See <code>11-ai-safety-governance.md</code>.</li>
+</ul>
+<h2 id="adr-027-memory-files-have-one-writer-and-labelled-inferences">ADR-027: memory files have one writer and labelled inferences</h2>
+<ul>
+<li><strong>Context.</strong> A memory-consolidation ("dream") run and the live session can both read a file, edit it and write it back, and the second write erases the first. An inference drawn from a degraded page can be stored as fact and later repeated.</li>
+<li><strong>Decision.</strong> Each memory file has one writer or a lock. A consolidation run backs up first, re-reads the live file right before each edit, edits in place, then grep-verifies. Anything concluded by observation is written as <code>INFERRED (condition, date)</code> and corrected in place when confirmed or killed. Keep one copy of each boot file.</li>
+<li><strong>Consequences.</strong> Lost-update races disappear when the rule holds. ADR-029 adds a global brake.</li>
+</ul>
+<h2 id="adr-028-long-interval-crons-use-wall-clock-schedules">ADR-028: long-interval crons use wall-clock schedules</h2>
+<ul>
+<li><strong>Context.</strong> On the cortextOS scheduler, other fires for the same seat push an interval cron's next fire back. An interval at least as long as the seat's heartbeat interval can starve and never fire.</li>
+<li><strong>Decision.</strong> If a cron's interval is at least the seat's heartbeat interval, use a 5-field cron expression (for example <code>0 8 * * *</code>). Confirm the first fire by an artifact, not by the absence of an error. A recurring duty with no cron entry does not count as covered. One-shot jobs use <code>fire_at</code>, never a dated 5-field expression, which repeats yearly.</li>
+<li><strong>Consequences.</strong> Crons are checked by receipt. Prompt text for crons is catalogued in <code>22-prompt-registry.md</code>.</li>
+</ul>
+<h2 id="adr-029-a-brake-file-stops-all-memory-consolidation-runs">ADR-029: a brake file stops all memory-consolidation runs</h2>
+<ul>
+<li><strong>Context.</strong> Several consolidation processes running at once race on memory files.</li>
+<li><strong>Decision.</strong> The dream hook script checks for a brake file on its first line and exits if the file exists. The brake comes off only after a per-seat fix is verified.</li>
+<li><strong>Consequences.</strong> One cheap global off switch. Keep the brake file out of temp folders the OS clears on reboot, or a reboot silently releases it.</li>
+</ul>
+<h2 id="adr-030-default-seat-model-is-the-strongest-available-claude-model">ADR-030: default seat model is the strongest available Claude model</h2>
+<ul>
+<li><strong>Context.</strong> Seats make long chains of judgment calls. Weaker models cost less per token but more in review and rework.</li>
+<li><strong>Decision.</strong> Seats default to <code>claude-opus-5-5[1m]</code> on the <code>claude-code</code> runtime. Cheaper models are an explicit per-seat choice (ADR-013) or a harness pool choice (ADR-034).</li>
+<li><strong>Consequences.</strong> Higher per-seat cost and faster use of weekly limits. Every move off the default follows ADR-017.</li>
+</ul>
+<h2 id="adr-031-a-deterministic-plain-language-guard-runs-on-every-outgoing-message">ADR-031: a deterministic plain-language guard runs on every outgoing message</h2>
+<ul>
+<li><strong>Context.</strong> A writing rule held only in context is not reliably followed, and every message to the owner or a client carries it.</li>
+<li><strong>Decision.</strong> <code>~/.claude/hooks/orwell-lint.py</code> runs as a PreToolUse hook on <code>cortextos bus send-telegram</code> calls and on email or post MCP tools. It applies Orwell's six rules with word lists and regex, no model. Exit 2 blocks the send and prints reasons. A per-seat, 10-minute, one-shot pass file (<code>~/.claude/hooks/.orwell-pass-once-&lt;seat&gt;</code>) covers genuine exceptions. It fails closed when it crashes on input in its scope.</li>
+<li><strong>Consequences.</strong> Message style is enforced, not requested. This hook is the template for the other deterministic guards.</li>
+</ul>
+<h2 id="adr-032-every-website-deploy-goes-through-shipsh">ADR-032: every website deploy goes through ship.sh</h2>
+<ul>
+<li><strong>Context.</strong> Deploying first and gating later leaves ungated builds live. Previews and shared archives on public URLs need the same gate as production.</li>
+<li><strong>Decision.</strong> All deploys run <code>ship.sh</code>: deploy a candidate, gate it with <code>--url</code>, and promote the same build only on pass. A raw <code>vercel --prod</code> is a red flag. Exit codes: 0 shipped, 5 live and wrong, 6 rejected, 7 promote not taken. The script rejects stale scan reports. Its final line is the verdict.</li>
+<li><strong>Consequences.</strong> One path to production, with a record for each ship. Re-run the gate after any later change; a pass does not cover the next deploy.</li>
+</ul>
+<h2 id="adr-033-dashboard-approvals-from-the-owner-login-carry-telegram-authority">ADR-033: dashboard approvals from the owner login carry Telegram authority</h2>
+<ul>
+<li><strong>Context.</strong> Asking the owner to re-confirm on Telegram an approval already given in the dashboard wastes the owner's time.</li>
+<li><strong>Decision.</strong> Approvals and chat from the owner's own dashboard login count the same as Telegram. Other dashboard accounts do not. Approvals that touch hooks or guardrails still go through plan, review, go. Seats cite approvals from the source: the inbound message id or the approval file and its timestamp.</li>
+<li><strong>Consequences.</strong> Two authority channels, both tied to the owner identity. Protect the dashboard login like a Telegram account.</li>
+</ul>
+<h2 id="adr-034-harness-stages-run-on-claude-code-codex-app-server-is-refused-on-roster-rows">ADR-034: harness stages run on Claude Code; codex-app-server is refused on roster rows</h2>
+<ul>
+<li><strong>Context.</strong> A mixed-vendor pool needs two logins, two billing paths and two sandbox models.</li>
+<li><strong>Decision.</strong> The harness roster (<code>src/harness/roster.ts</code>) assigns its research-build-test pool to <code>claude-code</code> with Sonnet 5.5. The roster schema refuses <code>codex-app-server</code> on roster rows. Adversarial hunter passes also run on Claude.</li>
+<li><strong>Consequences.</strong> One vendor to log in, bill and monitor. Seat <code>config.json</code> files outside the roster can still name other models; keep them consistent with the roster when you enable the harness.</li>
+</ul>
+<h2 id="adr-035-shared-surface-guard-and-account-guard-run-as-hooks">ADR-035: shared-surface guard and account guard run as hooks</h2>
+<ul>
+<li><strong>Context.</strong> Some commands change surfaces every seat depends on: <code>~/.claude*</code>, package caches, the CLI install. A cache prune can delete files running MCP servers need. An MCP server bound to one Google account can overwrite another account's credential file.</li>
+<li><strong>Decision.</strong> Two PreToolUse hooks. <code>shared-surface-guard.py</code>, with its rules module <code>surface.py</code>, blocks changes to shared surfaces and releases one command per pass token (<code>~/.claude/hooks/.surface-pass-once-&lt;seat&gt;</code>, valid 600 seconds). <code>gws-account-guard.py</code> refuses Google Workspace MCP calls whose <code>user_google_email</code> is not the expected account. New guard rules ship to one seat first, then the fleet, after an auditor PASS. Code-pattern checks start in WARN mode (<code>SURFACE_CODE_MODE=warn</code>) and flip to BLOCK after a quiet window.</li>
+<li><strong>Consequences.</strong> Shared infrastructure survives agent cleanups. Each new rule needs a false-positive replay before it blocks (ADR-038).</li>
+</ul>
+<h2 id="adr-036-operator-discipline-builds">ADR-036: operator-discipline builds</h2>
+<ul>
+<li><strong>Context.</strong> Long sessions lose state at compaction, dispatches go out vague, fixes go unreviewed, and a crashing guard can wave a command through.</li>
+<li><strong>Decision.</strong> The OGL layer ships these builds on the orchestrator seat:
+<ol type="1">
+<li><strong>Compaction kit</strong> (<code>.claude/hooks/kem-compaction/</code>). The seat keeps <code>STATE.md</code> current. A PostToolUse meter nudges as context grows and warns near the limit. After compaction, a SessionStart hook (matcher <code>compact</code>) hands <code>STATE.md</code> back. A PostCompact hook saves the summary.</li>
+<li><strong>Four-line brief.</strong> <code>brief_guard.py</code> blocks <code>cortextos bus create-task ... --assignee &lt;other seat&gt;</code> unless <code>--desc</code> has lines starting <code>TASK:</code>, <code>FILES:</code>, <code>BAR:</code>, <code>RETURN:</code>.</li>
+<li><strong>Hunter passes.</strong> One claim, a fresh read-only session, evidence as file and line plus a reproduction, one round, a budget. Run on every guard, hook, fix and plan.</li>
+<li><strong>Session digest.</strong> A hook writes a digest at session end and before compaction and indexes it into a local search index.</li>
+<li><strong>Prompt router.</strong> A UserPromptSubmit hook names a reply style.</li>
+<li><strong>Auditor subagent.</strong> Read-only, returns PASS or FAIL with evidence.</li>
+<li><strong>Align stage</strong> in the harness (ADR-018).</li>
+<li><strong>Fail closed.</strong> Guards fail closed when they crash on input in their scope. Risky skills cannot auto-invoke.</li>
+<li><strong>Fix-commit trigger.</strong> A hook starts a hunter pass when a fix commit lands.</li>
+<li><strong>Brief audit.</strong> <code>tools/brief-audit/audit.py &lt;task_id&gt;</code> flags edits outside a brief's FILES line.</li>
+<li><strong>Future-time guard.</strong> Blocks writes that carry clock stamps ahead of the real time.</li>
+</ol></li>
+<li><strong>Consequences.</strong> About 25 hook commands on the orchestrator seat, most of them custom scripts. Each adds latency to tool calls and needs its own tests (<code>23-evals-and-benchmarks.md</code>). Large build runs consume weekly usage quickly.</li>
+</ul>
+<h2 id="adr-037-freeze-the-gated-copy-before-an-edit-a-wrapper-never-rewrites-a-verdict">ADR-037: freeze the gated copy before an edit; a wrapper never rewrites a verdict</h2>
+<ul>
+<li><strong>Context.</strong> A guard edited after its gate passed cannot be diffed against what was approved. A wrapper that rewrites a fail into a pass makes the record lie, even when the underlying change is safe.</li>
+<li><strong>Decision.</strong> Before any post-gate edit, copy the live file to <code>&lt;name&gt;.gated-&lt;sha&gt;</code> with mode 400. A wrapper never changes a gate's report. Accepted risk goes in a separate <code>security/pentest-risk-acceptance.md</code> with the owner's verbatim words.</li>
+<li><strong>Consequences.</strong> Each guard has a frozen approved copy beside it. This is a lightweight stand-in for signed versions; <code>22-prompt-registry.md</code> compares the two.</li>
+</ul>
+<h2 id="adr-038-the-shared-surface-guard-covers-every-delete-form">ADR-038: the shared-surface guard covers every delete form</h2>
+<ul>
+<li><strong>Context.</strong> A delete can take many shapes: <code>rm</code>, brace expansion, <code>find -delete</code>, <code>find -exec rm</code>, a move to the Trash through <code>osascript</code>, or a package-manager prune. A guard that matches only <code>rm</code> misses the rest.</li>
+<li><strong>Decision.</strong> The guard covers:
+<ul>
+<li>U1: <code>uv</code> cache prune and brace-expansion deletes.</li>
+<li>U2: Trash and Finder deletes through <code>osascript</code>.</li>
+<li>U3: <code>find -delete</code> and <code>find -exec rm</code>.</li>
+<li>U4: deletes under <code>~/.claude/projects/&lt;project&gt;</code> (project folder, memory folder, <code>MEMORY.md</code>, transcripts), with one named topic file allowed. Each extension ships one at a time with a rollback file, after tests, mutants (deliberately broken copies the tests must catch) and a replay over past commands to count false positives.</li>
+</ul></li>
+<li><strong>Consequences.</strong> The guard also blocks legitimate owner cleanups run from an agent session until a pass token is set. Decide whether the guard applies to interactive owner sessions.</li>
+</ul>
+<hr />
+<h2 id="patterns-across-the-records">Patterns across the records</h2>
+<ol type="1">
+<li><strong>Rules move from memory to code.</strong> Counters and memory rules (ADR-005, 009, 011) give way to deterministic hooks (ADR-031, 035, 036, 038). Prefer guards that still work when the agent is wrong about itself.</li>
+<li><strong>Models change; the policy stays.</strong> Explicit per seat, restart to apply, back up and log every swap with a revert trigger (ADR-013, 017).</li>
+<li><strong>Diagnose from the instrument.</strong> Read logs, build times and raw error text before you write the story (ADR-022, 024).</li>
+<li><strong>The auditor is load-bearing.</strong> Guard changes, ledger rules and ship verdicts depend on it. Plan a fallback reviewer for when the auditor seat is down.</li>
+<li><strong>Some decisions are policy without enforcement.</strong> The memory line cap (011), one writer per memory file (027), the pipeline while the harness is off (018), and the memory-injection rule (026). Each is a candidate for a hook.</li>
+</ol>
+<h2 id="known-limitations">Known limitations</h2>
+<ul>
+<li>No ADR file per decision and no review board. Decisions live in <code>MEMORY.md</code>, <code>GUARDRAILS.md</code> G-codes and this document. Append to this file when you change a default.</li>
+<li>Hook scripts outside a seat's git repo have no history beyond <code>.bak-</code> and <code>.gated-</code> copies. Put them under version control.</li>
+<li>Several rules (009, 011, 026, 027) depend on agent habit. They fail silently when a seat forgets them.</li>
+<li>The harness pipeline (018) is off by default.</li>
+</ul>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/daemon/fast-checker.ts</code></li>
+<li><code>src/daemon/index.ts</code></li>
+<li><code>src/daemon/agent-manager.ts</code></li>
+<li><code>src/bus/crons.ts</code></li>
+<li><code>src/types/index.ts</code></li>
+<li><code>src/harness/roster.ts</code></li>
+<li><code>src/harness/schema.ts</code></li>
+<li><code>src/pty/codex-app-server-pty.ts</code></li>
+<li><code>templates/agent/.claude/settings.json</code></li>
+<li><code>templates/orchestrator/CLAUDE.md</code></li>
+<li>OGL layer: <code>.claude/hooks/brief_guard.py</code>, <code>.claude/hooks/future_time_guard.py</code>, <code>.claude/hooks/kem-compaction/</code>, <code>.claude/agents/auditor.md</code>, <code>tools/emit-truth-correction.sh</code>, <code>tools/brief-audit/audit.py</code></li>
+<li>User-level hooks: <code>~/.claude/hooks/orwell-lint.py</code>, <code>shared-surface-guard.py</code>, <code>surface.py</code>, <code>gws-account-guard.py</code></li>
+</ul>
+</article><nav class="pager"><a class="prev" href="14-readme-quickstart.html"><small>Previous</small>14 README and quickstart: install, run, change safely, ship</a><a class="next" href="21-data-models-schema-registry.html"><small>Next</small>21 Data Models and Schema Registry</a></nav></main></div></body></html>

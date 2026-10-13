@@ -1,0 +1,824 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Core System Architecture · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li class="on"><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">01</div><div><p class="dg">Core system</p>
+<h1>Core System Architecture</h1><p class="meta">3,758 words · <a href="../01-core-architecture.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#conventions">Conventions</a></li><li><a href="#1-overview">1. Overview</a></li><li><a href="#2-component-glossary">2. Component glossary</a></li><li><a href="#3-roles">3. Roles</a></li><li><a href="#4-surfaces">4. Surfaces</a></li><li><a href="#5-lifecycle-of-one-request">5. Lifecycle of one request</a></li><li><a href="#6-known-limitations">6. Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document explains what OGL Cortex is made of, how the parts relate, and how one request travels from the owner's phone to an agent and back. Document 02 covers the execution engine, 03 the configuration files, and 04 the guardrails.</p>
+<h2 id="conventions">Conventions</h2>
+<p>These placeholders appear in every OGL Cortex document:</p>
+<table>
+<thead>
+<tr>
+<th>Placeholder</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$CORTEX_HOME</code></td>
+<td>The framework checkout (the cortextOS repo)</td>
+</tr>
+<tr>
+<td><code>&lt;instance&gt;</code></td>
+<td>The runtime instance name passed to the daemon with <code>--instance</code> (default <code>default</code>)</td>
+</tr>
+<tr>
+<td><code>$CTX_ROOT</code></td>
+<td>The runtime state folder, <code>~/.cortextos/&lt;instance&gt;</code></td>
+</tr>
+<tr>
+<td><code>&lt;org&gt;</code></td>
+<td>An organisation folder under <code>$CORTEX_HOME/orgs/</code></td>
+</tr>
+<tr>
+<td><code>&lt;seat&gt;</code></td>
+<td>One agent's folder, <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;</code></td>
+</tr>
+<tr>
+<td><code>&lt;project-slug&gt;</code></td>
+<td>Claude Code's per-project folder name under <code>~/.claude/projects/</code> (the seat path with <code>/</code> replaced by <code>-</code>)</td>
+</tr>
+</tbody>
+</table>
+<p>OGL Cortex uses neutral role names: <strong>orchestrator</strong>, <strong>specialist</strong>, <strong>auditor</strong>, <strong>analyst</strong> and <strong>sentinel</strong>. Seat names in config examples (for example <code>boss</code>) are placeholders you choose.</p>
+<hr />
+<h2 id="1-overview">1. Overview</h2>
+<p>OGL Cortex runs a fleet of Claude Code sessions on one host. A background program, the <strong>cortextOS daemon</strong>, keeps each agent session alive, feeds it the owner's Telegram messages and its scheduled jobs, and restarts it when it exits. Each agent, called a <strong>seat</strong>, is a folder of text files (rules, memory, skills) plus one Claude Code terminal session.</p>
+<p>One seat is the <strong>orchestrator</strong>. The owner talks to it. It hands work to other seats over a file-based message bus, or to short-lived helper agents (<strong>subagents</strong>) inside its own session. Small scripts called <strong>hooks</strong> check each seat's actions before they happen, for example blocking an outgoing Telegram message that breaks the writing rules. Memory is spread across layers, from the live conversation to a vector database.</p>
+<p>OGL Cortex has two parts:</p>
+<ul>
+<li><strong>cortextOS</strong> (MIT, upstream <code>github.com/grandamenium/cortextos</code>): the daemon, PTY layer, bus CLI, Telegram integration, cron scheduler, dashboard and seat templates.</li>
+<li><strong>The OGL layer</strong>: guard hooks, the compaction kit, memory protocol, approval gates, the ship gate, sentinels and additional skills.</li>
+</ul>
+<hr />
+<h2 id="2-component-glossary">2. Component glossary</h2>
+<h3 id="21-memory">2.1 Memory</h3>
+<p>"Memory" means anything an agent can read later to recall a fact. Each layer has its own writer, reader and lifespan.</p>
+<ul>
+<li><strong>Short-term</strong>: lives inside the current conversation or until the next restart.</li>
+<li><strong>Episodic</strong>: a dated record of what happened.</li>
+<li><strong>Long-term</strong>: distilled facts and rules meant to hold for months.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Layer</th>
+<th>What it is</th>
+<th>Where</th>
+<th>Kind</th>
+<th>Writer / reader</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Conversation context</td>
+<td>The live session text. Seats restart with <code>--continue</code>, so one conversation can span days</td>
+<td><code>~/.claude/projects/&lt;project-slug&gt;/&lt;session-id&gt;.jsonl</code></td>
+<td>Short-term</td>
+<td>Claude Code / seat</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Auto-compaction window</td>
+<td>Claude Code compresses the conversation when it passes a token limit</td>
+<td><code>&lt;seat&gt;/.claude/settings.json</code> key <code>autoCompactWindow</code></td>
+<td>Short-term</td>
+<td>Claude Code</td>
+</tr>
+<tr>
+<td>3</td>
+<td>STATE.md and compaction kit</td>
+<td>A seat-written "where the work stands" file. A context-meter hook nudges the seat to update it as the window fills. After compaction a hook pastes it back in; another saves the compaction summary</td>
+<td><code>&lt;seat&gt;/STATE.md</code>; <code>&lt;seat&gt;/.claude/hooks/kem-compaction/</code> (<code>compaction.json</code>, <code>meter.py</code>, <code>after_compact.py</code>, <code>save_summary.py</code>); summaries in <code>&lt;seat&gt;/compactions/</code></td>
+<td>Short-term bridge</td>
+<td>Seat writes / hooks re-inject</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Pre-compaction checkpoints</td>
+<td>A PreCompact hook copies the last ~120 transcript lines to a checkpoint. A SessionStart hook re-injects the newest checkpoint if it is under 72 hours old, plus the tail of today's daily memory</td>
+<td><code>&lt;seat&gt;/.claude/hooks/precompact-checkpoint.sh</code>, <code>sessionstart-inject.sh</code>; <code>&lt;seat&gt;/memory/checkpoints/</code></td>
+<td>Short-term bridge</td>
+<td>Hooks only</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Daily memory</td>
+<td>One markdown file per day, an append-only work log</td>
+<td><code>&lt;seat&gt;/memory/YYYY-MM-DD.md</code></td>
+<td>Episodic</td>
+<td>Seat / SessionStart hook injects the last 3,000 characters</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Session digests</td>
+<td>At session end and before compaction, a hook filters the transcript, runs a headless Claude (<code>sonnet</code>) to write a digest, and indexes it into a local search index</td>
+<td><code>&lt;seat&gt;/tools/kem-memory/digest/</code>; output <code>&lt;seat&gt;/memory/digests/</code>; index <code>&lt;seat&gt;/tools/kem-memory/rag/rag.db</code></td>
+<td>Episodic</td>
+<td>Hook / seat on demand</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Incidents log</td>
+<td>Narrative record of failures and the lessons drawn from them</td>
+<td><code>&lt;seat&gt;/memory/topics/incidents.md</code></td>
+<td>Episodic</td>
+<td>Orchestrator, auditor</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Seat MEMORY.md</td>
+<td>Long-term rules and lessons, read at boot</td>
+<td><code>&lt;seat&gt;/MEMORY.md</code></td>
+<td>Long-term</td>
+<td>Seat; the auditor may add coaching rules</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Claude auto-memory</td>
+<td>Claude Code's per-project memory folder: one index file plus one file per lesson. Only the index loads, capped at 200 lines</td>
+<td><code>~/.claude/projects/&lt;project-slug&gt;/memory/</code></td>
+<td>Long-term</td>
+<td>Claude Code and seat</td>
+</tr>
+<tr>
+<td>10</td>
+<td>ENTITIES.md</td>
+<td>Noun index: one entry per person, place or thing, with source rank and as-of date</td>
+<td><code>&lt;seat&gt;/ENTITIES.md</code></td>
+<td>Long-term</td>
+<td>Orchestrator, behind a written write gate</td>
+</tr>
+<tr>
+<td>11</td>
+<td>Org knowledge.md</td>
+<td>Shared facts for every seat in the org, read at boot</td>
+<td><code>orgs/&lt;org&gt;/knowledge.md</code></td>
+<td>Long-term</td>
+<td>Any seat</td>
+</tr>
+<tr>
+<td>12</td>
+<td>Knowledge base (RAG)</td>
+<td><code>cortextos bus kb-query</code> searches a Chroma vector database. Embedding model, dimensions and chunk size are set in the KB <code>config.json</code>; there is one collection per seat plus a shared one</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/knowledge-base/</code> (<code>config.json</code>, <code>chromadb/</code>)</td>
+<td>Long-term</td>
+<td><code>kb-ingest</code> crons write / any seat reads</td>
+</tr>
+<tr>
+<td>13</td>
+<td>External knowledge stores (optional)</td>
+<td>Owner tools such as a note vault or a graph database, wired in through MCP servers</td>
+<td>Owner-defined</td>
+<td>Long-term</td>
+<td>Owner and agents</td>
+</tr>
+<tr>
+<td>14</td>
+<td>Client memory graph (optional)</td>
+<td>A SQLite graph of clients and people with quoted, dated facts. A UserPromptSubmit hook reads it</td>
+<td><code>&lt;seat&gt;/tools/ops-graph/graph.db</code></td>
+<td>Long-term</td>
+<td>Built offline / hook reads</td>
+</tr>
+<tr>
+<td>15</td>
+<td>Truth-correction ledger</td>
+<td>When a seat is caught, or catches itself, stating something false, a guarded script logs a <code>truth_correction</code> event</td>
+<td><code>&lt;seat&gt;/tools/emit-truth-correction.sh</code> (calls <code>cortextos bus log-event action truth_correction</code>); events in <code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/</code></td>
+<td>Episodic</td>
+<td>Any seat / auditor scores it</td>
+</tr>
+<tr>
+<td>16</td>
+<td>Telegram logs</td>
+<td>Every message in and out</td>
+<td><code>$CTX_ROOT/logs/&lt;seat&gt;/inbound-messages.jsonl</code>, <code>outbound-messages.jsonl</code></td>
+<td>Episodic</td>
+<td>Daemon and <code>send-telegram</code></td>
+</tr>
+<tr>
+<td>17</td>
+<td>Session facts</td>
+<td><code>cortextos bus recall-facts</code> returns facts extracted at compaction</td>
+<td><code>src/hooks/hook-extract-facts.ts</code></td>
+<td>Episodic</td>
+<td>Requires the extract hook to be registered in the seat's settings</td>
+</tr>
+</tbody>
+</table>
+<p>Short-term: layers 1 to 4. Episodic: 5, 6, 7, 15, 16, 17. Long-term: 8 to 14.</p>
+<h3 id="22-skills">2.2 Skills</h3>
+<p>A <strong>skill</strong> is a folder with a <code>SKILL.md</code> file: written instructions for one kind of job, for example a morning review. Claude Code lists skill names and one-line descriptions at session start. The full text loads only when the agent invokes the skill, or when a cron prompt tells it to read the file ("Read .claude/skills/morning-review/SKILL.md and ...").</p>
+<table>
+<thead>
+<tr>
+<th>Source</th>
+<th>Where</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Seat skills</td>
+<td><code>&lt;seat&gt;/.claude/skills/</code> (seeded from the seat's template)</td>
+</tr>
+<tr>
+<td>User-level skills, visible to every Claude session on the host</td>
+<td><code>~/.claude/skills/</code></td>
+</tr>
+<tr>
+<td>Plugin skills</td>
+<td>Plugins enabled in <code>~/.claude/settings.json</code> <code>enabledPlugins</code></td>
+</tr>
+<tr>
+<td>Subagent definitions</td>
+<td><code>&lt;seat&gt;/.claude/agents/*.md</code>, for example a read-only <code>auditor</code> on <code>sonnet</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>cortextos bus list-skills --format json</code> lists the seat skills it can parse. A <code>SKILL.md</code> without <code>name</code> and <code>description</code> frontmatter does not appear.</p>
+<h3 id="23-tools">2.3 Tools</h3>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>What it covers</th>
+<th>Where configured</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Built-in Claude tools</td>
+<td>Bash, Read, Edit, Write, WebFetch, WebSearch, Agent (subagents) and others</td>
+<td><code>&lt;seat&gt;/.claude/settings.json</code> <code>permissions.allow</code>; launch flags (see 02)</td>
+</tr>
+<tr>
+<td>MCP servers, user scope</td>
+<td>Browser automation, workspace, design, CRM and other connectors</td>
+<td><code>~/.claude.json</code> <code>mcpServers</code></td>
+</tr>
+<tr>
+<td>MCP servers, project scope</td>
+<td>Servers needed by one seat</td>
+<td><code>~/.claude.json</code> <code>projects.&lt;path&gt;.mcpServers</code></td>
+</tr>
+<tr>
+<td>cortextOS bus CLI</td>
+<td><code>cortextos bus &lt;cmd&gt;</code>: tasks, messages, Telegram, crons, KB, approvals, heartbeats, hooks</td>
+<td><code>src/cli/bus.ts</code></td>
+</tr>
+<tr>
+<td>cortextOS CLI</td>
+<td><code>cortextos &lt;cmd&gt;</code>: <code>start</code>, <code>stop</code>, <code>restart</code>, <code>status</code>, <code>add-agent</code>, <code>goals</code>, <code>crash-alert</code> and more</td>
+<td><code>src/cli/</code></td>
+</tr>
+<tr>
+<td>Seat scripts</td>
+<td>Helper scripts the seat runs through Bash</td>
+<td><code>&lt;seat&gt;/tools/</code></td>
+</tr>
+<tr>
+<td>Crons</td>
+<td>Daemon-scheduled prompts</td>
+<td><code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code></td>
+</tr>
+<tr>
+<td>LaunchAgents</td>
+<td>macOS scheduled scripts (sentinels, backups)</td>
+<td><code>~/Library/LaunchAgents/*.plist</code></td>
+</tr>
+<tr>
+<td>pm2 apps</td>
+<td><code>cortextos-daemon</code>, <code>cortextos-dashboard</code>, optional watchdogs</td>
+<td><code>$CORTEX_HOME/ecosystem.config.js</code></td>
+</tr>
+</tbody>
+</table>
+<p>Manage crons through <code>cortextos bus list-crons</code>, <code>add-cron</code>, <code>update-cron</code> and <code>remove-cron</code>. These commands always use the path the scheduler reads (<code>src/bus/crons-schema.ts</code>).</p>
+<h3 id="24-rules">2.4 Rules</h3>
+<p>Rules come in two strengths:</p>
+<ul>
+<li><strong>Prose rules</strong>: text the model reads and weighs.</li>
+<li><strong>Mechanical rules</strong>: hooks that run code and can block a tool call.</li>
+</ul>
+<p>Claude Code loads every <code>CLAUDE.md</code> from the working folder up to the home folder. The bootstrap files load because the boot prompt tells the seat to read them.</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Scope</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>~/.claude/CLAUDE.md</code></td>
+<td>Every Claude session on the host: memory read order, ship gate, coding guidelines</td>
+</tr>
+<tr>
+<td><code>$CORTEX_HOME/CLAUDE.md</code></td>
+<td>Framework contributor notes</td>
+</tr>
+<tr>
+<td><code>&lt;seat&gt;/CLAUDE.md</code></td>
+<td>The seat's operating manual</td>
+</tr>
+<tr>
+<td><code>&lt;seat&gt;/AGENTS.md</code></td>
+<td>Session start checklist and memory protocol</td>
+</tr>
+<tr>
+<td><code>&lt;seat&gt;/GUARDRAILS.md</code></td>
+<td>Red-flag table and named gates</td>
+</tr>
+<tr>
+<td><code>orgs/&lt;org&gt;/GUARDRAILS.md</code></td>
+<td>Fleet cardinal rule, for example "label every claim Proven, Inferred or Open"</td>
+</tr>
+<tr>
+<td><code>&lt;seat&gt;/MEMORY.md</code>, auto-memory index</td>
+<td>Lessons, read at boot</td>
+</tr>
+</tbody>
+</table>
+<p>Mechanical rules live in the <code>hooks</code> object of <code>&lt;seat&gt;/.claude/settings.json</code> and <code>~/.claude/settings.json</code>. The reference orchestrator hook set:</p>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Matcher</th>
+<th>Command</th>
+<th>What it does</th>
+<th>Blocks?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PermissionRequest</td>
+<td>ExitPlanMode</td>
+<td><code>cortextos bus hook-planmode-telegram</code></td>
+<td>Sends plan approval to Telegram</td>
+<td>Waits for reply</td>
+</tr>
+<tr>
+<td>PermissionRequest</td>
+<td>any</td>
+<td><code>cortextos bus hook-permission-telegram</code></td>
+<td>Sends permission prompts to Telegram</td>
+<td>Waits for reply</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>AskUserQuestion</td>
+<td><code>cortextos bus hook-ask-telegram</code></td>
+<td>Routes questions to Telegram</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>Bash</td>
+<td><code>~/.claude/hooks/orwell-lint.py</code></td>
+<td><strong>Send guard.</strong> Lints the text of any <code>cortextos bus send-telegram</code> against Orwell's six rules and a no-em-dash rule. One pass token per seat</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>MCP send, reply, forward, draft and post tools</td>
+<td><code>~/.claude/hooks/orwell-lint.py</code></td>
+<td>Same lint on email and social sends</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td><code>mcp__google-workspace__.*</code></td>
+<td><code>~/.claude/hooks/gws-account-guard.py</code></td>
+<td><strong>Account guard.</strong> Blocks calls for accounts on a deny list, and blocks re-auth flows that could overwrite stored credentials</td>
+<td>Yes, no pass token</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>Bash</td>
+<td><code>SURFACE_CODE_MODE=warn ~/.claude/hooks/shared-surface-guard.py</code></td>
+<td><strong>Shared-surface guard.</strong> Blocks once on commands that change things every seat depends on: <code>uv cache</code> prune, global npm installs, <code>brew upgrade</code>, writes to <code>~/.claude*</code> and shared credential folders. Code-write checks run in warn mode</td>
+<td>Yes, once</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>Bash</td>
+<td><code>&lt;seat&gt;/.claude/hooks/brief_guard.py</code></td>
+<td><strong>Brief guard.</strong> <code>create-task --assignee &lt;other seat&gt;</code> must carry TASK, FILES, BAR and RETURN lines</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>Bash, Write, Edit</td>
+<td><code>&lt;seat&gt;/.claude/hooks/future_time_guard.py</code></td>
+<td><strong>Future-time guard.</strong> Refuses an <code>HH:MM UTC</code> stamp more than 3 minutes in the future in memory files, STATE.md or sends. Fails open</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>Bash</td>
+<td><code>&lt;seat&gt;/.claude/hooks/attribution-lint.py</code></td>
+<td><strong>Attribution lint.</strong> Blocks owner-bound sends that present an estimate as a measured number without a receipt. Tier B logs only</td>
+<td>Tier A only</td>
+</tr>
+<tr>
+<td>PreToolUse</td>
+<td>Bash</td>
+<td><code>ship_gate_hook.py</code> (user level, from the pentest-gate skill)</td>
+<td><strong>Ship gate.</strong> Blocks <code>git push</code>, <code>gh release</code> and similar unless a passing pentest report exists</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>PostToolUse</td>
+<td>any</td>
+<td><code>kem-compaction/meter.py</code></td>
+<td>Context meter: nudge, then warning</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PostToolUse</td>
+<td>Bash</td>
+<td><code>tools/adversarial-trigger/fix_commit_hook.py</code></td>
+<td>After a <code>git commit</code> whose subject says fix, guard or hook, starts a background adversarial review</td>
+<td>No</td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td>any</td>
+<td><code>tools/ops-graph/recall_hook.py</code></td>
+<td><strong>Client memory graph.</strong> Injects dated quoted facts (max 6,000 chars) when the prompt names a known client or person. Skips cron prompts</td>
+<td>No</td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td>any</td>
+<td><code>tools/prompt-router/router.py</code></td>
+<td><strong>Reply-style router.</strong> Runs <code>claude --print --model haiku</code> to pick one of six reply styles and injects it. Logs to <code>decisions.jsonl</code></td>
+<td>No</td>
+</tr>
+<tr>
+<td>Stop</td>
+<td>any</td>
+<td><code>cortextos bus hook-idle-flag</code></td>
+<td>Writes <code>last_idle.flag</code> so the daemon knows the turn ended (drives the typing indicator)</td>
+<td>No</td>
+</tr>
+<tr>
+<td>Stop</td>
+<td>any</td>
+<td><code>~/.claude/skills/aa-dream/dream-hook.sh</code></td>
+<td>Starts background memory consolidation after 24 h and 5 sessions</td>
+<td>No</td>
+</tr>
+<tr>
+<td>SessionEnd</td>
+<td>any</td>
+<td><code>cortextos crash-alert</code></td>
+<td>Crash notice</td>
+<td>No</td>
+</tr>
+<tr>
+<td>SessionEnd, PreCompact</td>
+<td>any</td>
+<td><code>kem-memory/digest/session_end.py</code></td>
+<td>Session digest (layer 6)</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PreCompact</td>
+<td>any</td>
+<td><code>cortextos bus hook-compact-telegram</code>, <code>precompact-checkpoint.sh</code></td>
+<td>Telegram notice and checkpoint (layer 4)</td>
+<td>No</td>
+</tr>
+<tr>
+<td>SessionStart</td>
+<td>any</td>
+<td><code>sessionstart-inject.sh</code></td>
+<td>Re-injects checkpoint and daily memory tail</td>
+<td>No</td>
+</tr>
+<tr>
+<td>SessionStart</td>
+<td>compact</td>
+<td><code>kem-compaction/after_compact.py</code></td>
+<td>Hands STATE.md back</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PostCompact</td>
+<td>any</td>
+<td><code>kem-compaction/save_summary.py</code></td>
+<td>Saves the summary to <code>compactions/</code></td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<p>Specialist seats carry a subset: the Telegram hooks, the send guard and the shared-surface guard. An infrastructure seat can run the shared-surface guard in strict mode by omitting <code>SURFACE_CODE_MODE=warn</code>. The cortextOS templates also ship <code>cortextos bus hook-loop-detector</code> as a PreToolUse hook (<code>src/hooks/hook-loop-detector.ts</code>).</p>
+<p>A hook script on disk does nothing until a settings file registers it.</p>
+<hr />
+<h2 id="3-roles">3. Roles</h2>
+<h3 id="31-seats">3.1 Seats</h3>
+<p>A seat folder lives at <code>orgs/&lt;org&gt;/agents/&lt;seat&gt;</code>. <code>cortextos bus list-agents</code> lists registered seats. <code>cortextos status</code> shows which are running. A seat can exist on disk while disabled.</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Template</th>
+<th>Responsibility</th>
+<th>Reports to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Orchestrator</strong></td>
+<td><code>templates/orchestrator</code></td>
+<td>Routes the owner's directives, briefs the owner, runs approvals, dispatches work</td>
+<td>Owner</td>
+</tr>
+<tr>
+<td><strong>Analyst</strong></td>
+<td><code>templates/analyst</code></td>
+<td>Fleet health, metrics, upstream drift checks, improvement cycle, nightly local commits</td>
+<td>Orchestrator; owner on critical signals</td>
+</tr>
+<tr>
+<td><strong>Auditor</strong></td>
+<td><code>templates/analyst</code> plus auditor skills</td>
+<td>Hourly claim checks; writes coaching rules into a seat's MEMORY.md after a false claim</td>
+<td>Orchestrator and analyst; owner above a severity threshold</td>
+</tr>
+<tr>
+<td><strong>Specialist</strong></td>
+<td><code>templates/agent</code></td>
+<td>One domain: infrastructure, content, outreach, code. Can run without its own Telegram bot</td>
+<td>Orchestrator, over the bus</td>
+</tr>
+<tr>
+<td><strong>Sentinel</strong></td>
+<td>not a seat</td>
+<td>Scheduled shell scripts that check the host and message the orchestrator</td>
+<td>Orchestrator</td>
+</tr>
+</tbody>
+</table>
+<figure class="diagram"><img src="img/6b93a95ce208.svg" alt="Diagram"></figure>
+
+<h3 id="32-non-seat-actors">3.2 Non-seat actors</h3>
+<table>
+<thead>
+<tr>
+<th>Actor</th>
+<th>What it is</th>
+<th>Code / location</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>cortextOS daemon</strong></td>
+<td>One Node process. Starts each seat's Claude session in a pseudo-terminal (PTY), polls Telegram, runs crons, restarts crashed seats</td>
+<td>pm2 app <code>cortextos-daemon</code> runs <code>$CORTEX_HOME/dist/daemon.js --instance &lt;instance&gt;</code>; <code>src/daemon/agent-manager.ts</code></td>
+</tr>
+<tr>
+<td><strong>fast-checker</strong></td>
+<td>A loop inside the daemon, one per seat, polling every 1 s. Injects queued Telegram and bus messages into the seat's terminal, watches context size, sends the typing indicator</td>
+<td><code>src/daemon/fast-checker.ts</code></td>
+</tr>
+<tr>
+<td><strong>Heartbeat watchdog</strong></td>
+<td>Part of the fast-checker. Every 50 minutes it writes an "alive, idle session" heartbeat for the seat</td>
+<td><code>src/daemon/fast-checker.ts</code></td>
+</tr>
+<tr>
+<td><strong>Sentinels</strong></td>
+<td>Bash scripts run by LaunchAgents every 10 minutes to daily: disk, heartbeat, session liveness, daemon restart storms, domain expiry, credential identity. They send bus messages to the orchestrator as <code>sentinel</code></td>
+<td><code>&lt;sentinel-dir&gt;/*.sh</code>, <code>~/Library/LaunchAgents/</code></td>
+</tr>
+<tr>
+<td><strong>Auth sentinel</strong></td>
+<td>A pm2 loop that checks Claude login health</td>
+<td><code>&lt;seat&gt;/tools/claude-auth-sentinel-loop.sh</code></td>
+</tr>
+<tr>
+<td><strong>Agent Office bridge</strong> (optional)</td>
+<td>Copies fleet state into a visual office and carries office chat lines and Approve clicks back to the orchestrator</td>
+<td>See 14</td>
+</tr>
+<tr>
+<td><strong>Owner</strong></td>
+<td>The principal. Sends Telegram text, voice notes and photos; approves actions</td>
+<td><code>&lt;seat&gt;/USER.md</code>; <code>ALLOWED_USER</code> in the seat <code>.env</code></td>
+</tr>
+<tr>
+<td><strong>Interactive Claude sessions</strong></td>
+<td>Claude.app or Claude Code opened by the owner on the same host. Shares <code>~/.claude</code> (user hooks, skills, MCP config) with the seats; gets a seat's hooks only when opened in that seat's folder</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-surfaces">4. Surfaces</h2>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>What it is</th>
+<th>How it runs</th>
+<th>Default reach</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Telegram</strong></td>
+<td>The main channel to the orchestrator. Other seats can have their own bots</td>
+<td>The daemon polls Telegram (<code>src/telegram/poller.ts</code>); seats reply with <code>cortextos bus send-telegram</code></td>
+<td>Phone, anywhere</td>
+</tr>
+<tr>
+<td><strong>Dashboard</strong></td>
+<td>Next.js app: tasks, agents, approvals, crons, KB, skills, analytics, workflows (<code>dashboard/src/app/(dashboard)/</code>)</td>
+<td>pm2 app <code>cortextos-dashboard</code>. Login required (<code>dashboard/src/middleware.ts</code>); admin credentials in <code>$CTX_ROOT/dashboard.env</code>. Run a production build bound to localhost</td>
+<td>Local, or tailnet through <code>tailscale serve</code></td>
+</tr>
+<tr>
+<td><strong>Agent Office</strong> (optional)</td>
+<td>Visual office: seats at desks, wall boards for the needs-owner queue, Telegram thread, deploy gate, crons and projects</td>
+<td>Local Node server on 127.0.0.1 with password login, fed by a bridge script</td>
+<td>Local and tailnet</td>
+</tr>
+<tr>
+<td><strong>Mobile control</strong> (optional)</td>
+<td>Phone web app and home-screen widgets: approve or reject, fleet actions, panic stop, start-all</td>
+<td>Small HTTP API bound to the host's Tailscale IP, bearer token required, run by a LaunchAgent</td>
+<td>Tailnet</td>
+</tr>
+<tr>
+<td><strong>Files</strong></td>
+<td>Deliverables sent as Telegram documents</td>
+<td><code>cortextos bus send-telegram &lt;chat_id&gt; "&lt;caption&gt;" --file &lt;path&gt;</code></td>
+<td>Telegram</td>
+</tr>
+</tbody>
+</table>
+<p>Bind every control surface to localhost or the tailnet address and require auth on each.</p>
+<hr />
+<h2 id="5-lifecycle-of-one-request">5. Lifecycle of one request</h2>
+<p>This trace follows a common request: the owner sends a voice note and then a text message asking the orchestrator to produce a set of documents. Times are typical offsets from the voice note arriving.</p>
+<h3 id="51-hop-by-hop">5.1 Hop by hop</h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Time</th>
+<th>Hop</th>
+<th>Code</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>0 s</td>
+<td>The daemon's Telegram poller receives the voice message, checks the sender against <code>ALLOWED_USER</code>, and logs <code>telegram_received</code></td>
+<td><code>src/daemon/agent-manager.ts</code>, <code>src/telegram/poller.ts</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>0 to 4 s</td>
+<td>The media handler downloads the <code>.ogg</code> into <code>&lt;seat&gt;/telegram-images/</code>, converts it with <code>ffmpeg</code>, and transcribes it with <code>whisper-cli</code> and the model in <code>~/.cortextos/models/</code></td>
+<td><code>src/telegram/media.ts</code>, <code>src/telegram/transcribe.ts</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>~4 s</td>
+<td>The fast-checker formats a <code>=== TELEGRAM VOICE from ... ===</code> block with the transcript and pastes it into the seat's terminal. If the seat is mid-turn, Claude Code queues it</td>
+<td><code>src/daemon/fast-checker.ts</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>~10 s</td>
+<td>The text message arrives and becomes the next prompt; the queued voice block rides along</td>
+<td>fast-checker, Claude Code queue</td>
+</tr>
+<tr>
+<td>5</td>
+<td>~12 s</td>
+<td>UserPromptSubmit hooks run. The reply-style router injects <code>[reply style: act] ...</code>. The client-graph hook injects facts only if a known name appears</td>
+<td><code>tools/prompt-router/router.py</code>, <code>tools/ops-graph/recall_hook.py</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td></td>
+<td>Context available this turn: CLAUDE.md layers, bootstrap files read at boot, the auto-memory index, STATE.md and the SessionStart injection. The seat may also run <code>kb-query</code></td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>7</td>
+<td>~25 s</td>
+<td>The seat runs one Bash call: <code>send-telegram</code> plus <code>create-task</code>. Every PreToolUse Bash hook checks it first: send guard, shared-surface guard, brief guard (no <code>--assignee</code>, so not a dispatch), future-time guard, attribution lint, ship gate</td>
+<td><code>&lt;seat&gt;/.claude/settings.json</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>~26 s</td>
+<td><code>send-telegram</code> posts the acknowledgement, appends to <code>outbound-messages.jsonl</code>, overwrites <code>$CTX_ROOT/state/&lt;seat&gt;/last-telegram-&lt;chat_id&gt;.txt</code>, and logs <code>telegram_sent</code>. <code>create-task</code> writes a task record</td>
+<td><code>src/cli/bus.ts</code>, <code>src/telegram/logging.ts</code></td>
+</tr>
+<tr>
+<td>9</td>
+<td>~60 s</td>
+<td>The seat writes a shared brief and launches background subagents with the Agent tool</td>
+<td>Claude Code Agent tool</td>
+</tr>
+<tr>
+<td>10</td>
+<td>after each tool call</td>
+<td>PostToolUse hooks: context meter, fix-commit trigger</td>
+<td>settings.json</td>
+</tr>
+<tr>
+<td>11</td>
+<td>turn end</td>
+<td>Stop hooks: idle flag (stops the typing indicator), dream check</td>
+<td><code>src/hooks/hook-idle-flag.ts</code></td>
+</tr>
+<tr>
+<td>12</td>
+<td>hourly</td>
+<td>The auditor's audit cron scans the last 60 minutes of fleet events</td>
+<td>auditor skill</td>
+</tr>
+<tr>
+<td>13</td>
+<td>nightly</td>
+<td>The auditor's catch-rate cron reads the full <code>outbound-messages.jsonl</code></td>
+<td>auditor script</td>
+</tr>
+</tbody>
+</table>
+<h3 id="52-sequence-diagram">5.2 Sequence diagram</h3>
+<figure class="diagram"><img src="img/67f9db6c2323.svg" alt="Diagram"></figure>
+
+<h3 id="53-component-map">5.3 Component map</h3>
+<figure class="diagram"><img src="img/320bfa42893f.svg" alt="Diagram"></figure>
+
+<hr />
+<h2 id="6-known-limitations">6. Known limitations</h2>
+<ol type="1">
+<li><strong>Heartbeats show daemon liveness, not reasoning.</strong> The fast-checker writes an "alive" heartbeat every 50 minutes whether or not the session is working (<code>src/daemon/fast-checker.ts</code>). Pair it with a check on recent tool activity or transcript growth. Any process that calls <code>cortextos bus update-heartbeat</code> without <code>CTX_AGENT_NAME</code> set writes under a default name.</li>
+<li><strong>The default transcription model is English-only.</strong> <code>src/telegram/transcribe.ts</code> defaults to <code>ggml-tiny.en.bin</code>, which ignores the language setting. Install a multilingual whisper model for other languages. The inbound log stores voice notes with empty text; the transcript appears only in the session.</li>
+<li><strong><code>last-telegram-&lt;chat_id&gt;.txt</code> holds one message.</strong> <code>send-telegram</code> overwrites it on each send (<code>src/telegram/logging.ts</code>). Audits that need every send must read <code>outbound-messages.jsonl</code>.</li>
+<li><strong>Seat hooks run inside subagents.</strong> A subagent working in a seat folder inherits that seat's hooks. A hook that reads the parent transcript reports the parent's state to the subagent. Scope such hooks to the main session, or tell subagents in their brief to ignore state-file instructions.</li>
+<li><strong>The auto-memory index loads at most 200 lines.</strong> Lines past the cap are dropped without error. Keep MEMORY.md files as indexes of short lines.</li>
+<li><strong>Several files can describe the same thing.</strong> CLAUDE.md, AGENTS.md and the daemon's boot prompt each touch boot behaviour; FLEET-style indexes duplicate <code>enabled-agents.json</code>. Document 03 lists one owner file per setting.</li>
+<li><strong><code>recall-facts</code> returns nothing unless the extract hook is registered.</strong> Templates do not register <code>hook-extract-facts</code> by default.</li>
+<li><strong>A plist on disk is not a loaded job.</strong> LaunchAgents run only after <code>launchctl load</code>. Check <code>launchctl list</code> for each sentinel and backup job.</li>
+</ol>
+<hr />
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/daemon/agent-manager.ts</code></li>
+<li><code>src/daemon/fast-checker.ts</code></li>
+<li><code>src/telegram/poller.ts</code>, <code>src/telegram/media.ts</code>, <code>src/telegram/transcribe.ts</code>, <code>src/telegram/logging.ts</code></li>
+<li><code>src/cli/bus.ts</code></li>
+<li><code>src/bus/crons.ts</code>, <code>src/bus/crons-schema.ts</code>, <code>src/bus/knowledge-base.ts</code></li>
+<li><code>src/hooks/hook-loop-detector.ts</code>, <code>src/hooks/hook-idle-flag.ts</code>, <code>src/hooks/hook-extract-facts.ts</code></li>
+<li><code>src/types/index.ts</code></li>
+<li><code>dashboard/src/middleware.ts</code></li>
+<li><code>ecosystem.config.js</code></li>
+<li><code>templates/orchestrator/</code>, <code>templates/analyst/</code>, <code>templates/agent/</code></li>
+</ul>
+</article><nav class="pager"><a class="next" href="02-execution-engine.html"><small>Next</small>02 Execution Engine Spec</a></nav></main></div></body></html>

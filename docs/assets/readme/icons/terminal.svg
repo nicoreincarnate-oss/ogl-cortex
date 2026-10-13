@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="terminal">
+<rect x="4" y="4" width="42" height="42" fill="#0A0A0A"/>
+<rect x="1.5" y="1.5" width="41" height="41" fill="#F2EFE9" stroke="#0A0A0A" stroke-width="2.5"/>
+<g fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linejoin="miter" stroke-linecap="square">
+<rect x="8" y="10" width="28" height="24" fill="#0A0A0A"/>
+<path d="M13 17 L18 21 L13 25" stroke="#FF4F00"/>
+<path d="M21 26 H29" stroke="#F2EFE9"/>
+</g>
+</svg>

@@ -1,0 +1,387 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Product Requirements (PRD) · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li class="on"><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">10</div><div><p class="dg">Strategy and governance</p>
+<h1>Product Requirements (PRD)</h1><p class="meta">1,715 words · <a href="../10-prd.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-purpose">1. Purpose</a></li><li><a href="#2-users-and-channels">2. Users and channels</a></li><li><a href="#3-roles">3. Roles</a></li><li><a href="#4-functional-requirements">4. Functional requirements</a></li><li><a href="#5-non-functional-requirements">5. Non-functional requirements</a></li><li><a href="#6-non-goals">6. Non-goals</a></li><li><a href="#7-build-versus-buy">7. Build versus buy</a></li><li><a href="#8-success-measures">8. Success measures</a></li><li><a href="#9-goals-and-roadmap">9. Goals and roadmap</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document states why OGL Cortex exists, who it is for, what it must do, why it is built on cortextOS and Claude Code, and what it does not try to do. Architecture, the execution engine, configuration and fail-safes are in <code>01-core-architecture.md</code> to <code>04-failsafe-boundary-log.md</code>. Safety, privacy, vendors and setup are in <code>11-ai-safety-governance.md</code> to <code>14-readme-quickstart.md</code>.</p>
+<h2 id="terms">Terms</h2>
+<ul>
+<li><strong>OGL Cortex</strong>: the cortextOS framework plus the OGL layer on top of it: seat templates, hooks and guards, skills, crons, the memory protocol, approval gates and the ship gate.</li>
+<li><strong>Owner</strong>: the one person who runs an install and holds every approval.</li>
+<li><strong>Seat</strong> (or agent): one long-running Claude Code session with its own name, folder, Telegram bot, memory and role.</li>
+<li><strong>Bus</strong>: the <code>cortextos bus</code> command family seats use to send messages, create tasks, log events and request approvals.</li>
+<li><strong>Cron</strong>: a scheduled prompt the daemon injects into a seat.</li>
+<li><strong>Instance</strong>: one runtime state folder, <code>$CORTEX_HOME/&lt;instance&gt;</code> (by default <code>~/.cortextos/default</code>).</li>
+</ul>
+<hr />
+<h2 id="1-purpose">1. Purpose</h2>
+<p>A solo operator who runs several businesses or client relationships spends most hours on operations: chasing tasks, watching services, drafting, deploying, following up. OGL Cortex takes a directive the owner sends from a phone and carries it out end to end across a fleet of Claude Code agents. The owner keeps decisions, deals and approvals. The fleet does the execution.</p>
+<p>Two outcomes drive every requirement:</p>
+<ol type="1">
+<li><strong>Leverage</strong>: more finished work per owner hour.</li>
+<li><strong>Freedom</strong>: the fleet keeps working, inside limits the owner sets, while the owner is away.</li>
+</ol>
+<h2 id="2-users-and-channels">2. Users and channels</h2>
+<p>There is one principal user and a small set of indirect ones.</p>
+<table>
+<thead>
+<tr>
+<th>User</th>
+<th>Channel</th>
+<th>What they get</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Owner</td>
+<td>Telegram, one bot per seat. Text, voice notes, photos, files</td>
+<td>Replies, briefings, deliverables, approval prompts</td>
+</tr>
+<tr>
+<td>Owner</td>
+<td>cortextOS web dashboard (Next.js, <code>cortextos dashboard</code>)</td>
+<td>Tasks, heartbeats, approvals, analytics</td>
+</tr>
+<tr>
+<td>Owner (optional)</td>
+<td>A control surface on a private network (for example over Tailscale)</td>
+<td>Approve or reject, fleet actions, panic stop</td>
+</tr>
+<tr>
+<td>A client (optional)</td>
+<td>A client-facing seat whose Telegram chat belongs to the client</td>
+<td>Answers inside a narrow scope the owner defines</td>
+</tr>
+<tr>
+<td>Clients in general</td>
+<td>None. They receive what the owner sends</td>
+<td>Sites, documents, campaigns</td>
+</tr>
+</tbody>
+</table>
+<p>Access control: the daemon enables Telegram for a seat only when <code>ALLOWED_USER</code> in the seat's <code>.env</code> holds a comma-separated list of numeric Telegram user IDs. If <code>BOT_TOKEN</code> is set and <code>ALLOWED_USER</code> is missing or malformed, Telegram stays off for that seat and the daemon logs a security message (<code>src/daemon/agent-manager.ts</code>).</p>
+<p>Working hours: the owner sets day and night windows in the seat's <code>USER.md</code> and heartbeat config. At night the orchestrator works quietly and pings only on critical events (<code>nighttime-mode</code> skill).</p>
+<h2 id="3-roles">3. Roles</h2>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Template</th>
+<th>Job</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Orchestrator</td>
+<td><code>orchestrator</code></td>
+<td>Decomposes directives, dispatches tasks, routes approvals, sends morning and evening briefings</td>
+</tr>
+<tr>
+<td>Analyst</td>
+<td><code>analyst</code></td>
+<td>Fleet health, metrics, theta-wave experiments, daily quality score</td>
+</tr>
+<tr>
+<td>Specialist</td>
+<td><code>agent</code></td>
+<td>Domain work: builds, content, research, deploys</td>
+</tr>
+<tr>
+<td>Auditor</td>
+<td><code>agent</code> with an auditor brief</td>
+<td>Independent review of claims and artifacts before they reach the owner</td>
+</tr>
+<tr>
+<td>Sentinel</td>
+<td><code>agent</code> with a watcher brief</td>
+<td>Watches outside services (hosting, DNS, TLS, billing, webhooks)</td>
+</tr>
+<tr>
+<td>Worker</td>
+<td><code>cortextos spawn-worker</code></td>
+<td>Short-lived session for one parallel task</td>
+</tr>
+</tbody>
+</table>
+<p>Seat names are free text. Examples in these docs use names like <code>boss</code> or <code>devops</code>.</p>
+<h2 id="4-functional-requirements">4. Functional requirements</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Requirement</th>
+<th>Where it is implemented</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R1</td>
+<td>Accept a directive by Telegram (text, voice, photo, file) and act on it</td>
+<td><code>src/telegram/</code>; seat <code>CLAUDE.md</code> Telegram section</td>
+</tr>
+<tr>
+<td>R2</td>
+<td>Transcribe voice notes on the local machine</td>
+<td><code>src/telegram/transcribe.ts</code> (whisper.cpp). Default model <code>ggml-tiny.en.bin</code> is English-only; set <code>CTX_WHISPER_MODEL</code> to a multilingual model and <code>CTX_WHISPER_LANG</code> for other languages. Install with <code>scripts/install-whisper-model.sh</code></td>
+</tr>
+<tr>
+<td>R3</td>
+<td>Break large directives into tasks, dispatch to specialist seats, track on the dashboard</td>
+<td><code>cortextos bus create-task --assignee</code>, <code>update-task</code>, <code>complete-task</code></td>
+</tr>
+<tr>
+<td>R4</td>
+<td>No website change, client send, spend or deletion without the owner's go</td>
+<td><code>GUARDRAILS.md</code>; <code>cortextos bus create-approval</code> (categories <code>external-comms</code>, <code>financial</code>, <code>deployment</code>, <code>data-deletion</code>, <code>other</code>); PreToolUse hooks</td>
+</tr>
+<tr>
+<td>R5</td>
+<td>A security gate runs before anything ships</td>
+<td>Pentest gate and ship gate hook (documents 04 and 14)</td>
+</tr>
+<tr>
+<td>R6</td>
+<td>Scheduled duties run without being asked</td>
+<td>Daemon cron scheduler; <code>cortextos bus add-cron</code></td>
+</tr>
+<tr>
+<td>R7</td>
+<td>Context survives restarts and compaction</td>
+<td>Memory protocol; SessionStart and PreCompact hooks</td>
+</tr>
+<tr>
+<td>R8</td>
+<td>Seats tell the truth and correct mistakes on the record</td>
+<td>Truth rules in <code>GUARDRAILS.md</code>; <code>truth_correction</code> events via <code>cortextos bus log-event</code></td>
+</tr>
+<tr>
+<td>R9</td>
+<td>Outside services the business depends on are watched</td>
+<td>Sentinel seat and watcher crons</td>
+</tr>
+<tr>
+<td>R10</td>
+<td>Client-ready artifacts ship as designed documents with a fixed naming scheme</td>
+<td>Naming rule in the global <code>CLAUDE.md</code>; design skills</td>
+</tr>
+<tr>
+<td>R11</td>
+<td>Secrets stay out of chat and out of git</td>
+<td>Secrets rules in <code>GUARDRAILS.md</code>; <code>leak-guard.yml</code> workflow; hooks</td>
+</tr>
+<tr>
+<td>R12</td>
+<td>Seats stay inside the model usage budget and say so before stalling</td>
+<td>Cap rules in memory; optional OAuth account rotation (<code>cortextos bus list-oauth-accounts</code>)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-non-functional-requirements">5. Non-functional requirements</h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Platform</td>
+<td>macOS or Linux (Windows 10/11 supported by the framework with Task Scheduler for reboot persistence). Node.js 20+, pm2, Claude Code</td>
+</tr>
+<tr>
+<td>Hardware</td>
+<td>One always-on machine. Disk headroom for caches, browser binaries, container images and the knowledge base</td>
+</tr>
+<tr>
+<td>Availability</td>
+<td>Seats restart on crash and rotate context on a timer (<code>max_session_seconds</code>, default about 71 hours). pm2 restarts the daemon</td>
+</tr>
+<tr>
+<td>Supervision</td>
+<td>pm2 runs <code>cortextos-daemon</code> and <code>cortextos-dashboard</code>; extra processes (for example an auth sentinel) can be added to <code>ecosystem.config.js</code></td>
+</tr>
+<tr>
+<td>Cost</td>
+<td>Flat Claude subscription with a weekly cap. Other runtimes (<code>codex-app-server</code>, <code>opencode</code>, <code>hermes</code>) are optional per seat</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>All state is local files under <code>$CORTEX_HOME/&lt;instance&gt;</code> and the org folder. Disk encryption is required</td>
+</tr>
+<tr>
+<td>Scale</td>
+<td>Bounded by one machine and one subscription. Documents 01 and 02 cover seat limits</td>
+</tr>
+</tbody>
+</table>
+<h2 id="6-non-goals">6. Non-goals</h2>
+<ul>
+<li><strong>Multi-tenant hosting.</strong> One owner per install.</li>
+<li><strong>Open client access.</strong> Clients do not command seats, except a client-facing seat the owner scopes on purpose.</li>
+<li><strong>Autonomous outward actions.</strong> No seat sends to a client, publishes, deploys or spends without approval.</li>
+<li><strong>Deception.</strong> No undisclosed personas or astroturfing. This is a hard line in <code>GUARDRAILS.md</code>.</li>
+<li><strong>Payment data.</strong> Card data stays with payment vendors.</li>
+<li><strong>Running untrusted code.</strong> Seats that hold secrets do not run code from untrusted repos.</li>
+</ul>
+<h2 id="7-build-versus-buy">7. Build versus buy</h2>
+<p>OGL Cortex builds on cortextOS (MIT, <code>github.com/grandamenium/cortextos</code>) with Claude Code as the agent runtime.</p>
+<table>
+<thead>
+<tr>
+<th>Need</th>
+<th>cortextOS + Claude Code</th>
+<th>Agent library (LangChain, CrewAI, AutoGen)</th>
+<th>Hosted agent platform</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Phone control</td>
+<td>Telegram bot per seat, built in</td>
+<td>Must be built</td>
+<td>Usually web UI</td>
+</tr>
+<tr>
+<td>Real tool use on the host (files, browser, git, deploys, local services)</td>
+<td>Native to Claude Code</td>
+<td>Every tool must be wired</td>
+<td>Sandboxed in the vendor cloud</td>
+</tr>
+<tr>
+<td>Persistent restarting agents</td>
+<td>Daemon, pm2, PTY sessions</td>
+<td>Must be built</td>
+<td>Vendor-managed</td>
+</tr>
+<tr>
+<td>Mechanical guardrails</td>
+<td>Claude Code hooks (PreToolUse, UserPromptSubmit, SessionStart, PreCompact, Stop)</td>
+<td>Must be built</td>
+<td>Vendor policy only</td>
+</tr>
+<tr>
+<td>Cost model</td>
+<td>Flat subscription</td>
+<td>Per API token</td>
+<td>Per seat or per run</td>
+</tr>
+<tr>
+<td>Data location</td>
+<td>Local disk plus the model provider</td>
+<td>Same</td>
+<td>Vendor cloud</td>
+</tr>
+<tr>
+<td>Dependencies</td>
+<td>A small npm set (<code>package.json</code>)</td>
+<td>Large dependency trees</td>
+<td>n/a</td>
+</tr>
+</tbody>
+</table>
+<p>Trade-offs of this choice:</p>
+<ul>
+<li><strong>Fork drift.</strong> The OGL layer lives mostly in seat files and hooks, not in framework source. Keep framework patches small. Check upstream on a schedule with <code>cortextos update --check</code> and cherry-pick fixes after reading the diff.</li>
+<li><strong>Pinned Claude Code.</strong> Pin the Claude Code version and trial upgrades on one seat before the fleet.</li>
+<li><strong>Tool surface.</strong> Each user-wide MCP server is a code path into every seat. Keep the list short (document 13).</li>
+</ul>
+<h2 id="8-success-measures">8. Success measures</h2>
+<h3 id="81-activity-and-quality-mechanical">8.1 Activity and quality (mechanical)</h3>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tasks by status and assignee</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/tasks/*.json</code> (<code>status</code>, <code>assigned_to</code>)</td>
+</tr>
+<tr>
+<td>Approvals by category and outcome</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/approvals/</code></td>
+</tr>
+<tr>
+<td>Events (heartbeats, messages, Telegram traffic, completions)</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/analytics/events/**/*.jsonl</code></td>
+</tr>
+<tr>
+<td>Per-seat rollup</td>
+<td><code>analytics/reports/latest.json</code></td>
+</tr>
+<tr>
+<td>Correction rate</td>
+<td>Count of <code>truth_correction</code> events</td>
+</tr>
+<tr>
+<td>Quality score</td>
+<td>Daily analyst score (theta wave)</td>
+</tr>
+</tbody>
+</table>
+<p>Count finished work from task files, not <code>task_completed</code> events. Both a worker and the orchestrator's KPI step can log a completion for the same task.</p>
+<h3 id="82-business-outcomes-owner-configured">8.2 Business outcomes (owner-configured)</h3>
+<p>Activity metrics can look healthy while income is flat. Add:</p>
+<ul>
+<li>A revenue line per client per month from the real ledger (bank, payment processor, partner payouts).</li>
+<li>One sensor per paid funnel, for example a booking watcher that pings only on a new booking or a dark feed.</li>
+<li>A billing watcher that reads vendor bills so a failed card shows up before a site goes dark.</li>
+</ul>
+<h2 id="9-goals-and-roadmap">9. Goals and roadmap</h2>
+<p>Each seat has a <code>goals.json</code> (<code>focus</code>, <code>goals</code>, <code>bottleneck</code>, <code>updated_at</code>, <code>updated_by</code>). The orchestrator rewrites them in the morning review. <code>cortextos goals generate-md --agent &lt;seat&gt; --org &lt;org&gt;</code> renders each to <code>GOALS.md</code>, which the seat reads at boot. Write the file for every seat; a goal sent only as a message does not reach boot context.</p>
+<p>There is no release train. Work follows owner messages, the morning review cascade and dated commitments kept in seat memory.</p>
+<h2 id="known-limitations">Known limitations</h2>
+<ul>
+<li>Boot files that describe the business (<code>USER.md</code>, <code>SYSTEM.md</code>, review skills) are static text. Seats act on them until the owner edits them.</li>
+<li>The default voice model is English-only.</li>
+<li>Without <code>accounts.json</code>, OAuth account rotation is off and a usage cap-out looks like a hung seat.</li>
+<li>The system has a single host. A host failure stops every seat until restore.</li>
+<li>Business outcome metrics do not exist until the owner wires a source for them.</li>
+</ul>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>README.md</code></li>
+<li><code>package.json</code></li>
+<li><code>ecosystem.config.js</code></li>
+<li><code>src/daemon/agent-manager.ts</code></li>
+<li><code>src/daemon/agent-process.ts</code></li>
+<li><code>src/telegram/transcribe.ts</code></li>
+<li><code>src/telegram/media.ts</code></li>
+<li><code>scripts/install-whisper-model.sh</code></li>
+<li><code>templates/orchestrator/</code></li>
+</ul>
+</article><nav class="pager"><a class="prev" href="04-failsafe-boundary-log.html"><small>Previous</small>04 Fail-Safes and Boundaries</a><a class="next" href="11-ai-safety-governance.html"><small>Next</small>11 AI Safety and Governance</a></nav></main></div></body></html>

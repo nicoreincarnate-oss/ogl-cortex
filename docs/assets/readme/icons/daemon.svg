@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="daemon">
+<rect x="4" y="4" width="42" height="42" fill="#0A0A0A"/>
+<rect x="1.5" y="1.5" width="41" height="41" fill="#F2EFE9" stroke="#0A0A0A" stroke-width="2.5"/>
+<g fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linejoin="miter" stroke-linecap="square">
+<path d="M32 15 A11 11 0 1 0 33 27"/>
+<path d="M27 14 L32.5 14.5 L32 9" />
+<rect x="18" y="18" width="7" height="7" fill="#FF4F00"/>
+</g>
+</svg>

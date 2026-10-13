@@ -1,0 +1,643 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SRE runbooks · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li class="on"><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">30</div><div><p class="dg">Operations and security</p>
+<h1>SRE runbooks</h1><p class="meta">4,583 words · <a href="../30-sre-runbooks.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#conventions">Conventions</a></li><li><a href="#summary-table">Summary table</a></li><li><a href="#rb-01-claude-weekly-cap-outage-or-rate-limit">RB-01 Claude weekly cap, outage or rate limit</a></li><li><a href="#rb-02-a-seat-is-busy-and-messages-go-unanswered">RB-02 A seat is busy and messages go unanswered</a></li><li><a href="#rb-03-daemon-down-or-a-seat-needs-a-restart">RB-03 Daemon down, or a seat needs a restart</a></li><li><a href="#rb-04-telegram-not-delivering">RB-04 Telegram not delivering</a></li><li><a href="#rb-05-swap-spike-or-low-free-disk">RB-05 Swap spike or low free disk</a></li><li><a href="#rb-06-leaked-or-compromised-key">RB-06 Leaked or compromised key</a></li><li><a href="#rb-07-mcp-server-down">RB-07 MCP server down</a></li><li><a href="#rb-08-vendor-billing-failure">RB-08 Vendor billing failure</a></li><li><a href="#rb-09-google-oauth-on-the-wrong-account">RB-09 Google OAuth on the wrong account</a></li><li><a href="#rb-10-cron-not-firing">RB-10 Cron not firing</a></li><li><a href="#rb-11-bad-deploy">RB-11 Bad deploy</a></li><li><a href="#rb-12-seat-context-too-full">RB-12 Seat context too full</a></li><li><a href="#rules-that-apply-to-every-runbook">Rules that apply to every runbook</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>Twelve runbooks for the failures an OGL Cortex install meets most often. Each one follows the same shape: symptom, check, fix, verify, rollback, owner.</p>
+<p>Related documents:</p>
+<ul>
+<li><code>31-observability-alerting.md</code> lists every signal and who hears it.</li>
+<li><code>32-security-red-team-log.md</code> covers attack surfaces and secret handling.</li>
+<li><code>33-cookbook.md</code> holds the normal "how do I" recipes, including the ship path.</li>
+<li><code>41-support-known-issues-faq.md</code> holds the triage flow and FAQ.</li>
+<li><code>../TROUBLESHOOTING.md</code> is the one-page quick index into these runbooks.</li>
+</ul>
+<h2 id="conventions">Conventions</h2>
+<h3 id="paths">Paths</h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Meaning</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>$CORTEX_HOME</code></td>
+<td>The cortextOS framework checkout</td>
+<td>wherever you cloned it</td>
+</tr>
+<tr>
+<td><code>&lt;instance&gt;</code></td>
+<td>Daemon instance id. Set by <code>CTX_INSTANCE_ID</code></td>
+<td><code>default</code> unless you chose another at install</td>
+</tr>
+<tr>
+<td><code>$CTX_ROOT</code></td>
+<td>Runtime state for one instance</td>
+<td><code>~/.cortextos/&lt;instance&gt;</code></td>
+</tr>
+<tr>
+<td><code>&lt;org&gt;</code>, <code>&lt;seat&gt;</code></td>
+<td>Organisation name and agent (seat) name</td>
+<td>set by <code>cortextos init</code> and <code>cortextos add-agent</code></td>
+</tr>
+<tr>
+<td><code>$SEAT_DIR</code></td>
+<td>A seat's working directory</td>
+<td><code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;</code></td>
+</tr>
+<tr>
+<td><code>$SENTINEL_DIR</code></td>
+<td>Directory that holds the launchd sentinel scripts, with <code>logs/</code> and <code>state/</code> below it</td>
+<td>chosen at install</td>
+</tr>
+<tr>
+<td><code>$SHIP</code></td>
+<td>The <code>ship.sh</code> deploy wrapper</td>
+<td>chosen at install</td>
+</tr>
+</tbody>
+</table>
+<p>Inside a seat, the shell already exports <code>CTX_INSTANCE_ID</code>, <code>CTX_ROOT</code> and <code>CTX_AGENT_NAME</code>. In your own terminal they are usually unset. Several lifecycle commands then fall back to the instance called <code>default</code> (see RB-03).</p>
+<h3 id="roles">Roles</h3>
+<p>OGL Cortex runs a small fleet of long-lived Claude Code sessions called seats. The runbooks name roles, not seats. Map them to your own seat names.</p>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Does</th>
+<th>Example seat name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Owner</td>
+<td>The human. Pays bills, taps login screens, approves risky actions</td>
+<td>n/a</td>
+</tr>
+<tr>
+<td>Orchestrator</td>
+<td>Talks to the owner, dispatches work, decides what the owner hears</td>
+<td><code>boss</code></td>
+</tr>
+<tr>
+<td>Ops</td>
+<td>Daemon, pm2, launchd sentinels, guard installs</td>
+<td><code>ops</code></td>
+</tr>
+<tr>
+<td>Infra watch</td>
+<td>Disk, swap, external sites, DNS</td>
+<td><code>watch</code></td>
+</tr>
+<tr>
+<td>Analyst</td>
+<td>Usage meter, metrics, fleet health trends</td>
+<td><code>analyst</code></td>
+</tr>
+<tr>
+<td>Auditor</td>
+<td>Re-runs claims and gates guard changes</td>
+<td><code>auditor</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="command-safety">Command safety</h3>
+<p><strong>Check</strong> blocks hold read-only commands. <strong>Fix</strong> blocks change state. Run a fix only with the owning role's go.</p>
+<h2 id="summary-table">Summary table</h2>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Failure</th>
+<th>First sign</th>
+<th>First check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RB-01</td>
+<td>Claude weekly cap, outage or rate limit</td>
+<td>Every seat stops mid-reply</td>
+<td><code>cortextos bus check-usage-api</code></td>
+</tr>
+<tr>
+<td>RB-02</td>
+<td>A seat is busy and messages go unanswered</td>
+<td>Owner sends "?" and waits</td>
+<td>inbound vs outbound log gap</td>
+</tr>
+<tr>
+<td>RB-03</td>
+<td>Daemon down, or a seat needs a restart</td>
+<td>CLI says "Daemon is not running"</td>
+<td><code>pm2 jlist</code>, <code>cortextos status --instance &lt;instance&gt;</code></td>
+</tr>
+<tr>
+<td>RB-04</td>
+<td>Telegram not delivering</td>
+<td>Owner gets nothing, or a file never arrives</td>
+<td>outbound log, pm2 daemon error log</td>
+</tr>
+<tr>
+<td>RB-05</td>
+<td>Swap spike or low free disk</td>
+<td>Disk or swap page</td>
+<td><code>df -m /</code>, <code>sysctl vm.swapusage</code></td>
+</tr>
+<tr>
+<td>RB-06</td>
+<td>Leaked or compromised key</td>
+<td>A secret shows up in chat, git or a log</td>
+<td><code>git log --all -- &lt;file&gt;</code></td>
+</tr>
+<tr>
+<td>RB-07</td>
+<td>MCP server down</td>
+<td>"failed to connect" at session start</td>
+<td><code>claude mcp list</code></td>
+</tr>
+<tr>
+<td>RB-08</td>
+<td>Vendor billing failure</td>
+<td>Billing alert, site paused</td>
+<td><code>curl</code> the site</td>
+</tr>
+<tr>
+<td>RB-09</td>
+<td>Google OAuth on the wrong account</td>
+<td>403 or 404 on docs that exist</td>
+<td>credential identity state</td>
+</tr>
+<tr>
+<td>RB-10</td>
+<td>Cron not firing</td>
+<td>Expected artifact missing</td>
+<td><code>cortextos bus list-crons &lt;seat&gt;</code></td>
+</tr>
+<tr>
+<td>RB-11</td>
+<td>Bad deploy</td>
+<td>Live site wrong, <code>ship.sh</code> exit 5</td>
+<td><code>vercel inspect &lt;domain&gt;</code></td>
+</tr>
+<tr>
+<td>RB-12</td>
+<td>Seat context too full</td>
+<td>Seat slow, repeats itself</td>
+<td><code>context_status.json</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="rb-01-claude-weekly-cap-outage-or-rate-limit">RB-01 Claude weekly cap, outage or rate limit</h2>
+<p><strong>What it is.</strong> Every Claude Code seat signed in to the same Claude account draws on one usage meter. The plan has a rolling 5-hour window and a 7-day window. When the 7-day window hits its cap, every seat on that account stops at once. Nothing local brings them back before the reset.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>Every seat stops mid-reply at the same minute.</li>
+<li>The auth sentinel sends a "usage limit" alert, not a login alert.</li>
+<li>Heartbeats can stay fresh while the seats are mute, because shell sentinels also write liveness files.</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus check-usage-api <span class="at">--json</span>            <span class="co"># five_hour and seven_day utilisation plus resets_at</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-3</span> <span class="va">$SENTINEL_DIR</span>/state/quota-ledger.jsonl    <span class="co"># ledger history and pace, if the quota ledger is installed</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> <span class="va">$CTX_ROOT</span>/logs/auth-sentinel.log          <span class="co"># OK / </span><span class="al">ALERT</span><span class="co"> kind=cap|auth|probe</span></span></code></pre></div>
+<p>Read the alert kind:</p>
+<ul>
+<li><code>kind=cap</code>: usage cap. There is nothing to run. Wait for <code>resets_at</code>.</li>
+<li><code>kind=auth</code>: the login broke. Go to Fix step 3.</li>
+<li><code>kind=probe</code>: anything else, often a short 429 rate limit. The sentinel keeps a plain 429 out of <code>kind=cap</code> on purpose.</li>
+</ul>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>Cap hit: do not retry and do not restart. A seat that is still alive writes its state to daily memory and a handoff, then tells the owner once what is parked and when the cap resets.</li>
+<li>Plan ahead. The pre-reset burn pattern in <code>33-cookbook.md</code> (Recipe 11) spends spare weekly quota on internal backlog before the reset, with a hard stop at 97%.</li>
+<li>Login broken (<code>kind=auth</code> only): the owner runs <code>claude /login</code> in a terminal, then ops runs <code>pm2 restart cortextos-daemon</code>.</li>
+<li>Provider outage: check the Claude status page. Tell the owner once, then wait.</li>
+</ol>
+<p><strong>Verify.</strong> After the reset, <code>cortextos bus check-usage-api --force</code> shows <code>seven_day</code> near zero, and each seat writes a new heartbeat (<code>cortextos bus read-all-heartbeats</code>).</p>
+<p><strong>Rollback.</strong> Nothing to roll back. A restart run by mistake during a cap does no harm; the seats come back at the reset.</p>
+<p><strong>Owner.</strong> Ops owns the auth sentinel and quota ledger. Analyst owns the usage meter. Orchestrator owns the handoff and the single message to the owner.</p>
+<hr />
+<h2 id="rb-02-a-seat-is-busy-and-messages-go-unanswered">RB-02 A seat is busy and messages go unanswered</h2>
+<p><strong>What it is.</strong> A seat starts a long job inside its own session: a video render, a big build, a model download. Telegram messages queue while the tool call runs. The seat cannot reply until the call returns.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>The owner sends short follow-ups like "?".</li>
+<li>The newest message in the chat is the owner's and is more than a few minutes old.</li>
+</ul>
+<p><strong>Check.</strong> This read-only script lists every inbound message that waited more than 8 minutes for the next outbound message.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> <span class="va">$CTX_ROOT</span>/logs/<span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="kw">&amp;&amp;</span> <span class="ex">python3</span> <span class="at">-</span> <span class="op">&lt;&lt;&#39;E&#39;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="st">import json; from datetime import datetime</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="st">p=lambda s: datetime.fromisoformat(str(s).replace(&#39;Z&#39;,&#39;+00:00&#39;)).timestamp()</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="st">I=[json.loads(l) for l in open(&#39;inbound-messages.jsonl&#39;) if l.strip()]</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="st">O=sorted(p(json.loads(l)[&#39;timestamp&#39;]) for l in open(&#39;outbound-messages.jsonl&#39;) if l.strip())</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="st">for d in I[-60:]:</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="st">    t=p(d[&#39;timestamp&#39;]); n=[o for o in O if o&gt;=t]</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="st">    if n and (n[0]-t)/60&gt;8: print(d[&#39;timestamp&#39;], round((n[0]-t)/60,1),&#39;min&#39;)</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="op">E</span></span></code></pre></div>
+<p>The next outbound message is a proxy for "answered". It may answer a different message.</p>
+<p>Also useful:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-c</span> 2000 <span class="va">$CTX_ROOT</span>/logs/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/stdout.log        <span class="co"># is the session inside a tool call?</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ps</span> aux <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-E</span> <span class="st">&quot;ffmpeg|playwright|render&quot;</span> <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> grep</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="va">$CTX_ROOT</span>/state/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/heartbeat.json</span></code></pre></div>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>Seat alive but busy: <code>cortextos notify-agent &lt;seat&gt; "&lt;text&gt;"</code> injects an urgent note through the fast-checker.</li>
+<li>Prevention, inside the seat: move anything longer than a few minutes to a background subagent, a background shell, or a worker (<code>cortextos spawn-worker</code>). Keep the main session free for Telegram.</li>
+<li>When a long job must stay in the session, send one line first: "parked until HH:MM".</li>
+</ol>
+<p><strong>Verify.</strong> Re-run the gap script after the next exchange. No new rows.</p>
+<p><strong>Rollback.</strong> None.</p>
+<p><strong>Owner.</strong> Orchestrator.</p>
+<hr />
+<h2 id="rb-03-daemon-down-or-a-seat-needs-a-restart">RB-03 Daemon down, or a seat needs a restart</h2>
+<p><strong>What it is.</strong> One process, the cortextOS daemon, runs every seat. It runs under pm2 as <code>cortextos-daemon</code>. State lives under <code>$CTX_ROOT</code>.</p>
+<p><strong>The instance trap.</strong> <code>cortextos restart</code>, <code>stop</code>, <code>start</code> and <code>doctor</code> take <code>--instance &lt;id&gt;</code> with a default of <code>default</code>. Run from a shell without <code>CTX_INSTANCE_ID</code>, they read the wrong state tree and print "Daemon is not running" while the daemon is fine.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>Every seat silent, and no cap alert (rules out RB-01).</li>
+<li>The CLI says "Daemon is not running".</li>
+<li>One seat is wedged: its process is up, but its context meter and heartbeat stop moving.</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pm2</span> jlist <span class="kw">|</span> <span class="ex">python3</span> <span class="at">-c</span> <span class="st">&quot;import json,sys;[print(p[&#39;name&#39;],p[&#39;pm2_env&#39;][&#39;status&#39;],p[&#39;pm2_env&#39;].get(&#39;restart_time&#39;)) for p in json.load(sys.stdin)]&quot;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="bu">echo</span> <span class="st">&quot;</span><span class="va">$CTX_INSTANCE_ID</span><span class="st">&quot;</span>                              <span class="co"># empty in your own terminal</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> status <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span>               <span class="co"># per-seat PID, uptime, model</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus read-all-heartbeats <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-v</span> STALE</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-20</span> ~/.pm2/logs/cortextos-daemon-error.log</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> <span class="va">$CTX_ROOT</span>/logs/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/restarts.log</span></code></pre></div>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>One seat wedged: ask it to soft-restart at a clean point (<code>cortextos bus self-restart --reason "&lt;why&gt;"</code> from inside the seat). If it cannot, restart it from outside: <code>cortextos restart &lt;seat&gt; --instance &lt;instance&gt;</code>, or <code>cortextos bus soft-restart &lt;seat&gt; "&lt;reason&gt;"</code>.</li>
+<li>Daemon down (pm2 shows <code>stopped</code> or <code>errored</code>): <code>pm2 restart cortextos-daemon</code>.</li>
+<li>Never run <code>cortextos start</code> while pm2 shows the daemon <code>online</code>. A second daemon can orphan seats.</li>
+<li>After a reboot, pm2 must bring the daemon back. Run <code>pm2 save</code> after any change to the process list, and make sure a login item or LaunchAgent runs <code>pm2 resurrect</code>.</li>
+<li>Restarting the daemon does not restart side services (tunnels, local servers, sentinels). Check the LaunchAgents your work depends on.</li>
+<li>When the owner asks for a restart of the orchestrator, ask first: fresh session, or keep history?</li>
+</ol>
+<p><strong>Verify.</strong> <code>cortextos status --instance &lt;instance&gt;</code> shows every enabled seat with a new PID and a short uptime. Each seat writes a fresh heartbeat within one heartbeat interval.</p>
+<p><strong>Rollback.</strong> A restart has no undo. A hard restart drops the conversation. Recover from <code>STATE.md</code>, daily memory and the newest handoff in <code>memory/handoffs/</code>.</p>
+<p><strong>Owner.</strong> Ops for the daemon and pm2. Orchestrator for asking seats to self-restart.</p>
+<p><strong>Tip.</strong> Export <code>CTX_INSTANCE_ID=&lt;instance&gt;</code> in your shell profile so the default stops biting.</p>
+<hr />
+<h2 id="rb-04-telegram-not-delivering">RB-04 Telegram not delivering</h2>
+<p><strong>What it is.</strong> Telegram is the main channel to the owner. The daemon polls the Bot API for incoming messages. Seats send with <code>cortextos bus send-telegram &lt;chat-id&gt; '&lt;msg&gt;'</code>, which appends each successful send to <code>$CTX_ROOT/logs/&lt;seat&gt;/outbound-messages.jsonl</code>.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>The owner says nothing arrived.</li>
+<li>The owner sent a file and the seat never saw it.</li>
+<li>A send returned an error, or a hook blocked it.</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-3</span> <span class="va">$CTX_ROOT</span>/logs/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/outbound-messages.jsonl    <span class="co"># timestamp, chat_id, message_id</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-3</span> <span class="va">$CTX_ROOT</span>/logs/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/inbound-messages.jsonl</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-c</span> <span class="st">&quot;fetch failed&quot;</span> ~/.pm2/logs/cortextos-daemon-out.log</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-iE</span> <span class="st">&quot;telegram|409&quot;</span> ~/.pm2/logs/cortextos-daemon-error.log <span class="kw">|</span> <span class="fu">tail</span> <span class="at">-5</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-n</span> <span class="st">&quot;ALLOWED_USER&quot;</span> <span class="va">$SEAT_DIR</span>/.env <span class="kw">|</span> <span class="fu">sed</span> <span class="st">&#39;s/=.*/=&lt;set&gt;/&#39;</span>   <span class="co"># present? value hidden</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> ~/.claude/hooks/orwell-lint.log                      <span class="co"># did the send guard refuse it?</span></span></code></pre></div>
+<p><strong>Known causes, most common first</strong></p>
+<ol type="1">
+<li><strong>Network dips.</strong> The poller logs <code>fetch failed</code> and retries on its own.</li>
+<li><strong>No valid <code>ALLOWED_USER</code>.</strong> The daemon refuses to enable Telegram for a seat whose <code>.env</code> has <code>BOT_TOKEN</code> but no numeric <code>ALLOWED_USER</code>. It logs a <code>SECURITY:</code> line at start.</li>
+<li><strong>Files over 20 MB.</strong> The Bot API cannot download them. The daemon injects a <code>DOWNLOAD_FAILED</code> marker. Ask for a cloud link instead.</li>
+<li><strong>Photo caption over about 1,024 characters.</strong> The send bounces. Shorten it, or send text and image separately.</li>
+<li><strong>The send guard refused the text.</strong> Reword it. Do not bypass.</li>
+<li><strong>A <code>$</code> inside double quotes.</strong> The shell expands it before the bus sees it, and the send still exits 0. Use single quotes or a quoted heredoc.</li>
+<li><strong>Sends outside the bus.</strong> A script that calls the Bot API with <code>curl</code> never reaches the outbound log. "Not in the log" does not prove "not sent".</li>
+<li><strong>Two pollers on one token.</strong> If any other process calls <code>getUpdates</code> with the daemon's token, Telegram answers 409 Conflict and one side loses messages. Give every consumer its own bot.</li>
+</ol>
+<p><strong>Fix.</strong> For a dead poller with a working network, ops runs <code>pm2 restart cortextos-daemon</code> (RB-03). For every other cause, fix the message or the config, not the daemon.</p>
+<p><strong>Verify.</strong> Send a short test with <code>cortextos bus send-telegram</code>, then find its <code>message_id</code> in the outbound log and confirm it on the phone.</p>
+<p><strong>Rollback.</strong> None.</p>
+<p><strong>Owner.</strong> Ops for the poller. Each seat for its own sends.</p>
+<hr />
+<h2 id="rb-05-swap-spike-or-low-free-disk">RB-05 Swap spike or low free disk</h2>
+<p><strong>What it is.</strong> A host running several Claude sessions, a browser, containers and local models fills disk and swap fast. On macOS, swap lives as 1 GB files on the data volume, so each new swap file takes disk. When free disk falls, swap cannot grow and the whole fleet stalls.</p>
+<p><strong>Default thresholds (reference sentinels)</strong></p>
+<table>
+<thead>
+<tr>
+<th>Sentinel</th>
+<th>Pages at</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Disk sentinel</td>
+<td>state <code>warn</code> under 20 GiB, <code>critical</code> under 10, <code>emergency</code> under 5. Pages under 6 GiB, on a drop of 900 MiB inside about 1,000 s, or on a df parse failure</td>
+<td>Pages on state change. Re-pings every 2 h while stuck</td>
+</tr>
+<tr>
+<td>Floor guard</td>
+<td>under 10 GiB once per 30 min; under 6 GiB every 20 min</td>
+<td>Pages only. It does not prune by itself</td>
+</tr>
+<tr>
+<td>Infra-watch disk and swap watch</td>
+<td>disk at or below 7 GiB, swap file count at or above 17</td>
+<td>Tune per host</td>
+</tr>
+</tbody>
+</table>
+<p>Know which sentinel paged before you act. Their numbers differ on purpose.</p>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">df</span> <span class="at">-m</span> /                                          <span class="co"># MiB free</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">sysctl</span> <span class="at">-n</span> vm.swapusage</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> /System/Volumes/VM <span class="kw">|</span> <span class="fu">grep</span> <span class="at">-c</span> swapfile         <span class="co"># swap file count (macOS)</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="ex">vm_stat</span> <span class="kw">|</span> <span class="fu">head</span> <span class="at">-8</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="fu">ps</span> aux <span class="at">-m</span> <span class="kw">|</span> <span class="fu">head</span> <span class="at">-15</span>                             <span class="co"># biggest memory users (macOS)</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="va">$SENTINEL_DIR</span>/state/<span class="pp">*</span>.state                  <span class="co"># sentinel state files</span></span></code></pre></div>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>Stop whatever is growing. The seat that started it kills its own process and deletes its own download.</li>
+<li>Do not clean shared caches under pressure. Pruning a package cache (for example <code>uv cache prune --force</code>) deletes files that running MCP servers import from and breaks tools on every seat. Name the consumers first with <code>lsof +D &lt;dir&gt;</code> and <code>pgrep -fl &lt;name&gt;</code>.</li>
+<li>Expect the shared-surface guard to block broad deletes in home (<code>find ... -delete</code>, <code>rm -rf</code> on shared roots). That is the guard working.</li>
+<li>Heavy swap from a container VM: restart the container runtime at a quiet moment, with readings before and after.</li>
+<li>While swap is high: no deploys, close automation browsers, no local model loads.</li>
+<li>Before any local model load, check free disk is at least twice the model size (see <code>40-finops-capacity.md</code>). Announce downloads over 1 GB to the infra-watch seat.</li>
+</ol>
+<p><strong>Verify.</strong> <code>df -m /</code> back above your warn line, swap file count stable or falling over 10 minutes, and the sentinel logs a return to <code>ok</code> or <code>warn</code>.</p>
+<p><strong>Rollback.</strong> Deleted model files can be downloaded again. Deleted user files cannot. That is why Fix step 2 exists.</p>
+<p><strong>Owner.</strong> Infra watch observes. The seat that caused the growth cleans up its own files.</p>
+<hr />
+<h2 id="rb-06-leaked-or-compromised-key">RB-06 Leaked or compromised key</h2>
+<p><strong>What it is.</strong> A secret (API key, webhook secret, bot token, password) ends up somewhere it should not: a chat, a git commit, a log, a public deploy, a build cache.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>Someone pastes a key into Telegram.</li>
+<li>The pentest gate's secret scan flags a build.</li>
+<li>A plaintext secrets file turns up inside a repo.</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> log <span class="at">--oneline</span> <span class="at">--all</span> <span class="at">--</span> <span class="op">&lt;</span>file<span class="op">&gt;</span>      <span class="co"># in any commit, even after untracking?</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> remote <span class="at">-v</span>                           <span class="co"># could it have been pushed?</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">stat</span> <span class="at">-f</span> <span class="st">&#39;%Sm&#39;</span> <span class="op">&lt;</span>secret-file<span class="op">&gt;</span>             <span class="co"># changed after the leak? (macOS stat)</span></span></code></pre></div>
+<p>Never print the secret to check it. Compare hashes if you must.</p>
+<p><strong>Fix, in order</strong></p>
+<ol type="1">
+<li><strong>Kill the old value first.</strong> Rotate in the vendor's dashboard. Usually only the owner can.</li>
+<li>Store the new value in a mode-600 file or the system keychain. Never in chat.</li>
+<li>Update every consumer (for example <code>vercel env add</code>, then redeploy through <code>$SHIP</code>).</li>
+<li><strong>Prove the old value is dead</strong> with a negative test, and the new one live with a positive test. For a signed webhook: unsigned and forged requests get 401, a correctly signed one gets 200.</li>
+<li>Untracking a file does not remove it from history. Rewrite history before adding any remote, or treat every secret in that file as leaked and rotate it.</li>
+<li>Ask the auditor role to verify and close the item.</li>
+</ol>
+<p><strong>Verify.</strong> Step 4's negative and positive tests both pass, and the pentest gate's secret scan is clean on the affected tree.</p>
+<p><strong>Rollback.</strong> None. If the new value breaks a consumer, fix the consumer. Never restore the leaked value.</p>
+<p><strong>Owner.</strong> Owner rotates. Orchestrator wires the new value. Auditor verifies.</p>
+<hr />
+<h2 id="rb-07-mcp-server-down">RB-07 MCP server down</h2>
+<p><strong>What it is.</strong> MCP servers give Claude extra tools (mail, drive, browsers, knowledge bases). Many run through <code>uvx</code> or <code>npx</code>. When one fails to start, its tools disappear from the session without an error in the conversation.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>At session start Claude Code lists servers that "failed to connect" or "Connection closed".</li>
+<li>A tool the seat used yesterday is missing.</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">claude</span> mcp list                         <span class="co"># health-checks each configured server (starts each one briefly)</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">claude</span> mcp get <span class="op">&lt;</span>name<span class="op">&gt;</span>                   <span class="co"># config for one server</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="ex">pgrep</span> <span class="at">-fl</span> <span class="st">&quot;uvx|mcp&quot;</span> <span class="kw">|</span> <span class="fu">head</span> <span class="at">-20</span>          <span class="co"># servers running now</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a><span class="ex">lsof</span> +D ~/.cache/uv <span class="dv">2</span><span class="op">&gt;</span>/dev/null <span class="kw">|</span> <span class="fu">head</span>  <span class="co"># who reads the uv cache, before anyone touches it</span></span></code></pre></div>
+<p><code>claude mcp list</code> starts each server for a moment. Avoid it for servers that open an OAuth window (see RB-09).</p>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>Read the cause. Common ones: a binary missing after a cache cleanup, an expired token, a remote endpoint that moved, a config path that points at a deleted file.</li>
+<li>Fix the config with <code>claude mcp remove &lt;name&gt;</code> and <code>claude mcp add ...</code>, or repair the missing file.</li>
+<li>Restart affected seats one at a time, never mid-task.</li>
+<li>Pin versions in the server command (<code>uvx &lt;pkg&gt;==&lt;version&gt;</code>, <code>npx &lt;pkg&gt;@&lt;version&gt;</code>). Review pins on a schedule.</li>
+<li>Keep a CLI fallback for any server the seats depend on.</li>
+</ol>
+<p><strong>Verify.</strong> <code>claude mcp get &lt;name&gt;</code> reports the server connected, and the seat can call one read-only tool from it.</p>
+<p><strong>Rollback.</strong> Restore the previous pinned version.</p>
+<p><strong>Owner.</strong> Ops.</p>
+<hr />
+<h2 id="rb-08-vendor-billing-failure">RB-08 Vendor billing failure</h2>
+<p><strong>What it is.</strong> A card is declined. The vendor retries for some days, then pauses or downgrades the account. Sites go dark, or an API starts saying a product "is not enabled".</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>A billing alert about a failed charge.</li>
+<li>A site answers non-200 or shows the vendor's payment page.</li>
+<li>An API says "please enable X" on the account that owns X.</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-s</span> <span class="at">-o</span> /dev/null <span class="at">-w</span> <span class="st">&#39;%{http_code} %{url_effective}\n&#39;</span> <span class="at">-L</span> https://<span class="op">&lt;</span>site<span class="op">&gt;</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-20</span> <span class="va">$SENTINEL_DIR</span>/logs/<span class="op">&lt;</span>site-watch<span class="op">&gt;</span>.log       <span class="co"># if you run a site watcher</span></span></code></pre></div>
+<p>A billing hold can hide resources from the API while the dashboard still shows them. Read the account's billing page before concluding a resource "lives on another account".</p>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>The owner pays or swaps the card. Agents never pay.</li>
+<li>If a product was dropped, re-enable it after payment. Data usually survives the hold.</li>
+<li>Confirm with a real request. Stop any temporary watcher only after payment is confirmed.</li>
+</ol>
+<p><strong>Verify.</strong> The site returns 200 with real content, and the API call that failed now succeeds.</p>
+<p><strong>Rollback.</strong> None.</p>
+<p><strong>Owner.</strong> Owner pays. Infra watch watches. Orchestrator reports once per change.</p>
+<hr />
+<h2 id="rb-09-google-oauth-on-the-wrong-account">RB-09 Google OAuth on the wrong account</h2>
+<p><strong>What it is.</strong> Many owners have more than one Google account (personal and business). A Google Workspace MCP server keeps one session bound to one account. Calling it with a different account's address can write the bound account's token into the other account's credential file. From then on, every reader of that file reads the wrong inbox and reports success.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>Tools report "read ok" while the content belongs to the other account.</li>
+<li>Documents that exist answer 403 or 404.</li>
+<li>A seat says "Google logged out".</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> ~/.google_workspace_mcp/credentials/                    <span class="co"># one file per account</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-20</span> ~/.claude/hooks/gws-account-guard.log              <span class="co"># blocked calls</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-c</span> <span class="st">&quot;import json;print(json.dumps(json.load(open(&#39;</span><span class="va">$SENTINEL_DIR</span><span class="st">/state/cred-identity.json&#39;)),indent=1)[:1500])&quot;</span></span></code></pre></div>
+<p>Do not run a credential identity check by hand just to look. It can refresh tokens and page. Its scheduled run already does this.</p>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>Use the MCP only for the account its session is bound to. For other accounts, use a direct token path that reads that account's credential file.</li>
+<li>Install the Google Workspace account guard (<code>gws-account-guard.py</code>, PreToolUse). It blocks MCP calls for any account you list and any <code>start_google_auth</code> call.</li>
+<li>If a credential file holds the wrong account, re-authorise that account with a script that checks the token's real identity before saving. The owner taps the consent screen.</li>
+<li>On any access failure, retry with the other account before calling it a login problem.</li>
+<li>Never start an OAuth flow unattended. Whoever is at the screen can finish it with the wrong account.</li>
+</ol>
+<p><strong>Verify.</strong> The identity check reports <code>MATCH</code> for every credential file, and a read from each account returns that account's data.</p>
+<p><strong>Rollback.</strong> Re-authorise again for the right account.</p>
+<p><strong>Owner.</strong> Ops runs the identity check and the guard. Owner taps consent.</p>
+<hr />
+<h2 id="rb-10-cron-not-firing">RB-10 Cron not firing</h2>
+<p><strong>What it is.</strong> Persistent crons live in <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code>. The daemon scheduler ticks every 30 seconds and injects each due cron's prompt into the seat's session. Fires are recorded in the cron execution log.</p>
+<p><strong>Symptom</strong></p>
+<ul>
+<li>An artifact a cron should write is missing.</li>
+<li>An alarm the owner expects never comes.</li>
+</ul>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb11"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus list-crons <span class="op">&lt;</span>seat<span class="op">&gt;</span>              <span class="co"># schedule, enabled, last fire, next fire</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus get-cron-log <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span>     <span class="co"># daemon fire records</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="va">$CTX_ROOT</span>/state/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/cron-state.json</span></code></pre></div>
+<p>A <code>fired</code> record proves only that the daemon injected the prompt. It does not prove the seat did the job. Only the job's own artifact proves that.</p>
+<p><strong>Known causes</strong></p>
+<ol type="1">
+<li><strong>Disabled.</strong> <code>list-crons</code> shows <code>enabled: no</code>.</li>
+<li><strong>Seat down or capped.</strong> A fire into a dead session does nothing (RB-01, RB-03).</li>
+<li><strong>Silent on success.</strong> "Never ran" and "ran clean" look the same. Give every silent job a positive receipt (a log line or file mtime).</li>
+<li><strong>Interval drift.</strong> An interval schedule (<code>6h</code>) counts forward from a reference time. If that reference keeps moving (cron reloads, <code>update-cron-fire</code> calls), a long interval can slide past its slot again and again. This has been seen for intervals equal to or longer than the seat's heartbeat interval. Use a 5-field wall-clock schedule (<code>0 */6 * * *</code>) for anything important.</li>
+<li><strong>Wrong time zone.</strong> 5-field expressions run in the daemon host's local time. <code>list-crons</code> shows next fire in UTC.</li>
+<li><strong>Dated one-shots.</strong> <code>0 20 12 10 *</code> fires every year on that date. The prompt must remove the cron after it runs.</li>
+<li><strong>launchd jobs are separate.</strong> Sentinels run from <code>~/Library/LaunchAgents/*.plist</code>, not from the daemon. Check them with <code>launchctl list | grep &lt;label&gt;</code> and their own logs.</li>
+</ol>
+<p><strong>Fix</strong></p>
+<div class="sourceCode" id="cb12"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus update-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span> --enabled true</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus update-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span> --interval <span class="st">&quot;0 */6 * * *&quot;</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus test-cron-fire <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span>        <span class="co"># injects the prompt now</span></span></code></pre></div>
+<p>Never use in-session <code>/loop</code> or <code>CronCreate</code> for anything that must survive a restart. <code>cortextos bus upgrade-cron-teaching</code> scans seat files for that stale advice.</p>
+<p><strong>Verify.</strong> Wait for the next scheduled slot, then find the job's artifact with a timestamp after the slot.</p>
+<p><strong>Rollback.</strong> <code>cortextos bus remove-cron &lt;seat&gt; &lt;name&gt;</code>, or restore the seat's <code>crons.json</code> from backup.</p>
+<p><strong>Owner.</strong> The seat that owns the cron. Ops for the scheduler.</p>
+<hr />
+<h2 id="rb-11-bad-deploy">RB-11 Bad deploy</h2>
+<p><strong>What it is.</strong> Every website deploy goes through <code>$SHIP</code>: gate the static files, deploy a candidate with production env but without the domain, gate the candidate URL, then promote that exact build. A raw <code>vercel --prod</code> skips both gates.</p>
+<p><strong><code>ship.sh</code> exit codes</strong></p>
+<table>
+<thead>
+<tr>
+<th>Exit</th>
+<th>Meaning</th>
+<th>Prod affected?</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Promoted, both gates passed, prod answers 200</td>
+<td>Yes, correctly</td>
+<td>Verify live, then report</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Usage error</td>
+<td>No</td>
+<td>Fix the command</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Aborted before any deploy (static gate failed)</td>
+<td>No</td>
+<td>Read the gate report</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Candidate deploy failed or gave no URL</td>
+<td>No</td>
+<td>Fix the build</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Live and wrong</strong>: prod is on an ungated build, or not 200</td>
+<td><strong>Yes</strong></td>
+<td>Roll back now</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Candidate not 200, or its gate or indexing check failed; candidate removed</td>
+<td>No</td>
+<td>Fix; run the restore command it prints for any dangling alias</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Promote did not take; prod still on the old build</td>
+<td>No</td>
+<td>Safe to retry</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Shipped, but prod sends <code>X-Robots-Tag: noindex</code></td>
+<td>Yes</td>
+<td>Find and fix the header</td>
+</tr>
+</tbody>
+</table>
+<p>An interrupted ship counts as not shipped. A scan report or a "Ready" deployment is evidence, not a verdict.</p>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> <span class="op">&lt;</span>site-dir<span class="op">&gt;</span> <span class="kw">&amp;&amp;</span> <span class="ex">vercel</span> ls <span class="kw">|</span> <span class="fu">head</span> <span class="at">-10</span>               <span class="co"># recent deployments, newest first</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="ex">vercel</span> inspect <span class="op">&lt;</span>prod-domain<span class="op">&gt;</span>                         <span class="co"># which deployment the domain serves</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-s</span> <span class="at">-o</span> /dev/null <span class="at">-w</span> <span class="st">&#39;%{http_code}\n&#39;</span> https://<span class="op">&lt;</span>prod-domain<span class="op">&gt;</span>/</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> <span class="at">-la</span> security/                                     <span class="co"># gate report timestamps</span></span></code></pre></div>
+<p>Run <code>vercel</code> from the site directory in the same command. It acts on whatever directory it runs in.</p>
+<p><strong>Fix</strong></p>
+<ol type="1">
+<li>Roll back: <code>vercel rollback &lt;previous-good-url-or-id&gt;</code>, or <code>vercel promote &lt;previous-good-id&gt;</code>. Both re-point the domain to an older build that already passed.</li>
+<li>Old content can show for a few minutes from the edge cache. Check the <code>x-vercel-cache</code> header before calling the rollback broken.</li>
+<li>Fix the source and ship again through <code>$SHIP</code> until it exits 0.</li>
+<li>Pull production env to a directory outside the build tree. Env files inside the tree can end up in build caches and get shipped.</li>
+</ol>
+<p><strong>Verify.</strong> <code>vercel inspect &lt;prod-domain&gt;</code> names the good deployment, the site returns 200, and the rendered page (not the source) shows the expected content.</p>
+<p><strong>Rollback of the rollback.</strong> <code>vercel promote &lt;bad-id&gt;</code>. You should not need it.</p>
+<p><strong>Owner.</strong> Ops owns <code>ship.sh</code>. The seat that shipped runs the rollback and tells the orchestrator.</p>
+<hr />
+<h2 id="rb-12-seat-context-too-full">RB-12 Seat context too full</h2>
+<p><strong>What it is.</strong> Each seat has a fixed context window. The statusLine hook (<code>cortextos bus hook-context-status</code>) writes the current percent to <code>$CTX_ROOT/state/&lt;seat&gt;/context_status.json</code>. The daemon's fast-checker warns the seat at <code>ctx_warning_threshold</code> and triggers a handoff at <code>ctx_handoff_threshold</code> (defaults 30 and 60, set per seat in <code>config.json</code>; a handoff threshold of 0 or less opts out).</p>
+<p><strong>Symptom.</strong> The seat slows down, repeats itself, or loses earlier details.</p>
+<p><strong>Check</strong></p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span> <span class="va">$CTX_ROOT</span>/state/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/context_status.json      <span class="co"># used_percentage</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> ctx_ <span class="va">$SEAT_DIR</span>/config.json                     <span class="co"># per-seat overrides; absent means defaults</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> <span class="va">$CTX_ROOT</span>/logs/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/restarts.log</span></code></pre></div>
+<p><strong>Fix.</strong> Update <code>STATE.md</code>, write a handoff, then run <code>cortextos bus hard-restart --reason "&lt;why&gt;" --handoff-doc &lt;path&gt;</code>. Tell the owner first if a conversation is live.</p>
+<p><strong>Verify.</strong> <code>context_status.json</code> shows a low percentage, and the seat's first reply cites the handoff.</p>
+<p><strong>Rollback.</strong> None. The handoff is the recovery path.</p>
+<p><strong>Owner.</strong> Orchestrator.</p>
+<hr />
+<h2 id="rules-that-apply-to-every-runbook">Rules that apply to every runbook</h2>
+<ol type="1">
+<li><strong>Report what the machine said, then what it might mean.</strong> One negative read is not a fact about cause or location.</li>
+<li><strong>A lock or "in use" refusal is a stop sign.</strong> Name the consumers with <code>lsof</code> and <code>pgrep</code> before you override anything.</li>
+<li><strong>Every silent job needs a positive receipt.</strong> No alert is not proof of health.</li>
+<li><strong>Fix the cause, then add a test that fails without the fix.</strong></li>
+<li><strong>Tell the owner once, in one plain line, with the reset or retry time.</strong></li>
+</ol>
+<h2 id="design-notes">Design notes</h2>
+<ul>
+<li>A single disk threshold is easier to reason about than three sentinels with different floors. Pick one page line per host and set the others as warnings.</li>
+<li>An "oldest unanswered owner message" alarm would catch RB-02 mechanically. The gap script above is the starting point.</li>
+<li>Desktop Claude sessions on the same host should follow the same guards and the same send path as the seats.</li>
+</ul>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/daemon/agent-manager.ts</code> (Telegram enablement and <code>ALLOWED_USER</code>)</li>
+<li><code>src/daemon/fast-checker.ts</code> (context thresholds)</li>
+<li><code>src/daemon/cron-scheduler.ts</code>, <code>src/bus/crons-schema.ts</code> (cron storage and catch-up)</li>
+<li><code>src/telegram/poller.ts</code>, <code>src/telegram/media.ts</code>, <code>src/telegram/logging.ts</code></li>
+<li><code>src/cli/stop.ts</code>, <code>src/cli/start.ts</code> (<code>--instance</code> default)</li>
+<li><code>src/bus/system.ts</code> (<code>restarts.log</code>)</li>
+</ul>
+</article><nav class="pager"><a class="prev" href="24-model-lifecycle.html"><small>Previous</small>24 Model lifecycle</a><a class="next" href="31-observability-alerting.html"><small>Next</small>31 Observability and alerting</a></nav></main></div></body></html>

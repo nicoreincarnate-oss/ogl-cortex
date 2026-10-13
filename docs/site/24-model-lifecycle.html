@@ -1,0 +1,309 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model lifecycle · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li class="on"><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">24</div><div><p class="dg">Design, data and AI quality</p>
+<h1>Model lifecycle</h1><p class="meta">2,358 words · <a href="../24-model-lifecycle.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#1-where-models-are-set">1. Where models are set</a></li><li><a href="#2-how-a-swap-happens">2. How a swap happens</a></li><li><a href="#3-failure-modes">3. Failure modes</a></li><li><a href="#4-quota-aware-scheduling">4. Quota-aware scheduling</a></li><li><a href="#5-runtimes-other-than-claude-code">5. Runtimes other than Claude Code</a></li><li><a href="#6-enterprise-practices-scaled-down">6. Enterprise practices, scaled down</a></li><li><a href="#7-swap-checklist">7. Swap checklist</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document covers the language models behind an OGL Cortex fleet. It answers four questions. Where is each seat's model set? What else in the system calls a model? How does a model swap work? What should a swap checklist look like for a one-owner fleet?</p>
+<p>Related documents: <code>01-core-architecture.md</code> (how the daemon spawns seats), <code>02-execution-engine.md</code> (PTY and cron engine), <code>03-configuration-registry.md</code> (config file catalogue), <code>04-failsafe-boundary-log.md</code> (fail-safes), <code>13-vendor-risk.md</code>, <code>22-prompt-registry.md</code>, <code>23-evals-and-benchmarks.md</code>.</p>
+<p>Terms:</p>
+<ul>
+<li><strong>Seat</strong>: one long-running agent session managed by the cortextOS daemon.</li>
+<li><strong>Runtime</strong>: which CLI the daemon launches for a seat. <code>claude-code</code> is Anthropic's Claude Code CLI. <code>codex-app-server</code> is OpenAI's Codex CLI. <code>opencode</code> is the OpenCode CLI.</li>
+<li><strong>Model id</strong>: the string passed to the CLI with <code>--model</code>, for example <code>claude-opus-4-8[1m]</code>. A <code>[1m]</code> suffix selects the 1 million token context variant where the model offers one.</li>
+<li><strong>Alias</strong>: a short model name the CLI resolves itself, such as <code>sonnet</code>, <code>opus</code> or <code>haiku</code>.</li>
+<li><strong>Weekly cap</strong>: the 7-day usage limit on a Claude subscription. When a seat hits it, the process stays alive but every turn returns a limit message.</li>
+</ul>
+<p>Path conventions: <code>$CORTEX_HOME</code> is your cortextOS checkout, <code>&lt;org&gt;</code> and <code>&lt;seat&gt;</code> are your folder names, <code>&lt;instance&gt;</code> is the daemon instance id.</p>
+<h2 id="1-where-models-are-set">1. Where models are set</h2>
+<h3 id="11-seats">1.1 Seats</h3>
+<p>Each seat's model lives in one field of <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/config.json</code>:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;runtime&quot;</span><span class="fu">:</span> <span class="st">&quot;claude-code&quot;</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;model&quot;</span><span class="fu">:</span> <span class="st">&quot;claude-opus-4-8[1m]&quot;</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>Other keys in the file (crons, session limits, timezone) are covered in <code>03-configuration-registry.md</code>.</p>
+<p>To read every seat's model and runtime:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> <span class="va">$CORTEX_HOME</span>/orgs/<span class="op">&lt;</span>org<span class="op">&gt;</span>/agents</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> f <span class="kw">in</span> <span class="pp">*</span>/config.json<span class="kw">;</span> <span class="cf">do</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="ex">python3</span> <span class="at">-c</span> <span class="st">&quot;import json,sys; c=json.load(open(&#39;</span><span class="va">$f</span><span class="st">&#39;)); print(&#39;</span><span class="va">$f</span><span class="st">&#39;.split(&#39;/&#39;)[0], c.get(&#39;runtime&#39;), c.get(&#39;model&#39;), c.get(&#39;enabled&#39;))&quot;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span></code></pre></div>
+<p>To confirm what a running seat uses, trust the process, not the file:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> status <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ps</span> <span class="at">-axo</span> pid,command <span class="kw">|</span> <span class="fu">grep</span> <span class="at">--</span> <span class="st">&#39;--model&#39;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">lsof</span> <span class="at">-a</span> <span class="at">-p</span> <span class="op">&lt;</span>pid<span class="op">&gt;</span> -d cwd <span class="at">-Fn</span>     <span class="co"># maps a PID to its seat folder</span></span></code></pre></div>
+<h3 id="12-other-model-callers">1.2 Other model callers</h3>
+<p>Seats are not the only callers. A fleet usually grows small tools that call a model directly. Register each one:</p>
+<table>
+<thead>
+<tr>
+<th>Caller type</th>
+<th>Typical model choice</th>
+<th>Where the id lives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Classifier inside a tool (reply routing, labelling)</td>
+<td>a small fast model</td>
+<td>the tool's <code>config.json</code>, called through <code>claude -p ... --model &lt;id&gt;</code></td>
+</tr>
+<tr>
+<td>Health probe (auth sentinel)</td>
+<td>an alias such as <code>sonnet</code></td>
+<td>the sentinel script</td>
+</tr>
+<tr>
+<td>Subagent definitions</td>
+<td><code>model:</code> front matter, often <code>sonnet</code></td>
+<td><code>&lt;seat&gt;/.claude/agents/*.md</code>, <code>~/.claude/agents/*.md</code></td>
+</tr>
+<tr>
+<td>Hook-spawned headless runs (memory digests, consolidation)</td>
+<td>an explicit <code>--model</code>, or none</td>
+<td>the hook script</td>
+</tr>
+<tr>
+<td>Prompt router hooks</td>
+<td>a small fast model</td>
+<td>the router script</td>
+</tr>
+</tbody>
+</table>
+<p>Rules:</p>
+<ul>
+<li><strong>Probes use aliases.</strong> A probe pinned to a dated id goes silent when that id retires: the error it gets matches none of its alert strings. Probe with an alias and alert on anything except the expected answer.</li>
+<li><strong>Classifiers may pin dated ids,</strong> because pinning keeps eval results valid. Then the id is a dependency: record it in this registry and re-run the eval (<code>23-evals-and-benchmarks.md</code>) when you move it.</li>
+<li><strong>Always pass <code>--model</code> to headless spawns.</strong> Without it, the spawn inherits Claude Code's default, which can change under you.</li>
+</ul>
+<h3 id="13-quota-pool">1.3 Quota pool</h3>
+<p>All seats and all headless <code>claude -p</code> calls authenticated with one Claude subscription draw from the same pool. A memory-digest spawn or a subagent fork spends the same weekly quota that keeps the orchestrator alive. Watch it with a sentinel that reads the usage API and writes a ledger, one JSON line per read:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;ts&quot;</span><span class="fu">:</span><span class="st">&quot;&lt;iso&gt;&quot;</span><span class="fu">,</span><span class="dt">&quot;seven_day&quot;</span><span class="fu">:{</span><span class="dt">&quot;utilization&quot;</span><span class="fu">:</span><span class="dv">72</span><span class="fu">,</span><span class="dt">&quot;resets_at&quot;</span><span class="fu">:</span><span class="st">&quot;&lt;iso&gt;&quot;</span><span class="fu">},</span><span class="dt">&quot;five_hour&quot;</span><span class="fu">:{</span><span class="dt">&quot;utilization&quot;</span><span class="fu">:</span><span class="dv">11</span><span class="fu">}}</span></span></code></pre></div>
+<p>The exact fields depend on the usage endpoint you read. Treat this as a shape to adapt, not a fixed schema.</p>
+<h2 id="2-how-a-swap-happens">2. How a swap happens</h2>
+<h3 id="21-the-mechanism-in-code">2.1 The mechanism in code</h3>
+<figure class="diagram"><img src="img/818572c0c551.svg" alt="Diagram"></figure>
+
+<ul>
+<li><code>model</code> is a per-seat field (type in <code>src/types/index.ts</code>).</li>
+<li>The daemon passes it into the PTY config (<code>src/daemon/agent-process.ts</code>).</li>
+<li>The Claude Code PTY appends <code>--model &lt;value&gt;</code> only if the field is set (<code>src/pty/agent-pty.ts</code>). If the field is missing, Claude Code picks its own default model, and <code>cortextos status</code> shows <code>-</code> for the model.</li>
+<li>The Codex PTY falls back to <code>gpt-5-codex</code> when no model is set (<code>src/pty/codex-app-server-pty.ts</code>). The OpenCode PTY passes <code>--model provider/model</code> (<code>src/pty/opencode-pty.ts</code>).</li>
+<li>A config edit does nothing until the seat restarts:</li>
+</ul>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> restart <span class="op">&lt;</span>seat<span class="op">&gt;</span> --instance <span class="op">&lt;</span>instance<span class="op">&gt;</span></span></code></pre></div>
+<p><code>--instance</code> defaults to <code>default</code>. If your daemon runs under another instance id and you leave the flag off, the CLI talks to the wrong instance and reports "Daemon is not running". <code>cortextos restart</code> restarts one seat. <code>pm2 restart cortextos-daemon</code> restarts the daemon and every seat with it.</p>
+<ul>
+<li><code>src/utils/validate.ts</code> exports a <code>validateModel</code> helper, but the launch path does not call it, and its pattern does not accept the <code>[1m]</code> suffix. Nothing validates a model id before launch. A typo shows up when the seat fails to boot.</li>
+<li>No effort flag is passed by the PTY. Seats run the CLI's default effort unless you set one in Claude Code settings.</li>
+</ul>
+<h3 id="22-the-roster">2.2 The roster</h3>
+<p><code>src/cli/roster.ts</code> holds an <code>EXPECTED_SEATS</code> table for a delivery roster, with a model and effort per seat. Seats are marked <code>existing-only</code> or <code>create-disabled</code>. The roster creates missing seats disabled. It never rewrites an existing <code>config.json</code>. So the roster states intent. The <code>config.json</code> files are what runs. When you change one, change the other or record why they differ.</p>
+<h3 id="23-what-else-moves-in-a-swap">2.3 What else moves in a swap</h3>
+<p>A swap is more than one config line:</p>
+<ol type="1">
+<li><strong>CLI version.</strong> A new model id can need a newer Claude Code. Check <code>claude --version</code> against the model's release notes before you swap.</li>
+<li><strong>Prompts that name the model.</strong> Seat CLAUDE.md files, the global <code>~/.claude/CLAUDE.md</code>, MEMORY.md policy lines and auto-memory notes often say which model a seat runs. Find them with <code>grep -rn -i '&lt;old model name&gt;' &lt;seat&gt; ~/.claude</code>.</li>
+<li><strong>Pinned ids in tools</strong> (section 1.2).</li>
+<li><strong>Quota meaning.</strong> Some models carry their own caps or credit gates. The account-wide meter keeps working, but what "80%" means can change with the model.</li>
+<li><strong>Disabled seats.</strong> They keep the model id they were provisioned with. Check it before you enable one.</li>
+</ol>
+<h3 id="24-who-decides">2.4 Who decides</h3>
+<p>Model choice is an owner decision. The default policy in the OGL layer:</p>
+<ul>
+<li>The owner orders fleet-wide swaps. The orchestrator or a sentinel seat executes.</li>
+<li>In an outage (weekly cap, credit gate, boot failure), the orchestrator may fail a seat over to a known-good model and must tell the owner in the same turn.</li>
+<li>No seat changes its own model silently.</li>
+</ul>
+<p>Nothing in the framework enforces this. It is a guardrail in GUARDRAILS.md and the approval skill.</p>
+<h2 id="3-failure-modes">3. Failure modes</h2>
+<p>These are properties of the stack. Plan for each.</p>
+<table>
+<thead>
+<tr>
+<th>Failure mode</th>
+<th>What you see</th>
+<th>Reliable signal</th>
+<th>Response</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Weekly cap reached</td>
+<td>process alive, crons log <code>fired</code>, heartbeats may look green, every turn returns limit text</td>
+<td>the text of the seat's last turn; transcript growth stops</td>
+<td>fail over to another model or wait for reset; tell the owner</td>
+</tr>
+<tr>
+<td>Credit or plan gate on one model</td>
+<td>same as above, for seats on that model only</td>
+<td>turn text</td>
+<td>fail over that seat</td>
+</tr>
+<tr>
+<td>New model id freezes on boot</td>
+<td>heartbeat never advances; session never starts</td>
+<td>heartbeat age; no transcript</td>
+<td>revert the field and restart; test new ids on a throwaway seat first</td>
+</tr>
+<tr>
+<td>CLI too old for the model id</td>
+<td>boot error or immediate exit</td>
+<td>seat stderr log</td>
+<td>update Claude Code, then restart</td>
+</tr>
+<tr>
+<td>Org or auth disable</td>
+<td>turns return an access error, not a usage error</td>
+<td>grep turn text for the exact error string</td>
+<td>fix auth; a model swap does not help</td>
+</tr>
+<tr>
+<td>Dated id retired under a probe</td>
+<td>probe gets an unknown-model error that matches no alert string, so it stays quiet</td>
+<td>alert on "anything except ok"</td>
+<td>switch probes to aliases</td>
+</tr>
+<tr>
+<td>Empty <code>model</code> field</td>
+<td>seat runs the CLI default; status shows <code>-</code></td>
+<td><code>cortextos status</code></td>
+<td>always set the field</td>
+</tr>
+<tr>
+<td>Daemon restart used for a swap</td>
+<td>every seat restarts; memory and disk spike; the swap leaves no bus record</td>
+<td><code>pm2</code> logs only</td>
+<td>restart one seat with <code>cortextos restart</code></td>
+</tr>
+</tbody>
+</table>
+<p>Two rules follow from this table:</p>
+<ul>
+<li><strong>A dead model looks alive.</strong> Liveness checks must read content (turn text, transcript growth), not process state or cron fire records.</li>
+<li><strong>A down seat's own notes are weak evidence.</strong> Diagnose an outage from logs and turn text written by something other than the affected seat.</li>
+</ul>
+<h2 id="4-quota-aware-scheduling">4. Quota-aware scheduling</h2>
+<p>Some owners want to use spare weekly quota before reset. A pattern:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus add-cron <span class="op">&lt;</span>orchestrator-seat<span class="op">&gt;</span> prereset-burn <span class="st">&quot;0 20 * * 1&quot;</span> <span class="dt">\</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;One window of queued internal builds before the weekly reset. Internal work only; every ship or send still needs owner approval. Read the 7-day meter every hour; stop at 97 percent or at reset.&quot;</span></span></code></pre></div>
+<p>Notes:</p>
+<ul>
+<li>Daemon crons run in the seat's local time. Convert the reset time from UTC before you write the expression.</li>
+<li>A five-field expression with a fixed day of month and month (<code>0 20 12 10 *</code>) fires once a year, not weekly. Use a day-of-week field for a weekly job.</li>
+<li>A stop threshold the seat reads from a meter is a request, not a guard. For a hard stop, have the sentinel that writes the ledger remove the cron when the threshold is crossed.</li>
+</ul>
+<h2 id="5-runtimes-other-than-claude-code">5. Runtimes other than Claude Code</h2>
+<ul>
+<li><code>codex-app-server</code> seats need an active Codex login. When the login lapses, the seat stays up and stops working, like a weekly cap.</li>
+<li>Codex sandbox modes (for example <code>danger-full-access</code>) can trigger a security gate that a usage reset does not lift.</li>
+<li>If you do not pay for a runtime, mark it off in the roster and in GUARDRAILS.md, and write the condition that re-opens it.</li>
+</ul>
+<h2 id="6-enterprise-practices-scaled-down">6. Enterprise practices, scaled down</h2>
+<table>
+<thead>
+<tr>
+<th>Enterprise practice</th>
+<th>One-owner equivalent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Model registry with versions and owners</td>
+<td>the seat <code>config.json</code> files plus <code>roster.ts</code> plus the section 1.2 caller list</td>
+</tr>
+<tr>
+<td>Staged rollout</td>
+<td>boot the new id on a throwaway seat, then one real seat for 72 hours, then the fleet</td>
+</tr>
+<tr>
+<td>Deprecation tracking</td>
+<td>a list of every pinned dated id with its retirement date, checked by the analyst's upstream or news digest</td>
+</tr>
+<tr>
+<td>Regression eval before promotion</td>
+<td>the golden set in <code>23-evals-and-benchmarks.md</code>, before and after</td>
+</tr>
+<tr>
+<td>Rollback plan</td>
+<td><code>config.json.bak-&lt;UTC&gt;-pre-&lt;model&gt;</code> plus a single-seat restart</td>
+</tr>
+<tr>
+<td>Cost per model</td>
+<td>token totals by model from transcripts; dollars only if you meter them</td>
+</tr>
+<tr>
+<td>Change approval</td>
+<td>owner orders, orchestrator executes, logged in the daily memory</td>
+</tr>
+</tbody>
+</table>
+<h2 id="7-swap-checklist">7. Swap checklist</h2>
+<p>Use this for any change to a seat's <code>model</code> or <code>runtime</code>, including emergency failovers. Steps marked (E) can wait in an emergency but must be done within 24 hours.</p>
+<p><strong>Before</strong></p>
+<ol type="1">
+<li>Write the reason in one line: limit, outage, cost, or quality. For an outage, confirm the cause from the seat's own turn text. An auth disable looks like a cap and a swap will not fix it.</li>
+<li>Record the current value and back it up:
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-n</span> <span class="st">&#39;&quot;model&quot;&#39;</span> <span class="va">$CORTEX_HOME</span>/orgs/<span class="op">&lt;</span>org<span class="op">&gt;</span>/agents/<span class="op">&lt;</span>seat<span class="op">&gt;</span>/config.json</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> config.json <span class="st">&quot;config.json.bak-</span><span class="va">$(</span><span class="fu">date</span> <span class="at">-u</span> +%Y%m%dT%H%M%SZ<span class="va">)</span><span class="st">-pre-&lt;model&gt;&quot;</span></span></code></pre></div></li>
+<li>Check the CLI supports the new id (<code>claude --version</code> against the release notes).</li>
+<li>(E) Boot the new id on a throwaway seat first. A model that freezes on boot takes the seat dark.</li>
+<li>Read the last line of the quota ledger. Do not swap onto a pool above 90% unless that is the point.</li>
+</ol>
+<p><strong>Change</strong> 6. Edit only <code>model</code> (and <code>runtime</code> if needed). Never leave <code>model</code> empty. 7. Restart only that seat: <code>cortextos restart &lt;seat&gt; --instance &lt;instance&gt;</code>.</p>
+<p><strong>Verify (do not trust the seat's own report)</strong> 8. Confirm the live argv with <code>ps</code> and <code>lsof -d cwd</code>, and with <code>cortextos status --instance &lt;instance&gt;</code>. 9. Confirm a real model turn: transcript growth or a heartbeat with content, not a cron <code>fired</code> record. 10. (E) Run the seat's liveness canary and one known task, and compare with a recent result. 11. (E) Run the golden set (<code>23-evals-and-benchmarks.md</code>) and compare with the last run on the old model.</p>
+<p><strong>After</strong> 12. (E) Update every prompt that names the model (section 2.3). 13. (E) Update pinned ids in tools, or switch them to aliases. 14. (E) Update <code>roster.ts</code>, or record why the seat differs. 15. Log one line with old value, new value, reason, who decided, and whether the owner was told: <code>bash cortextos bus log-event action model_swap info --meta '{"seat":"&lt;seat&gt;","from":"&lt;old&gt;","to":"&lt;new&gt;","reason":"&lt;reason&gt;","decided_by":"owner"}' </code> 16. Commit the seat's <code>config.json</code> if the seat folder is under git (<code>22-prompt-registry.md</code>, section 9).</p>
+<figure class="diagram"><img src="img/a780711c70c2.svg" alt="Diagram"></figure>
+
+<h2 id="known-limitations">Known limitations</h2>
+<ol type="1">
+<li>Model ids are not validated before launch.</li>
+<li>A swap done by restarting the daemon leaves no record in the bus restart log.</li>
+<li>The roster does not rewrite existing seat configs, so roster and disk can disagree.</li>
+<li>The PTY passes no effort flag.</li>
+<li>A weekly cap or lapsed login leaves the seat process running, so process-level health checks report healthy.</li>
+<li>Quota stop thresholds enforced by a seat reading a meter are advisory unless a sentinel enforces them.</li>
+</ol>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/types/index.ts</code> (agent config type, <code>model</code> field)</li>
+<li><code>src/daemon/agent-process.ts</code> (config to PTY)</li>
+<li><code>src/pty/agent-pty.ts</code> (<code>--model</code> argv for Claude Code)</li>
+<li><code>src/pty/codex-app-server-pty.ts</code> (Codex default model)</li>
+<li><code>src/pty/opencode-pty.ts</code> (OpenCode <code>--model</code>)</li>
+<li><code>src/utils/validate.ts</code> (<code>validateModel</code>)</li>
+<li><code>src/cli/roster.ts</code> (<code>EXPECTED_SEATS</code>)</li>
+<li><code>src/cli/restart.ts</code> (<code>--instance</code> flag)</li>
+</ul>
+</article><nav class="pager"><a class="prev" href="23-evals-and-benchmarks.html"><small>Previous</small>23 Evals and benchmarks</a><a class="next" href="30-sre-runbooks.html"><small>Next</small>30 SRE runbooks</a></nav></main></div></body></html>

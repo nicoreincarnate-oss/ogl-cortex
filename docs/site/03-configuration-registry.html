@@ -1,0 +1,840 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configuration Registry · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li class="on"><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">03</div><div><p class="dg">Core system</p>
+<h1>Configuration Registry</h1><p class="meta">3,708 words · <a href="../03-configuration-registry.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#why-a-registry">Why a registry</a></li><li><a href="#1-the-registry">1. The registry</a></li><li><a href="#2-record-shapes">2. Record shapes</a></li><li><a href="#3-prompt-assembly">3. Prompt assembly</a></li><li><a href="#4-keeping-configuration-consistent">4. Keeping configuration consistent</a></li><li><a href="#5-one-owner-file-per-setting">5. One owner file per setting</a></li><li><a href="#6-known-limitations">6. Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>Every file that shapes how OGL Cortex behaves, the real shape of each record type, how a turn's context is assembled, and which file owns each kind of setting.</p>
+<p>Placeholders (<code>$CORTEX_HOME</code>, <code>$CTX_ROOT</code>, <code>&lt;instance&gt;</code>, <code>&lt;org&gt;</code>, <code>&lt;seat&gt;</code>, <code>&lt;project-slug&gt;</code>) are defined in 01.</p>
+<h2 id="why-a-registry">Why a registry</h2>
+<p>Three different readers consume configuration:</p>
+<ul>
+<li><strong>Claude Code</strong> reads settings, CLAUDE.md files, hooks, skills, MCP config and auto-memory.</li>
+<li><strong>The cortextOS daemon</strong> reads seat <code>config.json</code>, <code>.env</code> files, org <code>context.json</code>, <code>crons.json</code> and <code>enabled-agents.json</code>.</li>
+<li><strong>The model</strong> reads bootstrap files because a prompt tells it to.</li>
+</ul>
+<p>When one fact lives in two files, the copies drift, and a seat acts on whichever copy it reads first. This registry names one owner file for each kind of setting.</p>
+<p>Terms:</p>
+<ul>
+<li><strong>Seat</strong>: one agent's folder, <code>orgs/&lt;org&gt;/agents/&lt;seat&gt;</code>.</li>
+<li><strong>Hook</strong>: a command Claude Code runs at a fixed moment (before a tool call, after compaction). It can block the action or add context.</li>
+<li><strong>Compaction</strong>: Claude Code summarising the conversation when the context window fills.</li>
+<li><strong>Gate</strong>: the auditor seat checking an artifact and returning PASS or FAIL.</li>
+<li><strong><code>.gated-&lt;sha&gt;</code></strong>: a read-only frozen copy of a file at the exact version the auditor passed.</li>
+<li><strong><code>.bak-&lt;timestamp&gt;-&lt;reason&gt;</code></strong>: a manual backup taken before an edit.</li>
+</ul>
+<hr />
+<h2 id="1-the-registry">1. The registry</h2>
+<h3 id="11-who-reads-what">1.1 Who reads what</h3>
+<figure class="diagram"><img src="img/99a9596c31c5.svg" alt="Diagram"></figure>
+
+<h3 id="12-registry-table">1.2 Registry table</h3>
+<p>Guard names used below:</p>
+<ul>
+<li><strong>Surface guard</strong>: <code>~/.claude/hooks/shared-surface-guard.py</code>, a PreToolUse hook that blocks Bash writes to shared roots. Default roots: <code>~/.claude</code>, <code>~/.claude.json</code>, shared credential folders, <code>~/.cache/uv</code>; <code>~/.claude/projects/</code> is exempt (root list in <code>~/.claude/hooks/surface.py</code>). Seat folders are not in the default list.</li>
+<li><strong>Hash watch</strong>: an infrastructure-seat cron (<code>cred-identity-check</code>, hourly) that hashes every watched settings, hook, skill, CLAUDE.md and MCP file and pages the orchestrator once per change.</li>
+<li><strong>Auditor gate</strong>: auditor review before a change goes live, with a <code>.gated-&lt;sha&gt;</code> copy kept.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Path</th>
+<th>Owner</th>
+<th>Controls</th>
+<th>Who edits</th>
+<th>Change guard</th>
+<th>Version control</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>~/.claude/settings.json</code></td>
+<td>Owner</td>
+<td>User-level hooks (for example the ship gate), enabled plugins, marketplaces, env such as <code>DISABLE_AUTOUPDATER=1</code>, TUI options</td>
+<td>Owner; seats only with a surface-guard pass token</td>
+<td>Surface guard, hash watch</td>
+<td>Recommended: a private local git repo for <code>~/.claude</code> config and hooks</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>~/.claude/CLAUDE.md</code></td>
+<td>Owner</td>
+<td>Global instructions for every Claude session on the host: memory read order, ship gate, coding guidelines, file naming</td>
+<td>Owner. Memory tools may rewrite a generated block inside it</td>
+<td>Surface guard, hash watch</td>
+<td>As above</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>~/.claude.json</code></td>
+<td>Claude Code and owner</td>
+<td>MCP servers: <code>mcpServers</code> at user scope and <code>projects.&lt;path&gt;.mcpServers</code> per project. Claude Code also writes session state here constantly</td>
+<td>Claude Code; owner for MCP edits</td>
+<td>Surface guard; hash watch on the <code>mcpServers</code> subtree only</td>
+<td>Not suitable for git (volatile); back up <code>mcpServers</code> separately</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>~/.claude/hooks/</code></td>
+<td>OGL layer authors; consumed by all seats</td>
+<td>Shared hook scripts: <code>orwell-lint.py</code>, <code>gws-account-guard.py</code>, <code>shared-surface-guard.py</code> (imports <code>surface.py</code>, <code>codewrites.py</code>)</td>
+<td>Orchestrator under auditor gate</td>
+<td>Surface guard (pass token only), hash watch, <code>.gated-&lt;sha&gt;</code> copies</td>
+<td>Git</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>&lt;seat&gt;/.claude/settings.json</code></td>
+<td>Seat owner; orchestrator writes most</td>
+<td>Hooks, <code>statusLine</code>, permissions, <code>autoCompactWindow</code></td>
+<td>Orchestrator, the seat</td>
+<td>Hash watch</td>
+<td>Seat git repo</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>&lt;seat&gt;/config.json</code></td>
+<td>Framework schema</td>
+<td>Runtime, model, profile, timezone, day/night window, approval rules, context thresholds, session length. May hold a legacy <code>crons</code> array</td>
+<td>Orchestrator, owner, dashboard</td>
+<td>Daemon re-reads <code>ctx_*</code> thresholds on mtime change (<code>src/daemon/fast-checker.ts</code>)</td>
+<td>Seat git repo</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>&lt;seat&gt;/goals.json</code> and <code>GOALS.md</code></td>
+<td>Orchestrator writes every seat's goals</td>
+<td>Daily focus, goals, bottleneck. <code>GOALS.md</code> is generated: do not edit</td>
+<td>Orchestrator via the goal-management skill; <code>cortextos goals generate-md</code></td>
+<td>None</td>
+<td>Seat git repo</td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>orgs/&lt;org&gt;/goals.json</code></td>
+<td>Owner (north star), orchestrator (daily focus)</td>
+<td>North star, daily focus, org goals</td>
+<td>Orchestrator per goal-management skill</td>
+<td>None</td>
+<td>Org repo (the framework repo ignores <code>orgs/</code>)</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code></td>
+<td>Daemon</td>
+<td>Live cron schedule. Envelope <code>{updated_at, crons[]}</code> (<code>src/bus/crons.ts</code>)</td>
+<td><code>cortextos bus add-cron</code>, <code>update-cron</code>, <code>remove-cron</code></td>
+<td>Atomic write and per-seat lock (<code>src/bus/crons.ts</code>); automatic <code>crons.json.bak</code></td>
+<td>Export with <code>list-crons</code> into a tracked file if you want history</td>
+</tr>
+<tr>
+<td>10</td>
+<td><code>&lt;seat&gt;/.env</code></td>
+<td>Owner</td>
+<td>Seat secrets: <code>BOT_TOKEN</code>, <code>CHAT_ID</code>, <code>ALLOWED_USER</code>, plus integration keys</td>
+<td>Owner only</td>
+<td>Seat <code>.gitignore</code> excludes <code>.env*</code>; the bus refuses to read <code>.cortextos-env</code> (<code>src/bus/system.ts</code>)</td>
+<td>Never in git</td>
+</tr>
+<tr>
+<td>11</td>
+<td><code>orgs/&lt;org&gt;/secrets.env</code></td>
+<td>Owner</td>
+<td>Org-wide secrets loaded into every seat before the seat <code>.env</code> (<code>src/pty/agent-pty.ts</code>)</td>
+<td>Owner</td>
+<td>None</td>
+<td>Never in git</td>
+</tr>
+<tr>
+<td>12</td>
+<td><code>&lt;seat&gt;/.cortextos-env</code></td>
+<td>Daemon (generated)</td>
+<td><code>CTX_*</code> path variables, rewritten on every start (<code>src/daemon/agent-process.ts</code>)</td>
+<td>Daemon only</td>
+<td>Regenerated</td>
+<td>Ignore</td>
+</tr>
+<tr>
+<td>13</td>
+<td><code>orgs/&lt;org&gt;/context.json</code></td>
+<td>Owner</td>
+<td>Org name, timezone, day window, orchestrator name, default approval categories, comms style, optional <code>require_deliverables</code></td>
+<td>Owner, orchestrator</td>
+<td>None</td>
+<td>Org repo</td>
+</tr>
+<tr>
+<td>14</td>
+<td><code>orgs/&lt;org&gt;/knowledge.md</code></td>
+<td>All seats (append)</td>
+<td>Shared fact base read at every session start</td>
+<td>Any seat</td>
+<td>None</td>
+<td>Org repo</td>
+</tr>
+<tr>
+<td>15</td>
+<td><code>$CTX_ROOT/config/enabled-agents.json</code></td>
+<td>Daemon</td>
+<td>Which registered seats start</td>
+<td><code>cortextos start &lt;seat&gt;</code>, <code>cortextos stop &lt;seat&gt;</code></td>
+<td>Daemon writes</td>
+<td>Back up on change</td>
+</tr>
+<tr>
+<td>16</td>
+<td><code>$CORTEX_HOME/templates/</code></td>
+<td>Framework upstream</td>
+<td>Starting shape for new seats: <code>agent</code>, <code>orchestrator</code>, <code>analyst</code>, <code>agent-codex</code>, <code>agent-opencode</code>, <code>hermes</code>, <code>m2c1-worker</code>, <code>org</code></td>
+<td>Upstream; the analyst's drift check watches it</td>
+<td>Framework git</td>
+<td>Framework repo</td>
+</tr>
+<tr>
+<td>17</td>
+<td><code>&lt;seat&gt;/ENTITIES.md</code></td>
+<td>Orchestrator</td>
+<td>Canonical noun index: people, places, prices</td>
+<td>Orchestrator, behind a written write gate</td>
+<td>Prose gate</td>
+<td>Seat git repo</td>
+</tr>
+<tr>
+<td>18</td>
+<td><code>&lt;seat&gt;/MEMORY.md</code>, auto-memory</td>
+<td>Seat and dream hook</td>
+<td>Long-term memory (4.1)</td>
+<td>Seat, background dream job</td>
+<td>Hash watch on bootstrap names</td>
+<td>Seat git repo (auto-memory lives under <code>~/.claude/projects/</code>)</td>
+</tr>
+<tr>
+<td>19</td>
+<td><code>&lt;seat&gt;/STATE.md</code></td>
+<td>Seat</td>
+<td>Where the work stands; re-injected after compaction</td>
+<td>Seat</td>
+<td>None</td>
+<td>Seat git repo</td>
+</tr>
+<tr>
+<td>20</td>
+<td><code>&lt;seat&gt;/.claude/hooks/</code></td>
+<td>Seat owner</td>
+<td>Seat-only hooks and the compaction kit (<code>kem-compaction/</code>: <code>meter.py</code>, <code>after_compact.py</code>, <code>save_summary.py</code>, <code>common.py</code>, <code>compaction.json</code>)</td>
+<td>Orchestrator under auditor gate</td>
+<td>Hash watch, <code>.gated-&lt;sha&gt;</code></td>
+<td>Seat git repo</td>
+</tr>
+<tr>
+<td>21</td>
+<td><code>&lt;seat&gt;/.claude/skills/</code>, <code>~/.claude/skills/</code></td>
+<td>Template and seat; owner for user skills</td>
+<td>Skill text loaded on demand</td>
+<td>Orchestrator</td>
+<td>Hash watch</td>
+<td>Seat repo; user skills in the <code>~/.claude</code> repo</td>
+</tr>
+<tr>
+<td>22</td>
+<td><code>&lt;seat&gt;/.claude/agents/*.md</code>, <code>~/.claude/agents/</code></td>
+<td>Seat, plugins</td>
+<td>Subagent definitions</td>
+<td>Orchestrator</td>
+<td>Hash watch</td>
+<td>Seat repo</td>
+</tr>
+</tbody>
+</table>
+<h3 id="13-hook-sets-by-role">1.3 Hook sets by role</h3>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Typical hook commands</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Orchestrator</td>
+<td>~24</td>
+<td>The only role with brief guard, future-time guard, attribution lint, compaction kit, prompt router, client-graph recall and fix-commit trigger</td>
+</tr>
+<tr>
+<td>Analyst, auditor, specialist</td>
+<td>9 to 10</td>
+<td>Telegram hooks, send guard, surface guard (warn mode), dream, idle flag</td>
+</tr>
+<tr>
+<td>Infrastructure specialist</td>
+<td>4</td>
+<td>Send guard, surface guard in strict mode, account guard; no Telegram permission hooks</td>
+</tr>
+<tr>
+<td>Template default</td>
+<td>6 to 7</td>
+<td><code>hook-planmode-telegram</code>, <code>hook-permission-telegram</code>, <code>hook-loop-detector</code>, <code>hook-ask-telegram</code>, <code>crash-alert</code>, <code>hook-compact-telegram</code>, plus <code>hook-idle-flag</code> on analyst and agent</td>
+</tr>
+</tbody>
+</table>
+<p>Every template ships <code>cortextos bus hook-loop-detector</code> as a PreToolUse hook (<code>templates/orchestrator/.claude/settings.json</code>). Keep it unless you replace it with an equivalent.</p>
+<p>Keep hook scripts in <code>&lt;seat&gt;/.claude/hooks/</code> or <code>&lt;seat&gt;/tools/</code>. A hook registered from a deliverables or scratch folder disappears silently when someone cleans that folder.</p>
+<h3 id="14-backups-and-frozen-copies">1.4 Backups and frozen copies</h3>
+<ul>
+<li>Take a <code>.bak-&lt;UTC timestamp&gt;-&lt;reason&gt;</code> copy before editing any settings or hook file by hand.</li>
+<li>After the auditor passes a hook or guard, copy it to <code>&lt;file&gt;.gated-&lt;sha&gt;</code> and <code>chmod 400</code> it. The next change is then a diff against the passed version.</li>
+<li>With a git repo for <code>~/.claude/hooks</code> and each seat, prefer commits and tags over loose <code>.bak</code> files.</li>
+</ul>
+<hr />
+<h2 id="2-record-shapes">2. Record shapes</h2>
+<h3 id="21-seat-configjson">2.1 Seat <code>config.json</code></h3>
+<p>Template default (<code>templates/orchestrator/config.json</code>, crons omitted):</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;agent_name&quot;</span><span class="fu">:</span> <span class="st">&quot;{{agent_name}}&quot;</span><span class="fu">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;runtime&quot;</span><span class="fu">:</span> <span class="st">&quot;claude-code&quot;</span><span class="fu">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;startup_delay&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;max_session_seconds&quot;</span><span class="fu">:</span> <span class="dv">255600</span><span class="fu">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;max_crashes_per_day&quot;</span><span class="fu">:</span> <span class="dv">10</span><span class="fu">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;working_directory&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;timezone&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;day_mode_start&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;day_mode_end&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;communication_style&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;approval_rules&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;always_ask&quot;</span><span class="fu">:</span> <span class="ot">[]</span><span class="fu">,</span> <span class="dt">&quot;never_ask&quot;</span><span class="fu">:</span> <span class="ot">[]</span><span class="fu">},</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;ecosystem&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;local_version_control&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">}}</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>A configured orchestrator adds model and context settings:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;agent_name&quot;</span><span class="fu">:</span> <span class="st">&quot;boss&quot;</span><span class="fu">,</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;runtime&quot;</span><span class="fu">:</span> <span class="st">&quot;claude-code&quot;</span><span class="fu">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;startup_delay&quot;</span><span class="fu">:</span> <span class="dv">0</span><span class="fu">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;max_session_seconds&quot;</span><span class="fu">:</span> <span class="dv">255600</span><span class="fu">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;max_crashes_per_day&quot;</span><span class="fu">:</span> <span class="dv">10</span><span class="fu">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;working_directory&quot;</span><span class="fu">:</span> <span class="st">&quot;$CORTEX_HOME/orgs/&lt;org&gt;/agents/boss&quot;</span><span class="fu">,</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;timezone&quot;</span><span class="fu">:</span> <span class="st">&quot;America/New_York&quot;</span><span class="fu">,</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;day_mode_start&quot;</span><span class="fu">:</span> <span class="st">&quot;09:00&quot;</span><span class="fu">,</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;day_mode_end&quot;</span><span class="fu">:</span> <span class="st">&quot;21:00&quot;</span><span class="fu">,</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;communication_style&quot;</span><span class="fu">:</span> <span class="st">&quot;Terse. Lead with the answer.&quot;</span><span class="fu">,</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;approval_rules&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;always_ask&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;external-comms&quot;</span><span class="ot">,</span> <span class="st">&quot;financial&quot;</span><span class="ot">,</span> <span class="st">&quot;deployment&quot;</span><span class="ot">,</span> <span class="st">&quot;data-deletion&quot;</span><span class="ot">]</span><span class="fu">,</span> <span class="dt">&quot;never_ask&quot;</span><span class="fu">:</span> <span class="ot">[]</span><span class="fu">},</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;ecosystem&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;local_version_control&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">}},</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;model&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;model id&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;profile&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;profile&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;ctx_warning_threshold&quot;</span><span class="fu">:</span> <span class="dv">80</span><span class="fu">,</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;ctx_handoff_threshold&quot;</span><span class="fu">:</span> <span class="dv">88</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p><code>working_directory</code> must be an absolute path in the real file. <code>255600</code> seconds is 71 hours, the default <code>--continue</code> rotation. Other keys the daemon reads: <code>dangerously_skip_permissions</code> (default on unless <code>false</code>), <code>telegram_polling</code>, <code>voice_id</code>. Analyst templates add <code>ecosystem.upstream_sync</code>, <code>catalog_browse</code> and <code>community_publish</code>. <code>agent-codex</code> sets <code>runtime: "codex-app-server"</code>; <code>agent-opencode</code> sets <code>runtime: "opencode"</code>.</p>
+<h3 id="22-goalsjson">2.2 <code>goals.json</code></h3>
+<p>Seat file:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;focus&quot;</span><span class="fu">:</span> <span class="st">&quot;One sentence: what this seat works on today.&quot;</span><span class="fu">,</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;goals&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;Goal one&quot;</span><span class="ot">,</span> <span class="st">&quot;Goal two&quot;</span><span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;bottleneck&quot;</span><span class="fu">:</span> <span class="st">&quot;What blocks progress, or empty.&quot;</span><span class="fu">,</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;updated_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T09:00:00Z&quot;</span><span class="fu">,</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;updated_by&quot;</span><span class="fu">:</span> <span class="st">&quot;boss&quot;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>The org file (<code>orgs/&lt;org&gt;/goals.json</code>) adds <code>north_star</code>, <code>daily_focus</code> and <code>daily_focus_set_at</code>.</p>
+<h3 id="23-cronsjson-entry">2.3 <code>crons.json</code> entry</h3>
+<div class="sourceCode" id="cb4"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;morning-review&quot;</span><span class="fu">,</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;prompt&quot;</span><span class="fu">:</span> <span class="st">&quot;Read .claude/skills/morning-review/SKILL.md and execute the morning review workflow, including goal cascade from .claude/skills/goal-management/SKILL.md. Send at most one consolidated Telegram. Then run: cortextos bus update-cron-fire morning-review&quot;</span><span class="fu">,</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;schedule&quot;</span><span class="fu">:</span> <span class="st">&quot;0 8 * * *&quot;</span><span class="fu">,</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;enabled&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;created_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T00:00:00.000Z&quot;</span><span class="fu">,</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;metadata&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;migrated_from_config&quot;</span><span class="fu">:</span> <span class="kw">true</span><span class="fu">,</span> <span class="dt">&quot;original_type&quot;</span><span class="fu">:</span> <span class="st">&quot;recurring&quot;</span><span class="fu">},</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;last_fired_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-02T08:00:05.343Z&quot;</span><span class="fu">,</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;fire_count&quot;</span><span class="fu">:</span> <span class="dv">1</span><span class="fu">,</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;last_fire_attempted_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-02T08:00:05.343Z&quot;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>Five-field expressions run on the daemon's local clock (02, section 6.2). The legacy template form in <code>config.json</code> uses <code>type</code> and <code>cron</code> keys; migration converts it to this shape.</p>
+<h3 id="24-settingsjson-hook-block">2.4 <code>settings.json</code> hook block</h3>
+<div class="sourceCode" id="cb5"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;hooks&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;PreToolUse&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>      <span class="fu">{</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;matcher&quot;</span><span class="fu">:</span> <span class="st">&quot;Bash&quot;</span><span class="fu">,</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;hooks&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;command&quot;</span><span class="fu">,</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;python3 $CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/hooks/brief_guard.py&quot;</span><span class="fu">}</span><span class="ot">]</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span><span class="ot">,</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>      <span class="fu">{</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;matcher&quot;</span><span class="fu">:</span> <span class="st">&quot;Bash|Write|Edit&quot;</span><span class="fu">,</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;hooks&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;command&quot;</span><span class="fu">,</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;python3 $CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/hooks/future_time_guard.py&quot;</span><span class="fu">,</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;timeout&quot;</span><span class="fu">:</span> <span class="dv">5</span><span class="fu">}</span><span class="ot">]</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="ot">]</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">},</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;statusLine&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;command&quot;</span><span class="fu">,</span> <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;cortextos bus hook-context-status&quot;</span><span class="fu">,</span> <span class="dt">&quot;refreshInterval&quot;</span><span class="fu">:</span> <span class="dv">5</span><span class="fu">},</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;autoCompactWindow&quot;</span><span class="fu">:</span> <span class="dv">430000</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>Write absolute paths in the real file; Claude Code does not expand <code>$CORTEX_HOME</code> inside settings unless your shell does. The <code>statusLine</code> command writes <code>context_status.json</code>, which the daemon reads for context handoff.</p>
+<h3 id="25-skill-frontmatter">2.5 Skill frontmatter</h3>
+<div class="sourceCode" id="cb6"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> goal-management</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="fu">description</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;Daily goal lifecycle management. Use for: morning briefing goal cascade, setting daily focus, refreshing agent goals, reviewing goal progress.&quot;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="fu">triggers</span><span class="kw">:</span><span class="at"> </span><span class="kw">[</span><span class="st">&quot;goals&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;daily focus&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;priorities&quot;</span><span class="kw">,</span><span class="at"> </span><span class="st">&quot;goal cascade&quot;</span><span class="kw">]</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span></code></pre></div>
+<p>Only <code>name</code> and <code>description</code> are parsed (<code>src/cli/list-skills.ts</code>). <code>triggers</code> is a hint for the model.</p>
+<h3 id="26-auto-memory-file-frontmatter">2.6 Auto-memory file frontmatter</h3>
+<div class="sourceCode" id="cb7"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> lookup-before-inference-for-owned-systems</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">description</span><span class="kw">:</span><span class="at"> </span><span class="st">&quot;For a system whose mechanism is written in code you own, read the source before inferring.&quot;</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="fu">metadata</span><span class="kw">:</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">node_type</span><span class="kw">:</span><span class="at"> memory</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">type</span><span class="kw">:</span><span class="at"> feedback</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">originSessionId</span><span class="kw">:</span><span class="at"> &lt;session uuid&gt;</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">modified</span><span class="kw">:</span><span class="at"> 2026-01-01T00:00:00.000Z</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span></code></pre></div>
+<p><code>type</code> is one of <code>feedback</code>, <code>project</code>, <code>reference</code>, <code>user</code>. The index <code>MEMORY.md</code> carries one short line per file.</p>
+<h3 id="27-task-record">2.7 Task record</h3>
+<p><code>$CTX_ROOT/orgs/&lt;org&gt;/tasks/&lt;task_id&gt;.json</code>:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;task_&lt;epoch ms&gt;_&lt;random&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;title&quot;</span><span class="fu">:</span> <span class="st">&quot;Scan untracked directories for credentials before auto-commit&quot;</span><span class="fu">,</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;TASK: ...</span><span class="ch">\n</span><span class="st">FILES: ...</span><span class="ch">\n</span><span class="st">BAR: ...</span><span class="ch">\n</span><span class="st">RETURN: ...&quot;</span><span class="fu">,</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;agent&quot;</span><span class="fu">,</span> <span class="dt">&quot;needs_approval&quot;</span><span class="fu">:</span> <span class="kw">false</span><span class="fu">,</span> <span class="dt">&quot;status&quot;</span><span class="fu">:</span> <span class="st">&quot;in_progress&quot;</span><span class="fu">,</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;assigned_to&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;seat&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;created_by&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;orchestrator&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;org&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;priority&quot;</span><span class="fu">:</span> <span class="st">&quot;normal&quot;</span><span class="fu">,</span> <span class="dt">&quot;project&quot;</span><span class="fu">:</span> <span class="st">&quot;&quot;</span><span class="fu">,</span> <span class="dt">&quot;kpi_key&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;created_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T05:04:37Z&quot;</span><span class="fu">,</span> <span class="dt">&quot;updated_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T05:04:49Z&quot;</span><span class="fu">,</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;completed_at&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span> <span class="dt">&quot;due_date&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span> <span class="dt">&quot;archived&quot;</span><span class="fu">:</span> <span class="kw">false</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>The four <code>TASK/FILES/BAR/RETURN</code> lines are enforced by <code>brief_guard.py</code> on dispatches.</p>
+<h3 id="28-inbox-message">2.8 Inbox message</h3>
+<p><code>$CTX_ROOT/inbox/&lt;seat&gt;/&lt;priority&gt;-&lt;epoch ms&gt;-from-&lt;sender&gt;-&lt;rand&gt;.json</code>, moved to <code>inflight/</code> then <code>processed/</code>:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;epoch ms&gt;-&lt;sender&gt;-&lt;rand&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;from&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;sender&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;to&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;seat&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;priority&quot;</span><span class="fu">:</span> <span class="st">&quot;normal&quot;</span><span class="fu">,</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T05:04:49.000Z&quot;</span><span class="fu">,</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;text&quot;</span><span class="fu">:</span> <span class="st">&quot;ACK task_&lt;id&gt;. Starting now.&quot;</span><span class="fu">,</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;reply_to&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;original msg id&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;sig&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;HMAC-SHA256, keyed by $CTX_ROOT/config/bus-signing-key&gt;&quot;</span></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h3 id="29-truth_correction-event">2.9 <code>truth_correction</code> event</h3>
+<p>Written by <code>tools/emit-truth-correction.sh</code>, one shared script symlinked into every seat. Events land in <code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/&lt;date&gt;.jsonl</code>:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;epoch&gt;-&lt;seat&gt;-&lt;rand&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;agent&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;seat&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;org&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T21:58:29Z&quot;</span><span class="fu">,</span> <span class="dt">&quot;category&quot;</span><span class="fu">:</span> <span class="st">&quot;action&quot;</span><span class="fu">,</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;event&quot;</span><span class="fu">:</span> <span class="st">&quot;truth_correction&quot;</span><span class="fu">,</span> <span class="dt">&quot;severity&quot;</span><span class="fu">:</span> <span class="st">&quot;info&quot;</span><span class="fu">,</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;metadata&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;kind&quot;</span><span class="fu">:</span> <span class="st">&quot;self_correction&quot;</span><span class="fu">,</span> <span class="dt">&quot;caught_agent&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;seat&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;caught_by&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;seat&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;catcher_type&quot;</span><span class="fu">:</span> <span class="st">&quot;party&quot;</span><span class="fu">,</span> <span class="dt">&quot;triggering_msg&quot;</span><span class="fu">:</span> <span class="kw">null</span><span class="fu">,</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;occurred_at&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T21:58:29Z&quot;</span><span class="fu">,</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;dedupe_key&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;seat&gt;.&lt;slug&gt;.&lt;UTC stamp&gt;&quot;</span><span class="fu">,</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;claim&quot;</span><span class="fu">:</span> <span class="st">&quot;Reported 69 duplicate items&quot;</span><span class="fu">,</span></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;correction&quot;</span><span class="fu">:</span> <span class="st">&quot;13 real duplicates; 56 were untitled items grouped together; corrected in the next message&quot;</span><span class="fu">,</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;evidence&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;path to log or receipt&gt;&quot;</span></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<p>The script enforces a canonical <code>kind</code> enum, a derived <code>caught_by</code>, an injective <code>dedupe_key</code> and no future <code>occurred_at</code>. One file plus symlinks is the recommended pattern for any script shared across seats.</p>
+<h3 id="210-templates">2.10 Templates</h3>
+<table>
+<thead>
+<tr>
+<th>Template</th>
+<th>Model / runtime</th>
+<th>Default crons</th>
+<th>Default hooks</th>
+<th>Use for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>orchestrator</code></td>
+<td>unset / <code>claude-code</code></td>
+<td>heartbeat, check-approvals, morning-review, evening-review, weekly-review</td>
+<td>6: plan-mode, permission, loop-detector, ask, crash-alert, compact</td>
+<td>The seat the owner talks to</td>
+</tr>
+<tr>
+<td><code>analyst</code></td>
+<td>unset / <code>claude-code</code></td>
+<td>heartbeat, usage-monitor, nightly-metrics, auto-commit, check-upstream, catalog-browse</td>
+<td>7 (adds idle flag)</td>
+<td>Analyst and auditor seats</td>
+</tr>
+<tr>
+<td><code>agent</code></td>
+<td>unset / <code>claude-code</code></td>
+<td>heartbeat</td>
+<td>7</td>
+<td>Specialists</td>
+</tr>
+<tr>
+<td><code>agent-codex</code></td>
+<td><code>gpt-5-codex</code> / <code>codex-app-server</code></td>
+<td>heartbeat</td>
+<td>none (Codex)</td>
+<td>Codex-backed specialists</td>
+</tr>
+<tr>
+<td><code>agent-opencode</code></td>
+<td><code>openai/gpt-4.1-nano</code> / <code>opencode</code></td>
+<td>heartbeat</td>
+<td>none</td>
+<td>OpenCode-backed specialists</td>
+</tr>
+<tr>
+<td><code>hermes</code>, <code>m2c1-worker</code></td>
+<td>template-specific</td>
+<td></td>
+<td></td>
+<td>Special-purpose workers</td>
+</tr>
+<tr>
+<td><code>org</code></td>
+<td>n/a</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>New org: <code>context.json</code>, <code>goals.json</code>, <code>knowledge.md</code>, <code>brand-voice.md</code></td>
+</tr>
+</tbody>
+</table>
+<p>Create a seat with <code>cortextos add-agent &lt;name&gt; --template &lt;template&gt;</code>. Fill <code>IDENTITY.md</code> after creation: <code>cortextos bus list-agents</code> builds the role string from it (<code>src/bus/agents.ts</code>). Local edits to template skills will conflict with a later template upgrade; keep a list of skills you changed.</p>
+<hr />
+<h2 id="3-prompt-assembly">3. Prompt assembly</h2>
+<h3 id="31-layers-in-order">3.1 Layers in order</h3>
+<figure class="diagram"><img src="img/9d1ca4db2550.svg" alt="Diagram"></figure>
+
+<h3 id="32-environment-variables">3.2 Environment variables</h3>
+<p>The daemon sets these in every seat terminal (<code>src/pty/agent-pty.ts</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Value</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CTX_INSTANCE_ID</code></td>
+<td><code>&lt;instance&gt;</code></td>
+<td>Picks the runtime root. Defaults to <code>default</code> when unset (<code>src/utils/env.ts</code>)</td>
+</tr>
+<tr>
+<td><code>CTX_ROOT</code></td>
+<td><code>~/.cortextos/&lt;instance&gt;</code></td>
+<td>Runtime state root</td>
+</tr>
+<tr>
+<td><code>CTX_FRAMEWORK_ROOT</code></td>
+<td><code>$CORTEX_HOME</code></td>
+<td>Framework repo</td>
+</tr>
+<tr>
+<td><code>CTX_AGENT_NAME</code></td>
+<td><code>&lt;seat&gt;</code></td>
+<td>Seat identity; hooks key per-seat pass tokens on it</td>
+</tr>
+<tr>
+<td><code>CTX_ORG</code></td>
+<td><code>&lt;org&gt;</code></td>
+<td>Org</td>
+</tr>
+<tr>
+<td><code>CTX_AGENT_DIR</code></td>
+<td>seat path</td>
+<td>Hooks that need the seat folder</td>
+</tr>
+<tr>
+<td><code>CTX_PROJECT_ROOT</code></td>
+<td><code>$CORTEX_HOME</code></td>
+<td>Fallback framework root</td>
+</tr>
+<tr>
+<td><code>CRM_AGENT_NAME</code>, <code>CRM_TEMPLATE_ROOT</code></td>
+<td>same as above</td>
+<td>Backward compatibility</td>
+</tr>
+<tr>
+<td><code>CTX_TELEGRAM_CHAT_ID</code></td>
+<td>copy of <code>CHAT_ID</code></td>
+<td>Alias</td>
+</tr>
+<tr>
+<td><code>CTX_TIMEZONE</code>, <code>TZ</code></td>
+<td><code>config.json</code> <code>timezone</code></td>
+<td>Local time in the session</td>
+</tr>
+<tr>
+<td><code>CTX_ORCHESTRATOR_AGENT</code></td>
+<td><code>context.json</code> <code>orchestrator</code></td>
+<td>Who to escalate to</td>
+</tr>
+</tbody>
+</table>
+<p>The daemon writes these to <code>&lt;seat&gt;/.cortextos-env</code> on each start. Secret load order: org <code>secrets.env</code> first, then the seat <code>.env</code>. A key defined in both takes the seat value without warning, so define each key in one file only.</p>
+<h3 id="33-startup-prompt">3.3 Startup prompt</h3>
+<p><code>buildStartupPrompt()</code> (<code>src/daemon/agent-process.ts</code>) composes: current UTC time; "Read AGENTS.md and all bootstrap files"; "do NOT call CronCreate"; overdue reminders; the deliverables rule if <code>context.json</code> sets <code>require_deliverables</code>; a handoff block after a context handoff; and "Send a Telegram message to the user saying you are back online" unless <code>telegram_polling</code> is <code>false</code>. A <code>--continue</code> restart uses <code>buildContinuePrompt()</code>.</p>
+<h3 id="34-cron-prompts">3.4 Cron prompts</h3>
+<p>The scheduler injects <code>[CRON FIRED &lt;iso&gt;] &lt;name&gt;: &lt;prompt&gt;</code> (<code>src/daemon/agent-manager.ts</code>). A manual fire from the dashboard injects <code>[CRON: &lt;name&gt;] &lt;prompt&gt;</code> (<code>src/daemon/ipc-server.ts</code>). Hooks that special-case crons must match both prefixes.</p>
+<p>Cron prompts can carry real logic, for example a liveness canary procedure inside the heartbeat prompt. Such logic is outside hook review and outside git unless you export it. Prefer a short prompt that points to a skill or script in the seat repo.</p>
+<h3 id="35-hook-injected-context-orchestrator-reference-set">3.5 Hook-injected context (orchestrator reference set)</h3>
+<table>
+<thead>
+<tr>
+<th>When</th>
+<th>Hook</th>
+<th>Injects</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SessionStart (any)</td>
+<td><code>.claude/hooks/sessionstart-inject.sh</code></td>
+<td>Last 4,000 chars of <code>memory/checkpoints/latest.md</code> if under 72 h old; last 3,000 chars of today's or yesterday's daily memory; an ENTITIES.md reminder</td>
+</tr>
+<tr>
+<td>SessionStart (<code>compact</code>)</td>
+<td><code>kem-compaction/after_compact.py</code></td>
+<td>Full STATE.md, "Trust it over the summary"</td>
+</tr>
+<tr>
+<td>PostToolUse</td>
+<td><code>kem-compaction/meter.py</code></td>
+<td>Context meter nudge and warning at the token counts in <code>compaction.json</code></td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td><code>tools/prompt-router/router.py</code></td>
+<td><code>[reply style: &lt;style&gt;]</code> chosen by a Haiku call from <code>skins.json</code>; silent for crons and agent messages</td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td><code>tools/ops-graph/recall_hook.py</code></td>
+<td><code>[client memory graph: ...]</code> quoted facts when a prompt names a client</td>
+</tr>
+<tr>
+<td>PreCompact</td>
+<td><code>precompact-checkpoint.sh</code></td>
+<td>Writes <code>memory/checkpoints/latest.md</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="36-goals-cascade">3.6 Goals cascade</h3>
+<ol type="1">
+<li>The orchestrator reads <code>orgs/&lt;org&gt;/goals.json</code>, asks the owner for the day's focus, and writes <code>daily_focus</code>.</li>
+<li>It writes each active seat's <code>goals.json</code>.</li>
+<li><code>cortextos goals generate-md --agent &lt;seat&gt; --org &lt;org&gt;</code> renders <code>GOALS.md</code> from that seat's <code>goals.json</code> only (<code>src/cli/goals.ts</code>).</li>
+<li>It messages each seat.</li>
+</ol>
+<p>To prove the cascade ran, the morning-review cron should check that <code>updated_at</code> is today on every running seat's <code>goals.json</code>. Write each <code>goals.json</code> with an atomic write (temp file plus rename).</p>
+<p>Check scripted phrases in skills against the send guard's banned-phrase list. A skill that tells the seat to open with a stock phrase the guard bans produces a block on every run.</p>
+<hr />
+<h2 id="4-keeping-configuration-consistent">4. Keeping configuration consistent</h2>
+<h3 id="41-one-long-term-memory-store-per-seat">4.1 One long-term memory store per seat</h3>
+<p>A seat can end up with three memory stores: the root <code>&lt;seat&gt;/MEMORY.md</code>, a <code>&lt;seat&gt;/memory/MEMORY.md</code>, and Claude Code's native auto-memory under <code>~/.claude/projects/&lt;project-slug&gt;/memory/</code>. In-session memory writes land in the native store. Pick one store as the long-term memory, keep it under the 200-line index limit, and point the boot list at it. If you keep a second file, name it in the boot list or delete it.</p>
+<p>Warnings that point at line numbers in another file go stale when that file is rewritten. Point at a named entry instead.</p>
+<h3 id="42-facts-that-tend-to-drift">4.2 Facts that tend to drift</h3>
+<table>
+<thead>
+<tr>
+<th>Fact</th>
+<th>Copies that drift</th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cron file path</td>
+<td>Template prose versus <code>src/bus/crons-schema.ts</code></td>
+<td>The code; always use the bus commands</td>
+</tr>
+<tr>
+<td>Cron list</td>
+<td>Legacy <code>config.json</code> <code>crons</code> array versus <code>crons.json</code></td>
+<td><code>crons.json</code></td>
+</tr>
+<tr>
+<td>Boot message</td>
+<td><code>AGENTS.md</code>, <code>CLAUDE.md</code>, daemon startup prompt</td>
+<td><code>AGENTS.md</code> plus <code>telegram_polling</code></td>
+</tr>
+<tr>
+<td>Model</td>
+<td>Prose in <code>CLAUDE.md</code> versus <code>config.json</code> <code>model</code></td>
+<td><code>config.json</code></td>
+</tr>
+<tr>
+<td>Context limits</td>
+<td><code>config.json</code> <code>ctx_*</code>, <code>settings.json</code> <code>autoCompactWindow</code>, <code>compaction.json</code></td>
+<td>Pick one policy (02, section 4.5)</td>
+</tr>
+<tr>
+<td>Org defaults</td>
+<td><code>context.json</code> versus each seat <code>config.json</code></td>
+<td><code>context.json</code></td>
+</tr>
+<tr>
+<td><code>BOT_TOKEN</code>, <code>CHAT_ID</code></td>
+<td>Org <code>secrets.env</code> versus seat <code>.env</code></td>
+<td>One file per key</td>
+</tr>
+<tr>
+<td>Prices and nouns</td>
+<td><code>ENTITIES.md</code> versus MEMORY files</td>
+<td><code>ENTITIES.md</code></td>
+</tr>
+<tr>
+<td>Fleet roster</td>
+<td>A hand-written FLEET.md versus <code>enabled-agents.json</code></td>
+<td><code>enabled-agents.json</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-retired-seats">4.3 Retired seats</h3>
+<p><code>cortextos stop &lt;seat&gt;</code> stops a seat but leaves its folder, state folder, heartbeat record and <code>crons.json</code>. Crons for a seat with no running process do not fire, but they still appear in exports. When you retire a seat for good, archive its folder and remove its state folder and <code>crons.json</code>.</p>
+<h3 id="44-version-control">4.4 Version control</h3>
+<ul>
+<li><code>$CORTEX_HOME/.gitignore</code> ignores <code>orgs/</code>. Give the org and each seat its own private repo, with <code>.env*</code>, <code>telegram-images/</code> and deliverables ignored.</li>
+<li>Put <code>~/.claude/hooks</code>, <code>~/.claude/settings.json</code> and <code>~/.claude/CLAUDE.md</code> in a private local repo.</li>
+<li>The hash watch pages on change but does not keep the old version. Git does.</li>
+<li>The analyst's nightly <code>auto-commit</code> cron snapshots seat repos locally and never pushes. Scan untracked folders for credentials before each commit.</li>
+</ul>
+<hr />
+<h2 id="5-one-owner-file-per-setting">5. One owner file per setting</h2>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Owner file</th>
+<th>Other copies</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Schedules</td>
+<td><code>crons.json</code>, edited only through <code>cortextos bus add-cron</code>, <code>update-cron</code>, <code>remove-cron</code></td>
+<td>Remove the <code>crons</code> array from <code>config.json</code> after migration</td>
+</tr>
+<tr>
+<td>Which seats run</td>
+<td><code>$CTX_ROOT/config/enabled-agents.json</code></td>
+<td>Generate any human roster from it</td>
+</tr>
+<tr>
+<td>Model, runtime, session length, context thresholds</td>
+<td>Seat <code>config.json</code></td>
+<td>No model names in prose. One context policy</td>
+</tr>
+<tr>
+<td>Org defaults (timezone, day window, approval categories, comms style)</td>
+<td><code>orgs/&lt;org&gt;/context.json</code></td>
+<td>Seat <code>config.json</code> only where a seat differs</td>
+</tr>
+<tr>
+<td>Hooks every seat needs</td>
+<td><code>~/.claude/settings.json</code></td>
+<td>Note: user-level hooks also apply to the owner's interactive Claude sessions</td>
+</tr>
+<tr>
+<td>Seat-specific hooks</td>
+<td><code>&lt;seat&gt;/.claude/settings.json</code></td>
+<td>Scripts under <code>&lt;seat&gt;/.claude/hooks/</code> or <code>&lt;seat&gt;/tools/</code></td>
+</tr>
+<tr>
+<td>Hook code</td>
+<td><code>~/.claude/hooks/</code>, <code>&lt;seat&gt;/.claude/hooks/</code>, both in git</td>
+<td><code>.gated-&lt;sha&gt;</code> as tags or commits</td>
+</tr>
+<tr>
+<td>Secrets</td>
+<td>Seat <code>.env</code> for seat keys, <code>orgs/&lt;org&gt;/secrets.env</code> for shared keys</td>
+<td>Never the same key in both</td>
+</tr>
+<tr>
+<td>Boot procedure</td>
+<td><code>AGENTS.md</code></td>
+<td><code>CLAUDE.md</code> points to it</td>
+</tr>
+<tr>
+<td>Goals</td>
+<td><code>orgs/&lt;org&gt;/goals.json</code>, seat <code>goals.json</code></td>
+<td><code>GOALS.md</code> generated only</td>
+</tr>
+<tr>
+<td>Nouns and prices</td>
+<td><code>ENTITIES.md</code></td>
+<td>MEMORY files carry pointers</td>
+</tr>
+<tr>
+<td>Long-term memory</td>
+<td>One store per seat, under 200 index lines</td>
+<td>Merge or delete the rest</td>
+</tr>
+<tr>
+<td>Work state across compaction</td>
+<td><code>STATE.md</code></td>
+<td>Checkpoint injection points to it</td>
+</tr>
+<tr>
+<td>Shared scripts</td>
+<td>One file plus symlinks</td>
+<td>No copies</td>
+</tr>
+<tr>
+<td>Identity</td>
+<td><code>IDENTITY.md</code> per seat</td>
+<td>Fill it at creation</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="6-known-limitations">6. Known limitations</h2>
+<ol type="1">
+<li><strong><code>orgs/</code> is outside the framework repo.</strong> Seat and org config has no history unless you add repos (4.4).</li>
+<li><strong>No config file is validated at write time.</strong> A malformed <code>config.json</code> or <code>settings.json</code> fails at the next start or the next hook run.</li>
+<li><strong>Seat <code>.env</code> silently overrides org <code>secrets.env</code>.</strong> There is no warning for a key defined twice.</li>
+<li><strong><code>cortextos goals generate-md</code> reads only the seat <code>goals.json</code>.</strong> It does not merge the org file.</li>
+<li><strong>Template skills edited in a seat do not merge on upgrade.</strong> A template update overwrites or conflicts with local edits.</li>
+<li><strong>Manual cron fires use a different prefix.</strong> <code>[CRON: &lt;name&gt;]</code> from the dashboard versus <code>[CRON FIRED &lt;ts&gt;]</code> from the scheduler.</li>
+<li><strong><code>list-agents</code> mode is self-reported.</strong> The day or night mode shown per seat comes from the seat, not from the daemon's clock.</li>
+<li><strong>Retired seats leave state behind.</strong> Stopped seats keep heartbeat records, state folders and cron files until removed.</li>
+</ol>
+<hr />
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>src/bus/crons.ts</code>, <code>src/bus/crons-schema.ts</code>, <code>src/bus/agents.ts</code>, <code>src/bus/system.ts</code></li>
+<li><code>src/types/index.ts</code></li>
+<li><code>src/daemon/cron-migration.ts</code>, <code>src/daemon/cron-scheduler.ts</code>, <code>src/daemon/agent-manager.ts</code>, <code>src/daemon/ipc-server.ts</code>, <code>src/daemon/agent-process.ts</code>, <code>src/daemon/fast-checker.ts</code></li>
+<li><code>src/pty/agent-pty.ts</code></li>
+<li><code>src/utils/env.ts</code></li>
+<li><code>src/cli/goals.ts</code>, <code>src/cli/list-skills.ts</code></li>
+<li><code>templates/*/config.json</code>, <code>templates/*/.claude/settings.json</code>, <code>templates/org/</code></li>
+<li><code>.gitignore</code></li>
+</ul>
+</article><nav class="pager"><a class="prev" href="02-execution-engine.html"><small>Previous</small>02 Execution Engine Spec</a><a class="next" href="04-failsafe-boundary-log.html"><small>Next</small>04 Fail-Safes and Boundaries</a></nav></main></div></body></html>

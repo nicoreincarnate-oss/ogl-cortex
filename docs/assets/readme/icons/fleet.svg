@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="fleet of seats">
+<rect x="4" y="4" width="42" height="42" fill="#0A0A0A"/>
+<rect x="1.5" y="1.5" width="41" height="41" fill="#F2EFE9" stroke="#0A0A0A" stroke-width="2.5"/>
+<g fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linejoin="miter" stroke-linecap="square">
+<rect x="9" y="10" width="18" height="12" fill="#F2EFE9"/>
+<rect x="13" y="16" width="18" height="12" fill="#F2EFE9"/>
+<rect x="17" y="22" width="18" height="12" fill="#FF4F00"/>
+</g>
+</svg>

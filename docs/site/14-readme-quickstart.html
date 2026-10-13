@@ -1,0 +1,697 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>README and quickstart: install, run, change safely, ship · OGL Cortex</title><link rel="stylesheet" href="style.css"></head>
+<body><a class="skip" href="#main">Skip to content</a>
+<header class="top"><a class="brand" href="index.html">OGL CORTEX<i>.</i></a><span class="tag">technical documentation</span></header>
+<div class="wrap"><nav class="side" aria-label="Documents"><ol><li class="g">Core system</li>
+<li><a href="01-core-architecture.html"><span>01</span>Core System Architecture</a></li>
+<li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
+<li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
+<li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li class="g">Strategy and governance</li>
+<li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
+<li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
+<li><a href="12-data-privacy-compliance.html"><span>12</span>Data Privacy and Compliance</a></li>
+<li><a href="13-vendor-risk.html"><span>13</span>Vendor and third-party risk</a></li>
+<li class="on"><a href="14-readme-quickstart.html"><span>14</span>README and quickstart: install, run, change safely, ship</a></li>
+<li class="g">Design, data and AI quality</li>
+<li><a href="20-architecture-decision-records.html"><span>20</span>Architecture Decision Records</a></li>
+<li><a href="21-data-models-schema-registry.html"><span>21</span>Data Models and Schema Registry</a></li>
+<li><a href="22-prompt-registry.html"><span>22</span>Prompt registry</a></li>
+<li><a href="23-evals-and-benchmarks.html"><span>23</span>Evals and benchmarks</a></li>
+<li><a href="24-model-lifecycle.html"><span>24</span>Model lifecycle</a></li>
+<li class="g">Operations and security</li>
+<li><a href="30-sre-runbooks.html"><span>30</span>SRE runbooks</a></li>
+<li><a href="31-observability-alerting.html"><span>31</span>Observability and alerting</a></li>
+<li><a href="32-security-red-team-log.html"><span>32</span>Security model and red-team practice</a></li>
+<li><a href="33-cookbook.html"><span>33</span>Cookbook</a></li>
+<li><a href="34-changelog.html"><span>34</span>Changelog</a></li>
+<li class="g">Business and assurance</li>
+<li><a href="40-finops-capacity.html"><span>40</span>FinOps and capacity</a></li>
+<li><a href="41-support-known-issues-faq.html"><span>41</span>Support, known issues and FAQ</a></li>
+<li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
+<li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
+<main id="main"><header class="dh"><div class="dn">14</div><div><p class="dg">Strategy and governance</p>
+<h1>README and quickstart: install, run, change safely, ship</h1><p class="meta">3,087 words · <a href="../14-readme-quickstart.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-prerequisites">1. Prerequisites</a></li><li><a href="#2-install">2. Install</a></li><li><a href="#3-first-boot">3. First boot</a></li><li><a href="#4-the-instance-flag">4. The instance flag</a></li><li><a href="#5-start-stop-restart">5. Start, stop, restart</a></li><li><a href="#6-talking-to-the-fleet">6. Talking to the fleet</a></li><li><a href="#7-adding-a-seat">7. Adding a seat</a></li><li><a href="#8-crons">8. Crons</a></li><li><a href="#9-logs-and-state">9. Logs and state</a></li><li><a href="#10-changing-the-harness-safely">10. Changing the harness safely</a></li><li><a href="#11-ci-and-the-ship-chain">11. CI and the ship chain</a></li><li><a href="#12-troubleshooting-quick-table">12. Troubleshooting quick table</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<article><p>This document takes a new operator from an empty machine to a running OGL Cortex fleet, then covers daily operation, safe changes and the ship chain. Internals are in <code>01-core-architecture.md</code> and <code>02-execution-engine.md</code>. Settings are in <code>03-configuration-registry.md</code>. Guards are in <code>04-failsafe-boundary-log.md</code>.</p>
+<p>Every <code>cortextos</code> command below was checked against the CLI's <code>--help</code> output. Commands from the OGL layer (the ship wrapper and the pentest gate) are marked as such; their location depends on how you install the layer.</p>
+<h2 id="terms">Terms</h2>
+<ul>
+<li><strong>Instance</strong>: one runtime state folder, <code>$CORTEX_HOME/&lt;instance&gt;</code>. <code>$CORTEX_HOME</code> is <code>~/.cortextos</code>. The default instance id is <code>default</code>.</li>
+<li><strong>Org</strong>: a group of seats that share a knowledge base, tasks and approvals. Lives in the framework checkout at <code>orgs/&lt;org&gt;/</code>.</li>
+<li><strong>Seat</strong>: one agent, in <code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/</code>.</li>
+<li><strong>Daemon</strong>: the Node process (<code>dist/daemon.js</code>) that keeps every seat's Claude Code session alive.</li>
+<li><strong>pm2</strong>: the process manager that keeps the daemon and the dashboard running.</li>
+</ul>
+<hr />
+<h2 id="1-prerequisites">1. Prerequisites</h2>
+<table>
+<thead>
+<tr>
+<th>Dependency</th>
+<th>Install</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Node.js 20+</td>
+<td>nodejs.org</td>
+<td></td>
+</tr>
+<tr>
+<td>pm2</td>
+<td><code>npm install -g pm2</code></td>
+<td></td>
+</tr>
+<tr>
+<td>Claude Code</td>
+<td><code>npm install -g @anthropic-ai/claude-code</code>, then <code>claude login</code></td>
+<td>Pin the version you run</td>
+</tr>
+<tr>
+<td>Telegram bot per seat</td>
+<td>@BotFather</td>
+<td>One bot token per seat</td>
+</tr>
+<tr>
+<td>Your numeric Telegram user id</td>
+<td>Any user-id bot, or <code>getUpdates</code> (step 3.3)</td>
+<td>Goes in <code>ALLOWED_USER</code></td>
+</tr>
+<tr>
+<td>Optional: whisper.cpp model</td>
+<td><code>scripts/install-whisper-model.sh</code></td>
+<td>Local voice-note transcription</td>
+</tr>
+<tr>
+<td>Optional: Gemini API key</td>
+<td><code>GEMINI_API_KEY</code></td>
+<td>Knowledge base embeddings</td>
+</tr>
+<tr>
+<td>Disk encryption</td>
+<td>FileVault on macOS, LUKS on Linux</td>
+<td>Seats hold tokens and client data on disk</td>
+</tr>
+</tbody>
+</table>
+<p>Supported platforms: macOS and Linux. The framework also runs on Windows 10/11 with Task Scheduler for reboot persistence (<code>scripts/install-windows-pm2-startup.ps1</code>).</p>
+<h2 id="2-install">2. Install</h2>
+<h3 id="21-guided">2.1 Guided</h3>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install <span class="at">-g</span> pm2</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-fsSL</span> https://raw.githubusercontent.com/grandamenium/cortextos/main/install.mjs <span class="kw">|</span> <span class="ex">node</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">claude</span> ~/cortextos</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co"># inside Claude Code:</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="ex">/onboarding</span></span></code></pre></div>
+<p>Or run the interactive wizard from a shell:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> setup <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span></span></code></pre></div>
+<p><code>setup</code> installs state folders, creates an org, configures seats and starts the daemon.</p>
+<h3 id="22-manual">2.2 Manual</h3>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> install <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> init <span class="op">&lt;</span>org<span class="op">&gt;</span> --instance <span class="op">&lt;</span>instance<span class="op">&gt;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> add-agent boss <span class="at">--template</span> orchestrator <span class="at">--org</span> <span class="op">&lt;</span>org<span class="op">&gt;</span> --instance <span class="op">&lt;</span>instance<span class="op">&gt;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> add-agent analyst <span class="at">--template</span> analyst <span class="at">--org</span> <span class="op">&lt;</span>org<span class="op">&gt;</span> --instance <span class="op">&lt;</span>instance<span class="op">&gt;</span></span></code></pre></div>
+<p>Put credentials in each seat's <code>.env</code> (<code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/.env</code>):</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="va">BOT_TOKEN</span><span class="op">=&lt;</span>bot-token<span class="op">&gt;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="va">CHAT_ID</span><span class="op">=&lt;</span>chat-id<span class="op">&gt;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="va">ALLOWED_USER</span><span class="op">=&lt;</span>numeric-user-id<span class="op">&gt;</span><span class="ex">[,</span><span class="op">&lt;</span>numeric-user-id<span class="op">&gt;</span>]</span></code></pre></div>
+<p>Then generate the pm2 config and start:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> ecosystem <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span> --org <span class="op">&lt;</span>org<span class="op">&gt;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pm2</span> start ecosystem.config.js <span class="kw">&amp;&amp;</span> <span class="ex">pm2</span> save <span class="kw">&amp;&amp;</span> <span class="ex">pm2</span> startup</span></code></pre></div>
+<h3 id="23-add-the-ogl-layer">2.3 Add the OGL layer</h3>
+<p>The OGL layer is seat files and hooks, not a framework fork. For each seat, copy from this repo's <code>harness/</code> folder:</p>
+<table>
+<thead>
+<tr>
+<th>Piece</th>
+<th>Destination</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Bootstrap files (<code>CLAUDE.md</code>, <code>GUARDRAILS.md</code>, <code>MEMORY.md</code>, <code>USER.md</code>, <code>SYSTEM.md</code>, <code>TOOLS.md</code>, <code>HEARTBEAT.md</code>)</td>
+<td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/</code></td>
+</tr>
+<tr>
+<td>Seat hooks and <code>settings.json</code></td>
+<td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/</code></td>
+</tr>
+<tr>
+<td>User-level hooks (surface guard, send lint, account guard)</td>
+<td><code>~/.claude/hooks/</code>, registered in <code>~/.claude/settings.json</code></td>
+</tr>
+<tr>
+<td>Skills</td>
+<td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/skills/&lt;skill&gt;/SKILL.md</code></td>
+</tr>
+<tr>
+<td>Crons</td>
+<td>Added with <code>cortextos bus add-cron</code> (section 6)</td>
+</tr>
+</tbody>
+</table>
+<p>Status: the <code>harness/</code> contents and an installer are part of this repo's build. Check the repo root README for the current install script before copying by hand.</p>
+<h2 id="3-first-boot">3. First boot</h2>
+<h3 id="31-the-architecture-you-just-started">3.1 The architecture you just started</h3>
+<figure class="diagram"><img src="img/9154f9c06e9d.svg" alt="Diagram"></figure>
+
+<h3 id="32-check-it-is-alive">3.2 Check it is alive</h3>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> status <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> list-agents <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus list-agents <span class="at">--format</span> text</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus read-all-heartbeats <span class="at">--format</span> text</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> doctor <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span></span></code></pre></div>
+<h3 id="33-onboard-each-seat">3.3 Onboard each seat</h3>
+<ol type="1">
+<li>Send <code>/start</code> to the seat's bot, then any message.</li>
+<li>If you still need the chat id, read it from the Bot API: <code>curl -s "https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates?timeout=30" | jq '.result[-1].message.chat.id'</code>.</li>
+<li>Send <code>/onboarding</code>. The seat sets its identity, goals and crons, then writes a <code>.onboarded</code> flag in its state folder.</li>
+</ol>
+<h2 id="4-the-instance-flag">4. The instance flag</h2>
+<p>Every lifecycle command defaults to <code>--instance default</code>: <code>install</code>, <code>setup</code>, <code>init</code>, <code>add-agent</code>, <code>start</code>, <code>stop</code>, <code>restart</code>, <code>enable</code>, <code>disable</code>, <code>doctor</code>, <code>dashboard</code>, <code>ecosystem</code>. <code>status</code> and <code>list-agents</code> take <code>--instance</code> with no default.</p>
+<p>If your fleet runs under another instance id and you leave the flag off, the CLI reads <code>$CORTEX_HOME/default</code> and reports "Daemon is not running" while the daemon is healthy. Do not run <code>cortextos start</code> in response; it can create orphan processes.</p>
+<p>Rule: pass <code>--instance &lt;instance&gt;</code> on every lifecycle command, or use the instance id <code>default</code> for single-fleet installs.</p>
+<h2 id="5-start-stop-restart">5. Start, stop, restart</h2>
+<table>
+<thead>
+<tr>
+<th>Goal</th>
+<th>Command</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Seat health</td>
+<td><code>cortextos status --instance &lt;instance&gt;</code></td>
+<td>Read-only</td>
+</tr>
+<tr>
+<td>Every seat and role</td>
+<td><code>cortextos bus list-agents --format text</code></td>
+<td><code>--status running</code> filters</td>
+</tr>
+<tr>
+<td>Heartbeats</td>
+<td><code>cortextos bus read-all-heartbeats --format text</code></td>
+<td>Read-only</td>
+</tr>
+<tr>
+<td>Diagnose</td>
+<td><code>cortextos doctor --instance &lt;instance&gt;</code></td>
+<td>Checks prerequisites</td>
+</tr>
+<tr>
+<td>Restart one seat</td>
+<td><code>cortextos restart &lt;seat&gt; --instance &lt;instance&gt;</code></td>
+<td>Stop and start. Re-reads <code>config.json</code> and <code>.env</code>, respawns the PTY. Does not restart the daemon</td>
+</tr>
+<tr>
+<td>Stop one seat</td>
+<td><code>cortextos stop &lt;seat&gt; --instance &lt;instance&gt;</code></td>
+<td>Does not stop the daemon</td>
+</tr>
+<tr>
+<td>Stop every seat</td>
+<td><code>cortextos stop --all --instance &lt;instance&gt;</code></td>
+<td><code>--all</code> is required when no seat is named</td>
+</tr>
+<tr>
+<td>Start one seat</td>
+<td><code>cortextos start &lt;seat&gt; --instance &lt;instance&gt;</code></td>
+<td>Omitting the seat starts every seat. <code>--foreground</code> runs the daemon without pm2 for debugging</td>
+</tr>
+<tr>
+<td>Seat restarts itself, keeps history</td>
+<td><code>cortextos bus self-restart --reason "&lt;why&gt;"</code></td>
+<td>Run from inside the seat</td>
+</tr>
+<tr>
+<td>Seat restarts fresh</td>
+<td><code>cortextos bus hard-restart --reason "&lt;why&gt;" [--handoff-doc &lt;path&gt;]</code></td>
+<td>The handoff doc is injected into the next boot prompt</td>
+</tr>
+<tr>
+<td>Restart the daemon</td>
+<td><code>pm2 restart cortextos-daemon</code></td>
+<td>Read section 5.1 first</td>
+</tr>
+<tr>
+<td>Stop the daemon</td>
+<td><code>pm2 stop cortextos-daemon</code></td>
+<td></td>
+</tr>
+<tr>
+<td>Dashboard by hand</td>
+<td><code>cortextos dashboard --port &lt;port&gt; --instance &lt;instance&gt; [--build] [--install]</code></td>
+<td>Default port 3000. Use <code>--build</code> for anything reachable off the machine</td>
+</tr>
+<tr>
+<td>Regenerate pm2 config</td>
+<td><code>cortextos ecosystem --instance &lt;instance&gt; --org &lt;org&gt; [--output &lt;path&gt;]</code></td>
+<td>Writes <code>ecosystem.config.js</code></td>
+</tr>
+<tr>
+<td>Enable or disable a seat</td>
+<td><code>cortextos enable &lt;seat&gt; --instance &lt;instance&gt; --org &lt;org&gt;</code> / <code>cortextos disable &lt;seat&gt; --instance &lt;instance&gt;</code></td>
+<td><code>--worker</code> on <code>enable</code> registers a headless seat with no Telegram</td>
+</tr>
+<tr>
+<td>Upstream updates</td>
+<td><code>cortextos update --check</code></td>
+<td>Reports only. Without <code>--check</code> it asks before applying</td>
+</tr>
+</tbody>
+</table>
+<h3 id="51-rules-before-any-restart">5.1 Rules before any restart</h3>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ask the owner "fresh restart or continue with history?" before restarting on request</td>
+<td>The two restarts lose different things</td>
+</tr>
+<tr>
+<td>Before a daemon restart, list every side service (tunnels, chatbots, guards, previews, local APIs), check each has its own supervisor (pm2 or a launchd/systemd unit with run-at-load and keep-alive), and get the owner's go</td>
+<td>Side services started by a seat die with the daemon</td>
+</tr>
+<tr>
+<td>Before restarting any production service, read its entrypoint for side effects</td>
+<td>An entrypoint can start a job that sends or posts</td>
+</tr>
+<tr>
+<td>Read <code>$CORTEX_HOME/&lt;instance&gt;/logs/&lt;seat&gt;/restarts.log</code> before deciding why a seat restarted</td>
+<td></td>
+</tr>
+<tr>
+<td>Prefer asking a seat to self-restart at a clean point</td>
+<td>A commanded restart mid-task can lose work</td>
+</tr>
+<tr>
+<td>After a crash storm, pm2 stops retrying</td>
+<td>Run <code>pm2 restart cortextos-daemon</code> by hand</td>
+</tr>
+</tbody>
+</table>
+<p>Seats also restart on their own: on crash, and on context rotation after <code>max_session_seconds</code> (default about 71 hours).</p>
+<h2 id="6-talking-to-the-fleet">6. Talking to the fleet</h2>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>How</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Telegram</td>
+<td>Message the seat's bot. Voice notes are transcribed locally. Photos and files are saved under the seat folder</td>
+<td>Only ids in <code>ALLOWED_USER</code> are accepted. Formatting is Telegram's regular Markdown</td>
+</tr>
+<tr>
+<td>Dashboard</td>
+<td>Browser, login from the dashboard env file (<code>ADMIN_USERNAME</code>, <code>ADMIN_PASSWORD</code>)</td>
+<td>Bind to localhost or a private network; use a production build</td>
+</tr>
+<tr>
+<td>Persistent remote dashboard</td>
+<td><code>cortextos tunnel start</code></td>
+<td>Named Cloudflare tunnel run as a launchd service</td>
+</tr>
+<tr>
+<td>Seat to seat</td>
+<td>`cortextos bus send-message <seat> &lt;urgent</td>
+<td>high</td>
+</tr>
+<tr>
+<td>Seat to owner</td>
+<td><code>cortextos bus send-telegram &lt;chat-id&gt; '&lt;msg&gt;' [--image &lt;path&gt;] [--file &lt;path&gt;] [--plain-text]</code></td>
+<td>Use single quotes or a heredoc for any text with <code>$</code>; inside double quotes the shell expands it</td>
+</tr>
+</tbody>
+</table>
+<p>Dispatching work:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus create-task <span class="st">&quot;&lt;title&gt;&quot;</span> <span class="at">--assignee</span> <span class="op">&lt;</span>seat<span class="op">&gt;</span> --priority normal <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--desc</span> <span class="st">$&#39;TASK: &lt;what&gt;</span><span class="dt">\n</span><span class="st">FILES: &lt;paths, including the working folder&gt;</span><span class="dt">\n</span><span class="st">BAR: &lt;how done is verified&gt;</span><span class="dt">\n</span><span class="st">RETURN: &lt;what to report&gt;&#39;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus update-task <span class="op">&lt;</span>task_id<span class="op">&gt;</span> in_progress</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus complete-task <span class="op">&lt;</span>task_id<span class="op">&gt;</span> --result <span class="st">&quot;&lt;summary&gt;&quot;</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus log-event task task_completed info <span class="at">--meta</span> <span class="st">&#39;{&quot;task_id&quot;:&quot;&lt;task_id&gt;&quot;}&#39;</span></span></code></pre></div>
+<p>Approvals:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus create-approval <span class="st">&quot;&lt;what&gt;&quot;</span> <span class="op">&lt;</span>external-comms<span class="kw">|</span><span class="ex">financial</span><span class="kw">|</span><span class="ex">deployment</span><span class="kw">|</span><span class="ex">data-deletion</span><span class="kw">|</span><span class="ex">other</span><span class="op">&gt;</span> <span class="st">&quot;&lt;context&gt;&quot;</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus list-approvals</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus update-approval <span class="op">&lt;</span>approval-id<span class="op">&gt;</span> <span class="op">&lt;</span>approved<span class="kw">|</span><span class="ex">denied</span><span class="op">&gt;</span> <span class="st">&quot;&lt;note&gt;&quot;</span></span></code></pre></div>
+<h2 id="7-adding-a-seat">7. Adding a seat</h2>
+<ol type="1">
+<li>Create a bot with @BotFather. Move the token through a secure path (password manager or a file you create on the machine), never through chat.</li>
+<li>Send <code>/start</code> to the bot, then any message, and read the chat id (section 3.3).</li>
+<li>Create the seat:
+<div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> add-agent <span class="op">&lt;</span>seat<span class="op">&gt;</span> --template <span class="op">&lt;</span>orchestrator<span class="kw">|</span><span class="ex">analyst</span><span class="kw">|</span><span class="ex">agent</span><span class="kw">|</span><span class="ex">agent-codex</span><span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--org</span> <span class="op">&lt;</span>org<span class="op">&gt;</span> --instance <span class="op">&lt;</span>instance<span class="op">&gt;</span> <span class="dt">\</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  [--runtime claude-code<span class="kw">|</span><span class="ex">hermes</span><span class="kw">|</span><span class="ex">codex-app-server</span><span class="kw">|</span><span class="ex">opencode]</span> <span class="pp">[--</span><span class="ss">disabled</span><span class="pp">]</span></span></code></pre></div>
+The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code>hermes</code> and <code>m2c1-worker</code>. <code>--template agent --runtime opencode</code> maps to <code>agent-opencode</code>.</li>
+<li>Write <code>BOT_TOKEN</code>, <code>CHAT_ID</code> and <code>ALLOWED_USER</code> in <code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/.env</code>. Without <code>ALLOWED_USER</code>, Telegram stays off.</li>
+<li>Enable: <code>cortextos enable &lt;seat&gt; --instance &lt;instance&gt; --org &lt;org&gt;</code>. For a headless seat, add <code>--worker</code>.</li>
+<li>Write the seat's <code>goals.json</code>, then <code>cortextos goals generate-md --agent &lt;seat&gt; --org &lt;org&gt;</code>.</li>
+<li>Send <code>/onboarding</code> to the new bot.</li>
+</ol>
+<p>Short-lived helpers do not need a seat:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> spawn-worker <span class="op">&lt;</span>name<span class="op">&gt;</span> --dir <span class="op">&lt;</span>path<span class="op">&gt;</span> --prompt <span class="st">&quot;&lt;task&gt;&quot;</span> [--parent <span class="op">&lt;</span>seat<span class="op">&gt;</span>] [--model <span class="op">&lt;</span>model<span class="op">&gt;</span>]</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> list-workers</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> inject-worker <span class="op">&lt;</span>name<span class="op">&gt;</span> <span class="st">&quot;&lt;text&gt;&quot;</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> terminate-worker <span class="op">&lt;</span>name<span class="op">&gt;</span></span></code></pre></div>
+<h2 id="8-crons">8. Crons</h2>
+<table>
+<thead>
+<tr>
+<th>Task</th>
+<th>Command</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>List</td>
+<td><code>cortextos bus list-crons &lt;seat&gt; [--json]</code></td>
+</tr>
+<tr>
+<td>Add</td>
+<td><code>cortextos bus add-cron &lt;seat&gt; &lt;name&gt; &lt;interval-or-5-field-expr&gt; &lt;prompt...&gt; [--desc "&lt;text&gt;"]</code></td>
+</tr>
+<tr>
+<td>Update</td>
+<td>`cortextos bus update-cron <seat> <name> [--interval <i>] [--cron-expr <e>] [--prompt <p>] [--enabled true</td>
+</tr>
+<tr>
+<td>Remove</td>
+<td><code>cortextos bus remove-cron &lt;seat&gt; &lt;name&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p>Storage: <code>$CORTEX_HOME/&lt;instance&gt;/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code>, envelope <code>{ "updated_at": "&lt;ISO&gt;", "crons": [ ... ] }</code>, written atomically (<code>src/bus/crons.ts</code>, <code>src/bus/crons-schema.ts</code>). The daemon owns dispatch and reloads the file across restarts.</p>
+<p>Guidance:</p>
+<ul>
+<li>Prefer 5-field wall-clock expressions (<code>"0 8 * * *"</code>). An interval at or above the heartbeat length can starve on the scheduler.</li>
+<li>A 5-field expression for a one-time job recurs. Remove the cron when the job finishes.</li>
+<li>Do not use Claude Code's in-session <code>CronCreate</code> or <code>/loop</code> for anything that must survive a restart.</li>
+<li>Confirm a new cron by the artifact its first run produces, not by its presence in the list.</li>
+</ul>
+<h2 id="9-logs-and-state">9. Logs and state</h2>
+<table>
+<thead>
+<tr>
+<th>What</th>
+<th>Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Per-seat logs</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/logs/&lt;seat&gt;/</code> (<code>stdout.log</code>, <code>crashes.log</code>, <code>restarts.log</code>, <code>inbound-messages.jsonl</code>, <code>outbound-messages.jsonl</code>)</td>
+</tr>
+<tr>
+<td>pm2 logs</td>
+<td><code>~/.pm2/logs/</code> (<code>cortextos-daemon-out.log</code>, <code>cortextos-daemon-error.log</code>, dashboard logs)</td>
+</tr>
+<tr>
+<td>Tasks, approvals, events</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/{tasks,approvals,analytics}</code></td>
+</tr>
+<tr>
+<td>Crons</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code></td>
+</tr>
+<tr>
+<td>Seat runtime state and scripts</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/state/&lt;seat&gt;/</code></td>
+</tr>
+<tr>
+<td>Knowledge base</td>
+<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/knowledge-base/</code> (<code>config.json</code>, <code>chromadb/</code>)</td>
+</tr>
+<tr>
+<td>Seat memory</td>
+<td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/memory/</code> and <code>MEMORY.md</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="10-changing-the-harness-safely">10. Changing the harness safely</h2>
+<h3 id="101-what-needs-approval">10.1 What needs approval</h3>
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>Rule</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Seat memory, daily memory, deliverables</td>
+<td>Free</td>
+</tr>
+<tr>
+<td>A seat's bootstrap files (<code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>GUARDRAILS.md</code>, <code>IDENTITY.md</code>, <code>SOUL.md</code>, <code>SYSTEM.md</code>, <code>TOOLS.md</code>, <code>USER.md</code>, <code>HEARTBEAT.md</code>) and <code>.claude/skills/**</code></td>
+<td>Tracked task, exact file list, diff preview, rollback path, owner approval</td>
+</tr>
+<tr>
+<td>Framework <code>src/**</code>, <code>templates/**</code>, <code>ecosystem.config.js</code></td>
+<td>Same</td>
+</tr>
+<tr>
+<td>Shared surfaces other seats depend on (package caches, global npm, <code>brew upgrade</code>, <code>~/.claude*</code> outside projects, MCP credential folders)</td>
+<td>Blocked once by the shared-surface guard hook; released by a one-time pass after naming consumers, a backup and a post-check</td>
+</tr>
+<tr>
+<td>Any website</td>
+<td>Owner's explicit go</td>
+</tr>
+</tbody>
+</table>
+<h3 id="102-habits-that-keep-changes-reversible">10.2 Habits that keep changes reversible</h3>
+<table>
+<thead>
+<tr>
+<th>Habit</th>
+<th>Form</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Timestamped backup before editing</td>
+<td><code>&lt;file&gt;.bak-&lt;UTC stamp&gt;-&lt;reason&gt;</code>, for example <code>settings.json.bak-20260101T120000Z-prehook</code></td>
+</tr>
+<tr>
+<td>Freeze a gated artifact before a later edit</td>
+<td>Copy the reviewed file to <code>&lt;name&gt;.gated-&lt;sha&gt;</code> read-only, then edit, so the next change diffs against what passed</td>
+</tr>
+<tr>
+<td>Independent review</td>
+<td>An auditor seat checks a claim or artifact before it reaches the owner</td>
+</tr>
+<tr>
+<td>A return is a claim</td>
+<td>Open the files a worker names and run its BAR yourself</td>
+</tr>
+<tr>
+<td>One fenced adversarial pass</td>
+<td>On every guard, hook, fix or plan: one claim, a fresh read-only session, evidence as <code>file:line</code> plus a reproduction, one round</td>
+</tr>
+<tr>
+<td>Fixes land with a failing-first test</td>
+<td>A fix is proven by a test, not by re-running the reviewer</td>
+</tr>
+<tr>
+<td>Worktrees for code</td>
+<td>Each code-editing worker gets its own worktree or branch. Merge one at a time. Only <code>main</code> ships</td>
+</tr>
+<tr>
+<td>Framework build and test</td>
+<td><code>npm run build</code> (tsup) and <code>npm test</code> (vitest) pass; new code gets unit tests in <code>tests/</code></td>
+</tr>
+<tr>
+<td>Upstream changes</td>
+<td>Scoped cherry-picks after reading the diff as data. No blind merges</td>
+</tr>
+<tr>
+<td>Claude Code upgrades</td>
+<td>One-seat trial before the fleet</td>
+</tr>
+</tbody>
+</table>
+<h2 id="11-ci-and-the-ship-chain">11. CI and the ship chain</h2>
+<h3 id="111-continuous-integration">11.1 Continuous integration</h3>
+<p>The framework ships two GitHub Actions workflows in <code>.github/workflows/</code>:</p>
+<ul>
+<li><code>ci.yml</code>: typecheck and build on push and pull request.</li>
+<li><code>leak-guard.yml</code>: scans for operational leaks (secrets, private paths) on pull requests and pushes to <code>main</code>.</li>
+</ul>
+<p>CI runs only on code pushed to GitHub. A local-only checkout gets the same checks from <code>npm run build &amp;&amp; npm test</code> by hand.</p>
+<h3 id="112-shipping-a-website">11.2 Shipping a website</h3>
+<figure class="diagram"><img src="img/72cd34944646.svg" alt="Diagram"></figure>
+
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Approval</td>
+<td>Website changes need the owner's go before the ship starts</td>
+</tr>
+<tr>
+<td>Wrapper (OGL layer)</td>
+<td><code>bash $CORTEX_HOME/&lt;instance&gt;/state/&lt;deploy-seat&gt;/scripts/ship.sh &lt;abs-dir&gt; &lt;prod-url&gt; [--deploy-cmd "&lt;cmd&gt;"] [--no-index-check "&lt;reason&gt;"]</code></td>
+</tr>
+<tr>
+<td>Default deploy</td>
+<td><code>vercel deploy --prod --skip-domain --yes --format json</code> inside <code>&lt;dir&gt;</code>. The candidate builds with production env but no domain. <code>vercel promote --yes</code> runs only after the candidate passes, so the artifact that passed is the artifact that goes live</td>
+</tr>
+<tr>
+<td>Abort conditions</td>
+<td>Missing or invalid gate URL; gate status not pass; ZAP not completed or return code not 0 or 2; any High finding; a report older than the step's start; candidate not HTTP 200</td>
+</tr>
+<tr>
+<td>Index checks</td>
+<td>Candidate <code>sitemap.xml</code> and <code>robots.txt</code> answer 200 and point at the production host; no <code>noindex</code> meta on the candidate root</td>
+</tr>
+<tr>
+<td>Exit codes</td>
+<td>0 shipped; 2 usage; 3 aborted before deploy; 4 candidate deploy failed; 5 promoted but prod does not serve the candidate; 6 candidate failed, prod untouched; 7 promote did not take; 8 shipped with a <code>noindex</code> header warning</td>
+</tr>
+<tr>
+<td>Pentest gate (OGL layer)</td>
+<td><code>python3 &lt;gate-dir&gt;/cortex_pentest_gate.py &lt;root&gt; --output security [--url &lt;url&gt;] [--requires-authz --authz-evidence &lt;file&gt;] [--skip-zap]</code>. Passing state: <code>security/pentest-gate-report.json</code> has <code>"status": "pass"</code></td>
+</tr>
+<tr>
+<td>Risk acceptance</td>
+<td>Owner only, written in <code>security/pentest-risk-acceptance.md</code></td>
+</tr>
+<tr>
+<td>Hook backstop (OGL layer)</td>
+<td>A user-level PreToolUse hook (<code>ship_gate_hook.py</code>) blocks <code>git push</code>, <code>gh release</code>, <code>gh pr merge</code>, <code>npm publish</code>, <code>vercel deploy</code>, <code>netlify deploy</code>, <code>firebase deploy</code>, <code>wrangler deploy</code>, <code>railway up</code>, <code>scp</code>, <code>sftp</code>, <code>rsync</code> over ssh and similar unless a passing gate report exists in the working folder or a parent</td>
+</tr>
+</tbody>
+</table>
+<p>Rollback: on candidate failure, production is untouched. After a bad promote (exit 5), promote the previous deployment again with <code>vercel promote</code> or re-point the alias.</p>
+<h3 id="113-deploy-rules">11.3 Deploy rules</h3>
+<table>
+<thead>
+<tr>
+<th>Rule</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cd /abs/dir &amp;&amp; vercel ...</code> in one command</td>
+<td>Shell working folders reset between tool calls; a deploy from the seat root uploads the seat, including <code>.env</code> and memory</td>
+</tr>
+<tr>
+<td>Always pass <code>--url</code> to the gate for a web surface</td>
+<td>Without it the gate skips ZAP and the header check and can still report pass. Read the ZAP return code and report time</td>
+</tr>
+<tr>
+<td>Never end a gate command by removing the scanner image</td>
+<td>The next run has no scanner and can read a stale report</td>
+</tr>
+<tr>
+<td>After trimming <code>.vercelignore</code>, fetch every referenced asset on the live URL</td>
+<td>A trim can drop assets. <code>dir/</code> plus <code>!dir/file</code> does not re-include the file; use <code>dir/*</code> plus <code>!dir/keep.png</code></td>
+</tr>
+<tr>
+<td>After an alias change, check <code>x-vercel-cache</code> and <code>age</code> before checking content</td>
+<td>The edge can serve the old deploy for a few minutes</td>
+</tr>
+<tr>
+<td>Reconcile git with live before a git-based deploy</td>
+<td>Assets deployed by hand are reverted by a git deploy</td>
+</tr>
+<tr>
+<td>Pull production env outside the build folder</td>
+<td>Env values can land in build caches</td>
+</tr>
+<tr>
+<td>A ship that changes something a watcher checks updates the watcher in the same change</td>
+<td>Otherwise the next watcher run pages a false drift</td>
+</tr>
+<tr>
+<td>"Shipped" means the wrapper's SHIPPED line</td>
+<td>Nothing else counts</td>
+</tr>
+<tr>
+<td>Re-run the gate after any later change</td>
+<td>A pass covers only the artifact it scanned</td>
+</tr>
+</tbody>
+</table>
+<h2 id="12-troubleshooting-quick-table">12. Troubleshooting quick table</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>First check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>"Daemon is not running" but seats answer</td>
+<td>Missing <code>--instance</code> (section 4)</td>
+</tr>
+<tr>
+<td>Seat ignores Telegram</td>
+<td><code>ALLOWED_USER</code> in <code>.env</code>; daemon log line starting <code>SECURITY:</code></td>
+</tr>
+<tr>
+<td>Seat silent, no errors</td>
+<td>Usage cap; <code>cortextos bus list-oauth-accounts</code>; <code>restarts.log</code></td>
+</tr>
+<tr>
+<td>Cron never fires</td>
+<td>Interval at or above heartbeat length; switch to a 5-field expression</td>
+</tr>
+<tr>
+<td>KB queries return nothing</td>
+<td><code>GEMINI_API_KEY</code>; billing on the Google Cloud project; <code>cortextos bus kb-collections</code></td>
+</tr>
+<tr>
+<td>Voice notes not transcribed</td>
+<td>Model file present (<code>scripts/install-whisper-model.sh</code>); <code>ffmpeg</code> on PATH; language vs English-only model</td>
+</tr>
+</tbody>
+</table>
+<h2 id="known-limitations">Known limitations</h2>
+<ul>
+<li>Lifecycle commands default to the <code>default</code> instance. Multi-instance installs must pass <code>--instance</code> every time.</li>
+<li><code>cortextos dashboard</code> without <code>--build</code> runs a development server. Bind it to localhost or a private network.</li>
+<li>CI does not run on changes that stay in a local checkout.</li>
+<li>The ship wrapper's default deploy command targets Vercel. Other hosts need <code>--deploy-cmd</code> and their own promote step.</li>
+<li>The ship gate hook matches command patterns. A deploy run through a script with an unrelated name is not matched; route deploys through the wrapper.</li>
+</ul>
+<h2 id="source-files">Source files</h2>
+<ul>
+<li><code>README.md</code></li>
+<li><code>CLAUDE.md</code></li>
+<li><code>package.json</code></li>
+<li><code>ecosystem.config.js</code></li>
+<li><code>install.mjs</code></li>
+<li><code>src/cli/</code></li>
+<li><code>src/bus/crons.ts</code></li>
+<li><code>src/bus/crons-schema.ts</code></li>
+<li><code>src/daemon/agent-manager.ts</code></li>
+<li><code>src/telegram/transcribe.ts</code></li>
+<li><code>scripts/install-whisper-model.sh</code></li>
+<li><code>scripts/install-windows-pm2-startup.ps1</code></li>
+<li><code>.github/workflows/ci.yml</code></li>
+<li><code>.github/workflows/leak-guard.yml</code></li>
+<li><code>templates/</code></li>
+</ul>
+</article><nav class="pager"><a class="prev" href="13-vendor-risk.html"><small>Previous</small>13 Vendor and third-party risk</a><a class="next" href="20-architecture-decision-records.html"><small>Next</small>20 Architecture Decision Records</a></nav></main></div></body></html>
