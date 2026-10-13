@@ -245,4 +245,4 @@ OGL Cortex is built on [cortextOS](https://github.com/grandamenium/cortextos) (M
 
 ## Licence
 
-OGL Cortex is released under the [MIT licence](LICENSE). The upstream framework keeps its own MIT licence (Cortext LLC), included in `framework/LICENSE`. Parts marked "licence confirmation pending" in `harness/README.md` stay out of public releases until confirmed.
+OGL Cortex is released under the [MIT licence](LICENSE). The upstream framework keeps its own MIT licence (Cortext LLC), included in `framework/LICENSE`. Credits for adapted patterns are listed in `harness/README.md`.

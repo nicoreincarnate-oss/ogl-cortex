@@ -583,11 +583,11 @@ echo '{"tool_name":"Bash","tool_input":{"command":"npx vercel --prod"},"cwd":"/t
   `third_party/cortextOS-LICENSE` and applies to those portions.
 - `tools/ship.sh`, `tools/emit-truth-correction.sh`: OGL Cortex.
 - `tools/adversarial-pass.sh` and `tools/brief_audit.py`: adapted from Glitch Cat Club build exercises (the fenced
-  adversarial pass and the brief audit). **Licence confirmation pending.**
+  adversarial pass and the brief audit).
 - `hooks/compaction/`: the pattern (meter thresholds, STATE.md hand-back, summary save) is adapted from Glitch Cat
-  Club's "Controlled Compaction". The four-line brief follows the same source's orchestration guidance. **Licence confirmation pending** for both.
+  Club's "Controlled Compaction". The four-line brief follows the same source's orchestration guidance.
 - `memory/session-digest/` (filter, headless write-up, distil, heading-aware index with rank fusion) and
   `memory/client-graph/` (three-table graph, quote-checked extraction, recursive recall, recall hook, evals): adapted
-  from Glitch Cat Club's memory starter and graph memory starter. **Licence confirmation pending.**
+  from Glitch Cat Club's memory starter and graph memory starter.
 - `hooks/memory/`, `memory/vault-graph/` and the memory templates: OGL Cortex.
 - The Orwell rules come from George Orwell, "Politics and the English Language" (1946). The word lists are original.
