@@ -181,38 +181,38 @@ The six steps in the animation, with the real mechanism behind each.
 
 ## Docs map
 
-Every document comes in two editions: Markdown in [`docs/`](docs/) and a designed HTML page in [`docs/site/`](docs/site/). GitHub shows HTML as source, so open the HTML edition locally or from a static host; rebuild it with `python3 scripts/build-docs-site.py`. Start with [GETTING-STARTED.md](GETTING-STARTED.md), then 01, 04 and 14.
+Every document comes in two editions: Markdown in [`docs/`](docs/) and a designed HTML page in [`docs/site/`](docs/site/). Read the HTML edition online at **[nicoreincarnate-oss.github.io/ogl-cortex](https://nicoreincarnate-oss.github.io/ogl-cortex/)**; rebuild it with `python3 scripts/build-docs-site.py`. Start with [GETTING-STARTED.md](GETTING-STARTED.md), then 01, 04 and 14.
 
 | # | Document | What it covers | HTML |
 |---|---|---|---|
 | **Core** ||||
-| 01 | [Core system architecture](docs/01-core-architecture.md) | Components, glossary, seats, the life of one request | [page](docs/site/01-core-architecture.html) |
-| 02 | [Execution engine](docs/02-execution-engine.md) | Daemon, sessions, context building, routing, conflict order | [page](docs/site/02-execution-engine.html) |
-| 03 | [Configuration registry](docs/03-configuration-registry.md) | Every config file, seat archetypes, how prompts are assembled | [page](docs/site/03-configuration-registry.html) |
-| 04 | [Fail-safes and boundaries](docs/04-failsafe-boundary-log.md) | What blocks an agent, what does not, fallbacks | [page](docs/site/04-failsafe-boundary-log.html) |
+| 01 | [Core system architecture](docs/01-core-architecture.md) | Components, glossary, seats, the life of one request | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/01-core-architecture.html) |
+| 02 | [Execution engine](docs/02-execution-engine.md) | Daemon, sessions, context building, routing, conflict order | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/02-execution-engine.html) |
+| 03 | [Configuration registry](docs/03-configuration-registry.md) | Every config file, seat archetypes, how prompts are assembled | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/03-configuration-registry.html) |
+| 04 | [Fail-safes and boundaries](docs/04-failsafe-boundary-log.md) | What blocks an agent, what does not, fallbacks | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/04-failsafe-boundary-log.html) |
 | **Strategy and governance** ||||
-| 10 | [Product requirements (PRD)](docs/10-prd.md) | Goals, users, scope, non-goals | [page](docs/site/10-prd.html) |
-| 11 | [AI safety and governance](docs/11-ai-safety-governance.md) | Rules, gates and who can override them | [page](docs/site/11-ai-safety-governance.html) |
-| 12 | [Data privacy and compliance](docs/12-data-privacy-compliance.md) | What data the fleet holds and how to protect it | [page](docs/site/12-data-privacy-compliance.html) |
-| 13 | [Vendor risk](docs/13-vendor-risk.md) | Third-party services and what happens when one fails | [page](docs/site/13-vendor-risk.html) |
-| 14 | [README and quickstart](docs/14-readme-quickstart.md) | Running, changing and shipping from the harness | [page](docs/site/14-readme-quickstart.html) |
+| 10 | [Product requirements (PRD)](docs/10-prd.md) | Goals, users, scope, non-goals | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/10-prd.html) |
+| 11 | [AI safety and governance](docs/11-ai-safety-governance.md) | Rules, gates and who can override them | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/11-ai-safety-governance.html) |
+| 12 | [Data privacy and compliance](docs/12-data-privacy-compliance.md) | What data the fleet holds and how to protect it | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/12-data-privacy-compliance.html) |
+| 13 | [Vendor risk](docs/13-vendor-risk.md) | Third-party services and what happens when one fails | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/13-vendor-risk.html) |
+| 14 | [README and quickstart](docs/14-readme-quickstart.md) | Running, changing and shipping from the harness | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/14-readme-quickstart.html) |
 | **Design and data** ||||
-| 20 | [Architecture decision records](docs/20-architecture-decision-records.md) | Why the harness is built the way it is | [page](docs/site/20-architecture-decision-records.html) |
-| 21 | [Data models and schemas](docs/21-data-models-schema-registry.md) | Tasks, messages, events, crons and more, as JSON shapes | [page](docs/site/21-data-models-schema-registry.html) |
-| 22 | [Prompt registry](docs/22-prompt-registry.md) | Every prompt surface and how to version it | [page](docs/site/22-prompt-registry.html) |
-| 23 | [Evals and benchmarks](docs/23-evals-and-benchmarks.md) | What the harness measures and how | [page](docs/site/23-evals-and-benchmarks.html) |
-| 24 | [Model lifecycle](docs/24-model-lifecycle.md) | Choosing and swapping models per seat | [page](docs/site/24-model-lifecycle.html) |
+| 20 | [Architecture decision records](docs/20-architecture-decision-records.md) | Why the harness is built the way it is | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/20-architecture-decision-records.html) |
+| 21 | [Data models and schemas](docs/21-data-models-schema-registry.md) | Tasks, messages, events, crons and more, as JSON shapes | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/21-data-models-schema-registry.html) |
+| 22 | [Prompt registry](docs/22-prompt-registry.md) | Every prompt surface and how to version it | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/22-prompt-registry.html) |
+| 23 | [Evals and benchmarks](docs/23-evals-and-benchmarks.md) | What the harness measures and how | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/23-evals-and-benchmarks.html) |
+| 24 | [Model lifecycle](docs/24-model-lifecycle.md) | Choosing and swapping models per seat | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/24-model-lifecycle.html) |
 | **Operations** ||||
-| 30 | [SRE runbooks](docs/30-sre-runbooks.md) | Step-by-step fixes for common failures | [page](docs/site/30-sre-runbooks.html) |
-| 31 | [Observability and alerting](docs/31-observability-alerting.md) | Logs, events, heartbeats and who gets alerted | [page](docs/site/31-observability-alerting.html) |
-| 32 | [Security model and red-team practice](docs/32-security-red-team-log.md) | Threat model, hardening, how to test the guards | [page](docs/site/32-security-red-team-log.html) |
-| 33 | [Cookbook](docs/33-cookbook.md) | Common asks, end to end | [page](docs/site/33-cookbook.html) |
-| 34 | [Changelog](docs/34-changelog.md) | Harness changes by version | [page](docs/site/34-changelog.html) |
+| 30 | [SRE runbooks](docs/30-sre-runbooks.md) | Step-by-step fixes for common failures | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/30-sre-runbooks.html) |
+| 31 | [Observability and alerting](docs/31-observability-alerting.md) | Logs, events, heartbeats and who gets alerted | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/31-observability-alerting.html) |
+| 32 | [Security model and red-team practice](docs/32-security-red-team-log.md) | Threat model, hardening, how to test the guards | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/32-security-red-team-log.html) |
+| 33 | [Cookbook](docs/33-cookbook.md) | Common asks, end to end | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/33-cookbook.html) |
+| 34 | [Changelog](docs/34-changelog.md) | Harness changes by version | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/34-changelog.html) |
 | **Capacity, support and legal** ||||
-| 40 | [FinOps and capacity](docs/40-finops-capacity.md) | Limits that bind, machine sizing, cost model | [page](docs/site/40-finops-capacity.html) |
-| 41 | [Support, known issues and FAQ](docs/41-support-known-issues-faq.md) | Known limitations and answers | [page](docs/site/41-support-known-issues-faq.html) |
-| 42 | [Chaos, telemetry and determinism](docs/42-chaos-telemetry-determinism.md) | Failure drills and reproducible runs | [page](docs/site/42-chaos-telemetry-determinism.html) |
-| 43 | [Legal, IP, licences and training](docs/43-legal-ip-training.md) | Licences, IP and an operator curriculum | [page](docs/site/43-legal-ip-training.html) |
+| 40 | [FinOps and capacity](docs/40-finops-capacity.md) | Limits that bind, machine sizing, cost model | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/40-finops-capacity.html) |
+| 41 | [Support, known issues and FAQ](docs/41-support-known-issues-faq.md) | Known limitations and answers | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/41-support-known-issues-faq.html) |
+| 42 | [Chaos, telemetry and determinism](docs/42-chaos-telemetry-determinism.md) | Failure drills and reproducible runs | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/42-chaos-telemetry-determinism.html) |
+| 43 | [Legal, IP, licences and training](docs/43-legal-ip-training.md) | Licences, IP and an operator curriculum | [page](https://nicoreincarnate-oss.github.io/ogl-cortex/site/43-legal-ip-training.html) |
 
 ---
 

@@ -21,6 +21,7 @@ GROUPS = [
     (30, 39, "Operations and security"),
     (40, 49, "Business and assurance"),
 ]
+REPO = "https://github.com/nicoreincarnate-oss/ogl-cortex"
 MERMAID = re.compile(r"```mermaid\n(.*?)```", re.S)
 
 
@@ -88,7 +89,7 @@ def main():
 
         body = md_to_html(MERMAID.sub(rep, rest))
         body = re.sub(r'href="(\d\d-[a-z0-9-]+)\.md(#[^"]*)?"', lambda m: f'href="{m.group(1)}.html{m.group(2) or ""}"', body)
-        body = re.sub(r'href="\.\./\.\./([A-Z-]+\.md)"', r'href="../../\1"', body)
+        body = re.sub(r'href="\.\./\.\./([A-Z-]+\.md)"', rf'href="{REPO}/blob/main/\1"', body)
         toc = re.findall(r'<h2 id="([^"]+)">(.*?)</h2>', body)
         docs.append({"num": num, "slug": f.stem, "title": title, "body": body, "toc": toc,
                      "words": len(text.split())})
@@ -124,7 +125,7 @@ def main():
             pager += f'<a class="next" href="{next_d["slug"]}.html"><small>Next</small>{next_d["num"]:02d} {html.escape(next_d["title"])}</a>'
         pager += "</nav>"
         main = f"""<header class="dh"><div class="dn">{d["num"]:02d}</div><div><p class="dg">{group_of(d["num"])}</p>
-<h1>{html.escape(d["title"])}</h1><p class="meta">{d["words"]:,} words · <a href="../{d["slug"]}.md">Markdown source</a></p></div></header>
+<h1>{html.escape(d["title"])}</h1><p class="meta">{d["words"]:,} words · <a href="{REPO}/blob/main/docs/{d["slug"]}.md">Markdown source</a></p></div></header>
 {f'<details class="toc" open><summary>On this page</summary><ol>{toc}</ol></details>' if toc else ''}
 <article>{d["body"]}</article>{pager}"""
         (SITE / f'{d["slug"]}.html').write_text(page(d["title"], d["slug"], main))
@@ -138,7 +139,7 @@ def main():
         cards.append(f'<a class="row" href="{d["slug"]}.html"><span class="n">{d["num"]:02d}</span><span class="t">{html.escape(d["title"])}</span><span class="w">{d["words"]:,} words</span></a>')
     total = sum(d["words"] for d in docs)
     index = f"""<header class="hero"><p class="dg">OGL Cortex · reference</p><h1>How the fleet is built, run and kept safe.</h1>
-<p class="lede">{len(docs)} documents, {total:,} words. Start with <a href="01-core-architecture.html">01 Core architecture</a>, then <a href="04-failsafe-boundary-log.html">04 Guardrails</a>. New here? Read <a href="../../GETTING-STARTED.md">Getting started</a>.</p></header>
+<p class="lede">{len(docs)} documents, {total:,} words. Start with <a href="01-core-architecture.html">01 Core architecture</a>, then <a href="04-failsafe-boundary-log.html">04 Guardrails</a>. New here? Read <a href="{REPO}/blob/main/GETTING-STARTED.md">Getting started</a>.</p></header>
 <section class="list">{''.join(cards)}</section>"""
     (SITE / "index.html").write_text(page("Documentation", "", index))
     print(f"built {len(docs)} pages + index into {SITE.relative_to(ROOT)}")
