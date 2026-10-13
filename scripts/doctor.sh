@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# OGL Cortex doctor: a read-only health check for a cortextOS install.
+# OGL Cortex doctor: a read-only health check for an OGL Cortex install.
 #
 # It reads files and asks tools for their versions. It never writes, never
 # restarts anything, and never prints a secret value. For .env files it

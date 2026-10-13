@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li class="on"><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">04</div><div><p class="dg">Core system</p>
-<h1>Fail-Safes and Boundaries</h1><p class="meta">5,362 words · <a href="../04-failsafe-boundary-log.md">Markdown source</a></p></div></header>
+<h1>Fail-Safes and Boundaries</h1><p class="meta">5,261 words · <a href="../04-failsafe-boundary-log.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-rule-enforcement-three-layers">1. Rule enforcement: three layers</a></li><li><a href="#2-tokens-and-context">2. Tokens and context</a></li><li><a href="#3-fallback-behaviour">3. Fallback behaviour</a></li><li><a href="#4-failure-classes-and-the-guard-for-each">4. Failure classes and the guard for each</a></li><li><a href="#5-known-limitations">5. Known limitations</a></li><li><a href="#6-risk-table">6. Risk table</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document describes what stops OGL Cortex agents from doing damage, what happens when a component fails, and how the system recovers. It covers the three enforcement layers, every guard in the OGL layer, the context and compaction lifecycle, the watchdog set, failure handling per component, and the failure classes each guard defends against.</p>
 <p>Related documents: <code>03-configuration-registry.md</code> covers how hooks are registered. <code>11-ai-safety-governance.md</code> lists the rules these guards enforce.</p>
@@ -71,12 +72,12 @@
 <tr>
 <td><code>~/.claude/settings.json</code></td>
 <td>Every Claude Code session for that OS user, including desktop sessions the owner opens by hand</td>
-<td>The ship gate</td>
+<td>Nothing by default. With <code>harness/install.sh --user-level</code>: the ship gate, shared-surface guard and Orwell send-lint, in <code>~/.claude/hooks/ogl/</code></td>
 </tr>
 <tr>
 <td><code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/settings.json</code></td>
 <td>Sessions started in that seat folder</td>
-<td>The orchestrator template registers about two dozen hook commands across 9 events: PermissionRequest, PreToolUse, PostToolUse, Stop, SessionEnd, PreCompact, PostCompact, SessionStart, UserPromptSubmit. Every seat template registers the shared-surface guard</td>
+<td>The framework template hooks (Telegram relays, loop detector, idle flag, crash alert, compaction notice) plus the OGL block from <code>harness/settings.example.json</code>, merged by <code>harness/install.sh</code>. Hook scripts live in <code>&lt;seat&gt;/.claude/hooks/ogl/</code></td>
 </tr>
 </tbody>
 </table>
@@ -98,17 +99,14 @@
 <td>Every seat that writes to a human</td>
 </tr>
 <tr>
-<td>Google Workspace account guard</td>
-<td>Seats that use the Google Workspace MCP</td>
-</tr>
-<tr>
-<td>Brief guard, future-time guard, attribution lint, compaction meter</td>
-<td>The orchestrator</td>
+<td>Brief guard, future-time guard, compaction kit</td>
+<td>The orchestrator, and any seat with long sessions</td>
 </tr>
 </tbody>
 </table>
 <p>Option: a guard registered only in seat settings does not fence a desktop session the owner starts outside the seat folders. To put home-wide cleanups behind the same fences, also register the shared-surface guard in <code>~/.claude/settings.json</code> and give the owner a personal pass token.</p>
 <h3 id="12-mechanical-guards">1.2 Mechanical guards</h3>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <table>
 <thead>
 <tr>
@@ -124,43 +122,34 @@
 <tbody>
 <tr>
 <td>1</td>
-<td>Shared-surface guard (<code>~/.claude/hooks/shared-surface-guard.py</code>, parser <code>surface.py</code>, code reader <code>codewrites.py</code>)</td>
+<td>Shared-surface guard (<code>&lt;seat&gt;/.claude/hooks/ogl/shared_surface_guard.py</code>, parser <code>surface.py</code>, code reader <code>codewrites.py</code>)</td>
 <td>PreToolUse, Bash</td>
-<td>Commands that change things every seat depends on: writes or deletes under <code>~/.claude</code>, <code>~/.claude.json</code>, the Google Workspace MCP credential folder, shared config folders and <code>~/.cache/uv</code>; <code>uv cache prune</code> and <code>uv cache clean</code>; global npm and pnpm installs; <code>brew upgrade</code></td>
+<td>Commands that change things every seat depends on: writes or deletes under <code>~/.claude</code>, <code>~/.claude.json</code>, the shared uv cache and any root listed in <code>OGL_SURFACE_EXTRA_ROOTS</code> (for example an MCP credential folder); <code>uv cache prune</code> and <code>uv cache clean</code>; global npm and pnpm installs; <code>brew upgrade</code></td>
 <td>Block (exit 2). Code-analysis hits are warn-only on seats in warn mode. A detected write to a guarded root blocks in every mode</td>
-<td><code>touch ~/.claude/hooks/.surface-pass-once-&lt;seat&gt;</code>, one use, 10 minutes. If the guard crashes on a guarded path it blocks, and the token does not apply</td>
+<td><code>touch ~/.ogl-cortex/state/.surface-pass-once-&lt;seat&gt;</code>, one use, 10 minutes. If the guard crashes on a guarded path it blocks, and the token does not apply</td>
 <td><code>--selftest</code>. Release suites carry block and allow rows, mutation tests, and a replay of a recorded command corpus that must show zero verdict changes</td>
 </tr>
 <tr>
 <td>2</td>
-<td>Orwell send-guard (<code>~/.claude/hooks/orwell-lint.py</code>)</td>
+<td>Orwell send-guard (<code>&lt;seat&gt;/.claude/hooks/ogl/orwell_lint.py</code>)</td>
 <td>PreToolUse on Bash and on MCP send tools (mail send, CRM send-message, social create-post, reply, forward, create-draft)</td>
 <td>Outgoing human-facing text that breaks Orwell's six rules or uses em or en dashes. Deterministic, no model involved</td>
-<td>Block (exit 2). An optional truth check runs warn-only</td>
-<td><code>touch ~/.claude/hooks/.orwell-pass-once-&lt;seat&gt;</code> (the rule 6 exception). A crash on a send fails closed</td>
-<td><code>--selftest</code>, plus fail-closed and truth-warn suites</td>
+<td>Block (exit 2)</td>
+<td><code>touch ~/.ogl-cortex/state/.orwell-pass-once-&lt;seat&gt;</code> (the rule 6 exception). A crash on a send fails closed</td>
+<td><code>--selftest</code>, <code>harness/tests/test_orwell_lint.py</code></td>
 </tr>
 <tr>
 <td>3</td>
-<td>Google Workspace account guard (<code>~/.claude/hooks/gws-account-guard.py</code>)</td>
-<td>PreToolUse, <code>mcp__google-workspace__.*</code></td>
-<td>Any call for an account on the always-block list, any account in a live credential-mismatch episode, and any <code>start_google_auth</code> call</td>
-<td>Block (exit 2). Other internal errors fail open</td>
-<td>No pass token by design. Edit the always-block list once the MCP can no longer store a wrong account's token</td>
-<td>Guard and install suites</td>
-</tr>
-<tr>
-<td>4</td>
-<td>Brief guard (<code>&lt;seat&gt;/.claude/hooks/brief_guard.py</code>)</td>
+<td>Brief guard (<code>&lt;seat&gt;/.claude/hooks/ogl/brief_guard.py</code>)</td>
 <td>PreToolUse, Bash</td>
 <td><code>cortextos bus create-task --assignee &lt;other agent&gt;</code> whose description lacks the four lines TASK, FILES, BAR, RETURN</td>
 <td>Block (exit 2). Crash in scope fails closed; out of scope fails open</td>
 <td>None. Rewrite the brief</td>
-<td>Unit tests</td>
+<td><code>harness/tests/test_brief_guard.py</code></td>
 </tr>
 <tr>
-<td>5</td>
-<td>Future-time guard (<code>&lt;seat&gt;/.claude/hooks/future_time_guard.py</code>)</td>
+<td>4</td>
+<td>Future-time guard (<code>&lt;seat&gt;/.claude/hooks/ogl/future_time_guard.py</code>)</td>
 <td>PreToolUse, Bash, Write, Edit</td>
 <td>A UTC clock stamp more than 3 minutes in the future written to <code>memory/</code>, <code>STATE.md</code>, or a <code>send-telegram</code> / <code>send-message</code> call</td>
 <td>Block. Fails open on any error: it is a tripwire, not a gate</td>
@@ -168,22 +157,13 @@
 <td><code>--selftest</code></td>
 </tr>
 <tr>
-<td>6</td>
-<td>Attribution lint (<code>&lt;seat&gt;/.claude/hooks/attribution-lint.py</code>)</td>
-<td>PreToolUse, Bash</td>
-<td>In a send to the owner's chat: a figure framed as "a number, not my opinion", or a score stated as fact ("N/100") with no receipt or "estimate" label</td>
-<td>Tier A blocks. Tier B (unsourced numbers) is log-only shadow. Fails closed on an owner send it cannot parse, with a 5 s alarm</td>
-<td>None</td>
-<td><code>--selftest</code> (test mode writes to a temp log), mutants, over-block replay</td>
-</tr>
-<tr>
-<td>7</td>
-<td>Pentest ship gate (<code>ship_gate_hook.py</code> in the <code>cortex-pentest-gate</code> skill)</td>
-<td>PreToolUse, Bash, user level</td>
-<td><code>git push</code>, <code>vercel deploy</code>, <code>npm publish</code>, <code>wrangler deploy</code>, <code>scp</code> and <code>rsync</code> to a remote, unless <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code> exists</td>
+<td>5</td>
+<td>Pentest ship gate (<code>&lt;seat&gt;/.claude/hooks/ogl/ship_gate.py</code>)</td>
+<td>PreToolUse, Bash (seat or user level)</td>
+<td><code>git push</code>, <code>vercel --prod</code>, <code>vercel deploy</code>, <code>npm publish</code>, <code>wrangler deploy</code>, <code>scp</code> and <code>rsync</code> to a remote, unless <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code> exists</td>
 <td>Block (exit 2). See 1.3</td>
-<td><code>CORTEX_PENTEST_OVERRIDE=accepted-risk</code> plus <code>security/pentest-risk-acceptance.md</code></td>
-<td>Sample payloads; see 1.3</td>
+<td><code>OGL_PENTEST_OVERRIDE=accepted-risk</code> in the session environment plus <code>security/pentest-risk-acceptance.md</code></td>
+<td><code>harness/tests/test_ship_gate.py</code>; see 1.3</td>
 </tr>
 </tbody>
 </table>
@@ -197,31 +177,31 @@
 </thead>
 <tbody>
 <tr>
-<td><code>ship.sh</code> (builder)</td>
-<td>Deploys a preview, runs the pentest gate and a ZAP scan against it, checks indexing and noindex, and promotes to production only on pass. Exit map: 0 shipped, 3 aborted, 4 deploy failed, 5 live and wrong, 6 candidate failed, 7 promote did not take, 8 live with warning</td>
+<td><code>harness/tools/ship.sh</code></td>
+<td>Runs your pentest gate command, deploys, and re-checks production (HTTP 200 plus the gate again with the live URL). With <code>--promote-cmd</code> it gates a preview candidate and promotes only on pass. Exit map: 0 shipped, 2 usage error, 3 pre-deploy gate failed, 4 deploy failed, 5 live and wrong, 6 candidate failed, 7 promote failed</td>
 </tr>
 <tr>
-<td><code>emit-truth-correction.sh</code></td>
+<td><code>harness/tools/emit-truth-correction.sh</code></td>
 <td>Validates every truth-ledger entry: canonical kind, catcher derived from a real message id, unique dedupe key, real past timestamp, and a dry-run flag that cannot be swallowed</td>
 </tr>
 <tr>
-<td><code>kb-ingest-guarded.sh</code></td>
-<td>Refuses a knowledge-base ingest that would not replace by source, so repeated ingests cannot pile up duplicate chunks</td>
+<td><code>harness/tools/brief_audit.py</code></td>
+<td>Lists every file a worker wrote in the task window and marks each IN, tmp or OUT of the brief's FILES line, before the orchestrator accepts the return</td>
 </tr>
 <tr>
-<td><code>brief-audit/audit.py</code></td>
-<td>Checks a worker's return against its brief before the orchestrator accepts it</td>
+<td>Guarded KB ingest (optional, not included)</td>
+<td>A wrapper that refuses a knowledge-base ingest that would not replace by source, so repeated ingests cannot pile up duplicate chunks</td>
 </tr>
 </tbody>
 </table>
-<p>Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; dream hook; session digest; compaction meter, state hand-back and summary saver; PreCompact checkpoint; session-start injection; prompt-time recall and routing; and the fix-commit hunter trigger, which starts a background adversarial Claude review after any commit whose subject says fix, guard, hook, bug, block or gate. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.</p>
-<p>Every guard writes a log under <code>~/.claude/hooks/</code> (<code>surface-guard.log</code>, <code>orwell-lint.log</code>, <code>gws-account-guard.log</code>, <code>attribution-lint.log</code>). Each line carries a verdict (PASS, BLOCK, WARN, NOTE, shadow, pass-once, FAIL-CLOSED, FAIL-OPEN) and the seat. A guard counts as live only after a real call leaves a line in its log.</p>
+<p>Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; compaction meter, state hand-back and summary saver. Optional hooks not included in this repository fit the same slot: a PreCompact checkpoint, session-start injection, a session digest, prompt-time recall and routing, and a post-commit trigger for <code>harness/tools/adversarial-pass.sh</code>. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.</p>
+<p>The shared-surface guard and the Orwell send-lint write logs under <code>$OGL_STATE_DIR</code> (default <code>~/.ogl-cortex/state/</code>: <code>surface-guard.log</code>, <code>orwell-lint.log</code>). Each line carries a verdict (PASS, BLOCK, WARN, NOTE, shadow, pass-once, FAIL-CLOSED, FAIL-OPEN) and the seat. A guard counts as live only after a real call leaves a line in its log.</p>
 <h3 id="13-ship-gate-requirements">1.3 Ship gate requirements</h3>
 <p>The ship gate is the guard most likely to look stronger than it is. It meets these requirements:</p>
 <ul>
 <li><strong>Exit 2 on block.</strong> A hook that prints "BLOCKED" and returns 1 does not stop the command.</li>
 <li><strong>Match every deploy form.</strong> <code>vercel --prod</code>, <code>npx vercel --prod --yes</code> and <code>vercel deploy --prod</code> are all production deploys. A pattern that requires the word <code>deploy</code> misses the first two.</li>
-<li><strong>Bind the report to the tree.</strong> A pass report in any parent folder with no date check lets any command under that folder through. Require the report to be newer than the last change in the tree being shipped, or route every deploy through <code>ship.sh</code> and block raw <code>vercel</code>.</li>
+<li><strong>Bind the report to the tree.</strong> A pass report in any parent folder with no date check lets any command under that folder through. Require the report to be newer than the last change in the tree being shipped, or route every deploy through <code>harness/tools/ship.sh</code> and block raw <code>vercel</code>.</li>
 <li><strong>Prove it with a sink.</strong> Feed the hook a payload that must be refused and check the exit code is 2. A passing selftest does not prove the live hook blocks.</li>
 <li><strong>Never let a wrapper rewrite a verdict.</strong> Risk acceptance lives in a separate file. The report always carries the true verdict.</li>
 </ul>
@@ -265,7 +245,7 @@
 <h3 id="15-no-inline-llm-judge">1.5 No inline LLM judge</h3>
 <p>Every PreToolUse guard is deterministic Python. There is no inline LLM judge and no classifier model in the tool path. Model-based checks run after the fact:</p>
 <ul>
-<li>the fix-commit hunter, a fresh read-only Claude session that attacks one claim in a commit, in the background, never blocking;</li>
+<li>the adversarial pass (<code>harness/tools/adversarial-pass.sh</code>), a fresh read-only Claude session that attacks one claim, never blocking;</li>
 <li>the <code>auditor</code> subagent type, a read-only checker the orchestrator uses before saying "done";</li>
 <li>the auditor seat, a full Claude seat doing hourly audits (1.7).</li>
 </ul>
@@ -309,7 +289,7 @@
 <tr>
 <td>Every number carries its source</td>
 <td><code>STATE.md</code></td>
-<td>Partial. Attribution lint blocks two narrow forms</td>
+<td>None by default. An optional attribution lint (not included) can block narrow forms</td>
 </tr>
 <tr>
 <td>List the whole DNS zone before a nameserver switch; add then delete</td>
@@ -391,7 +371,7 @@
 <tr>
 <td>Compaction meter</td>
 <td>nudge at 300,000, warn at 360,000, "limit" label at 400,000</td>
-<td><code>.claude/hooks/kem-compaction/compaction.json</code></td>
+<td><code>.claude/hooks/ogl/compaction/compaction.json</code></td>
 </tr>
 <tr>
 <td>Daemon context thresholds</td>
@@ -417,7 +397,7 @@
 </table>
 <p>Interaction: with a 1M window and auto-compaction at 430k, the daemon's 80% and 88% thresholds (800k and 880k) are not reached in normal use. The meter plus auto-compaction do the work. The daemon path that still applies is the hard overflow check, which force-restarts a seat when the terminal shows an overflow error and usage corroborates it. If you lower the window or raise <code>autoCompactWindow</code>, recheck which threshold fires first.</p>
 <h3 id="22-what-happens-as-context-fills">2.2 What happens as context fills</h3>
-<figure class="diagram"><img src="img/1adbc54783ca.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/20ce5536c410.svg" alt="Diagram"></figure>
 
 <h3 id="23-what-is-lost-and-how-it-comes-back">2.3 What is lost and how it comes back</h3>
 <table>
@@ -442,15 +422,15 @@
 </tr>
 <tr>
 <td>Last exchanges before compaction</td>
-<td>PreCompact checkpoint script into <code>memory/checkpoints/latest.md</code></td>
+<td>An optional PreCompact checkpoint hook (not included), for example into <code>memory/checkpoints/latest.md</code></td>
 </tr>
 <tr>
 <td>The current day's work log</td>
-<td>Tail of the daily memory file, injected at session start</td>
+<td>The daily memory file, read at session start per the boot checklist</td>
 </tr>
 <tr>
 <td>Session as a whole</td>
-<td>Session digest on PreCompact and SessionEnd</td>
+<td>An optional session digest on PreCompact and SessionEnd (not included)</td>
 </tr>
 </tbody>
 </table>
@@ -629,8 +609,8 @@
 <td>5</td>
 <td>A credential file holds the wrong Google account and readers report the wrong inbox as read</td>
 <td>An MCP-started OAuth window completes with the wrong signed-in account</td>
-<td>Readers check the token email; account guard; identity check</td>
-<td>Yes</td>
+<td>Readers check the token email; an optional account guard (not included); identity check</td>
+<td>Partly</td>
 </tr>
 <tr>
 <td>6</td>
@@ -678,15 +658,15 @@
 <td>12</td>
 <td>Production deploy before the gate, ungated previews, a client file on a public URL</td>
 <td>Gate depends on vigilance</td>
-<td><code>ship.sh</code>, preview then promote</td>
+<td><code>harness/tools/ship.sh</code>, preview then promote</td>
 <td>Yes, when used</td>
 </tr>
 <tr>
 <td>13</td>
 <td>A site launches without search indexing</td>
 <td>No launch step asks</td>
-<td>Indexing and noindex gates in <code>ship.sh</code></td>
-<td>Yes, inside <code>ship.sh</code></td>
+<td>An indexing and noindex check inside your gate command (<code>ship.sh --gate-cmd</code>)</td>
+<td>Only if your gate checks it</td>
 </tr>
 <tr>
 <td>14</td>
@@ -706,7 +686,7 @@
 <td>16</td>
 <td>Wrong dates or unsourced numbers reach the owner</td>
 <td><code>date -u</code> read as the owner's calendar; numbers stated from memory</td>
-<td>Clock rule; truth check (warn); attribution lint (narrow)</td>
+<td>Clock rule; future-time guard; optional attribution lint (not included)</td>
 <td>Partly</td>
 </tr>
 </tbody>
@@ -747,7 +727,7 @@
 <td>4</td>
 <td>5</td>
 <td>20</td>
-<td>Ship gate exits 2, matches every deploy form, binds the report to the tree; or block raw <code>vercel</code> and require <code>ship.sh</code>. Prove with a sink deploy that must be refused</td>
+<td>Ship gate exits 2, matches every deploy form, binds the report to the tree; or block raw <code>vercel</code> and require <code>harness/tools/ship.sh</code>. Prove with a sink deploy that must be refused</td>
 </tr>
 <tr>
 <td>2</td>
@@ -795,7 +775,7 @@
 <td>2</td>
 <td>4</td>
 <td>8</td>
-<td>Account guard on every seat that uses the MCP; identity check</td>
+<td>An account guard (optional, not included) on every seat that uses the MCP; identity check</td>
 </tr>
 <tr>
 <td>8</td>
@@ -848,6 +828,6 @@
 <li><code>src/hooks/hook-permission-telegram.ts</code></li>
 <li><code>src/hooks/hook-planmode-telegram.ts</code></li>
 <li><code>src/hooks/hook-extract-facts.ts</code></li>
-<li>OGL layer: <code>hooks/shared-surface-guard.py</code>, <code>hooks/surface.py</code>, <code>hooks/codewrites.py</code>, <code>hooks/orwell-lint.py</code>, <code>hooks/gws-account-guard.py</code>; seat hooks <code>brief_guard.py</code>, <code>future_time_guard.py</code>, <code>attribution-lint.py</code>, <code>kem-compaction/</code>, <code>precompact-checkpoint.sh</code>, <code>sessionstart-inject.sh</code>; <code>cortex-pentest-gate/scripts/ship_gate_hook.py</code></li>
+<li>OGL layer: <code>harness/hooks/shared_surface_guard.py</code>, <code>harness/hooks/surface.py</code>, <code>harness/hooks/codewrites.py</code>, <code>harness/hooks/orwell_lint.py</code>, <code>harness/hooks/brief_guard.py</code>, <code>harness/hooks/future_time_guard.py</code>, <code>harness/hooks/ship_gate.py</code>, <code>harness/hooks/compaction/</code>; tools in <code>harness/tools/</code></li>
 </ul>
-</article><nav class="pager"><a class="prev" href="03-configuration-registry.html"><small>Previous</small>03 Configuration Registry</a><a class="next" href="10-prd.html"><small>Next</small>10 Product Requirements (PRD)</a></nav></main></div></body></html>
+</article><nav class="pager"><a class="prev" href="03-configuration-registry.html"><small>Previous</small>03 Configuration Registry</a><a class="next" href="05-memory-architecture.html"><small>Next</small>05 Memory Architecture</a></nav></main></div></body></html>

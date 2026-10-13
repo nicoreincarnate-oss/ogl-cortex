@@ -4,7 +4,9 @@ What to do when an agent acts strangely. This document has four parts: a three-t
 
 Related documents: `30-sre-runbooks.md` (step-by-step recovery), `31-observability-alerting.md` (logs and heartbeats), `40-finops-capacity.md` (quota and disk), `42-chaos-telemetry-determinism.md` (which guards are tested), `../TROUBLESHOOTING.md` (quick index). Path and role names follow `30-sre-runbooks.md`.
 
-**Scale.** An enterprise support model assumes a help desk, a ticket queue and an on-call rota. OGL Cortex assumes one owner and a handful of seats. Tier 1 is the owner with a phone. Tier 2 is the orchestrator seat. Tier 3 is the specialist seats and the owner at the keyboard. The ticket queue is the cortextOS task list (`cortextos bus list-tasks`) plus the approvals queue (`cortextos bus list-approvals`).
+The command-line tool is named `cortextos`.
+
+**Scale.** An enterprise support model assumes a help desk, a ticket queue and an on-call rota. OGL Cortex assumes one owner and a handful of seats. Tier 1 is the owner with a phone. Tier 2 is the orchestrator seat. Tier 3 is the specialist seats and the owner at the keyboard. The ticket queue is the OGL Cortex task list (`cortextos bus list-tasks`) plus the approvals queue (`cortextos bus list-approvals`).
 
 ---
 
@@ -59,7 +61,7 @@ What the owner should not do from the phone: chase a "login expired" claim, flip
 | 5 | Disk and swap | `df -h /`, `sysctl vm.swapusage` | Free disk under your warn line, swap near full |
 | 6 | MCP servers | `claude mcp list` | "failed to connect" |
 | 7 | Seat logs | `$CTX_ROOT/logs/<seat>/stdout.log`, `crashes.log`, `restarts.log` | Repeated `type=crash` lines |
-| 8 | Guards blocking | `~/.claude/hooks/orwell-lint.log`, `surface-guard.log` | The seat retries the same blocked call in a loop |
+| 8 | Guards blocking | `~/.ogl-cortex/state/orwell-lint.log`, `surface-guard.log` (`$OGL_STATE_DIR`) | The seat retries the same blocked call in a loop |
 | 9 | Context | `$CTX_ROOT/state/<seat>/context_status.json` | Near `ctx_handoff_threshold` |
 
 Rules during triage:
@@ -122,9 +124,9 @@ Status: **LIMITATION** (property of the software today), **WATCH** (works, fragi
 
 ### 4.1 "The seat keeps rewriting the same message" or "my send was blocked"
 
-**Cause.** The send guard (`orwell-lint.py`). It lints every outgoing Telegram, email and post against a fixed rule set with word lists and regex, no model, and exits 2 with the broken rules listed.
+**Cause.** The send guard (`orwell_lint.py`, installed in `<seat>/.claude/hooks/ogl/`). It lints every outgoing Telegram, email and post against a fixed rule set with word lists and regex, no model, and exits 2 with the broken rules listed.
 
-**Fix.** Rewrite and resend. For one send that must break a rule: `touch ~/.claude/hooks/.orwell-pass-once-$CTX_AGENT_NAME` (valid 10 minutes, consumed and logged).
+**Fix.** Rewrite and resend. For one send that must break a rule: `touch ~/.ogl-cortex/state/.orwell-pass-once-$CTX_AGENT_NAME` (valid 10 minutes, consumed and logged).
 
 ### 4.2 "A write was refused for a time stamp"
 
@@ -166,7 +168,7 @@ Status: **LIMITATION** (property of the software today), **WATCH** (works, fragi
 
 **Cause.** A Workspace MCP session bound to account A was called with account B's address and wrote A's token into B's credential file.
 
-**Fix.** Install `gws-account-guard.py`, re-authorise B with an identity-checking script, and use the MCP only for its bound account.
+**Fix.** Add an account guard (optional, not included in this repository) that blocks MCP calls for any account other than the bound one, re-authorise B with an identity-checking script, and use the MCP only for its bound account.
 
 ### 4.9 "Restart says the daemon is not running"
 
@@ -176,9 +178,9 @@ Status: **LIMITATION** (property of the software today), **WATCH** (works, fragi
 
 ### 4.10 "A command was blocked with a shared-surface message"
 
-**Cause.** `shared-surface-guard.py` blocks changes to surfaces every seat shares: package cache prunes, global installs, `brew upgrade`, writes under `~/.claude*` outside `projects/`, credential folders, and deletes under `~/.claude/projects/`.
+**Cause.** `shared_surface_guard.py` blocks changes to surfaces every seat shares: package cache prunes, global installs, `brew upgrade`, writes under `~/.claude*` outside `projects/`, roots listed in `OGL_SURFACE_EXTRA_ROOTS`, and deletes under `~/.claude/projects/`.
 
-**Fix.** Check the consumers the block names, take a backup, then release once with `touch ~/.claude/hooks/.surface-pass-once-$CTX_AGENT_NAME` (10 minutes, one use).
+**Fix.** Check the consumers the block names, take a backup, then release once with `mkdir -p ~/.ogl-cortex/state && touch ~/.ogl-cortex/state/.surface-pass-once-$CTX_AGENT_NAME` (10 minutes, one use).
 
 ### 4.11 "Playwright says the browser is missing"
 

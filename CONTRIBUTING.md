@@ -1,6 +1,6 @@
 # Contributing to OGL Cortex
 
-Thanks for helping. This repo holds the OGL Cortex harness (hooks, skills, seat templates, installer), the doctor script and the documentation. cortextOS itself lives upstream at [grandamenium/cortextos](https://github.com/grandamenium/cortextos); framework changes go there.
+Thanks for helping. This repo holds the OGL Cortex harness (hooks, skills, seat templates, installer), the doctor script and the documentation. The framework itself lives upstream at [grandamenium/cortextos](https://github.com/grandamenium/cortextos); framework changes go there.
 
 ## Layout
 
@@ -14,7 +14,7 @@ Thanks for helping. This repo holds the OGL Cortex harness (hooks, skills, seat 
 | `scripts/build-docs-site.py` | builds the HTML edition of `docs/` into `docs/site/` |
 | `docs/` | numbered product docs |
 | `.claude/commands/cortex-setup.md` | the guided setup command |
-| `docs/assets/readme/` | README hero and icons; `src/render.py` rebuilds the hero |
+| `docs/assets/readme/` | README hero and icons; `docs/assets/readme/src/render.py` rebuilds the hero |
 
 ## Branches
 
@@ -62,6 +62,8 @@ It stays read-only: no writes, no restarts, no sends. It prints `.env` key names
 ## Writing docs
 
 Docs describe the product for a stranger installing it on their own machine.
+
+The command-line tool is named `cortextos`.
 
 - Present tense. Say what the system does and how to configure it.
 - Install-relative paths: `$CORTEX_HOME`, `$CTX_ROOT`, `<instance>`, `<org>`, `<seat>`, `~`. No real home-directory paths.

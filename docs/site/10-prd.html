@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li class="on"><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,17 +33,18 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">10</div><div><p class="dg">Strategy and governance</p>
-<h1>Product Requirements (PRD)</h1><p class="meta">1,715 words · <a href="../10-prd.md">Markdown source</a></p></div></header>
+<h1>Product Requirements (PRD)</h1><p class="meta">1,731 words · <a href="../10-prd.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-purpose">1. Purpose</a></li><li><a href="#2-users-and-channels">2. Users and channels</a></li><li><a href="#3-roles">3. Roles</a></li><li><a href="#4-functional-requirements">4. Functional requirements</a></li><li><a href="#5-non-functional-requirements">5. Non-functional requirements</a></li><li><a href="#6-non-goals">6. Non-goals</a></li><li><a href="#7-build-versus-buy">7. Build versus buy</a></li><li><a href="#8-success-measures">8. Success measures</a></li><li><a href="#9-goals-and-roadmap">9. Goals and roadmap</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
-<article><p>This document states why OGL Cortex exists, who it is for, what it must do, why it is built on cortextOS and Claude Code, and what it does not try to do. Architecture, the execution engine, configuration and fail-safes are in <code>01-core-architecture.md</code> to <code>04-failsafe-boundary-log.md</code>. Safety, privacy, vendors and setup are in <code>11-ai-safety-governance.md</code> to <code>14-readme-quickstart.md</code>.</p>
+<article><p>This document states why OGL Cortex exists, who it is for, what it must do, why it is built on its framework and Claude Code, and what it does not try to do. Architecture, the execution engine, configuration and fail-safes are in <code>01-core-architecture.md</code> to <code>04-failsafe-boundary-log.md</code>. Safety, privacy, vendors and setup are in <code>11-ai-safety-governance.md</code> to <code>14-readme-quickstart.md</code>.</p>
 <h2 id="terms">Terms</h2>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <ul>
-<li><strong>OGL Cortex</strong>: the cortextOS framework plus the OGL layer on top of it: seat templates, hooks and guards, skills, crons, the memory protocol, approval gates and the ship gate.</li>
+<li><strong>OGL Cortex</strong>: the framework (daemon, bus, CLI, dashboard) plus the OGL layer on top of it: seat templates, hooks and guards, skills, crons, the memory protocol, approval gates and the ship gate.</li>
 <li><strong>Owner</strong>: the one person who runs an install and holds every approval.</li>
 <li><strong>Seat</strong> (or agent): one long-running Claude Code session with its own name, folder, Telegram bot, memory and role.</li>
 <li><strong>Bus</strong>: the <code>cortextos bus</code> command family seats use to send messages, create tasks, log events and request approvals.</li>
 <li><strong>Cron</strong>: a scheduled prompt the daemon injects into a seat.</li>
-<li><strong>Instance</strong>: one runtime state folder, <code>$CORTEX_HOME/&lt;instance&gt;</code> (by default <code>~/.cortextos/default</code>).</li>
+<li><strong>Instance</strong>: one runtime state folder, <code>$CTX_ROOT</code> = <code>~/.cortextos/&lt;instance&gt;</code> (by default <code>~/.cortextos/default</code>).</li>
 </ul>
 <hr />
 <h2 id="1-purpose">1. Purpose</h2>
@@ -70,7 +72,7 @@
 </tr>
 <tr>
 <td>Owner</td>
-<td>cortextOS web dashboard (Next.js, <code>cortextos dashboard</code>)</td>
+<td>OGL Cortex web dashboard (Next.js, <code>cortextos dashboard</code>)</td>
 <td>Tasks, heartbeats, approvals, analytics</td>
 </tr>
 <tr>
@@ -238,7 +240,7 @@
 </tr>
 <tr>
 <td>Data</td>
-<td>All state is local files under <code>$CORTEX_HOME/&lt;instance&gt;</code> and the org folder. Disk encryption is required</td>
+<td>All state is local files under <code>$CTX_ROOT</code> and the org folder. Disk encryption is required</td>
 </tr>
 <tr>
 <td>Scale</td>
@@ -256,12 +258,12 @@
 <li><strong>Running untrusted code.</strong> Seats that hold secrets do not run code from untrusted repos.</li>
 </ul>
 <h2 id="7-build-versus-buy">7. Build versus buy</h2>
-<p>OGL Cortex builds on cortextOS (MIT, <code>github.com/grandamenium/cortextos</code>) with Claude Code as the agent runtime.</p>
+<p>OGL Cortex builds on an MIT-licensed framework (upstream <code>github.com/grandamenium/cortextos</code>) with Claude Code as the agent runtime.</p>
 <table>
 <thead>
 <tr>
 <th>Need</th>
-<th>cortextOS + Claude Code</th>
+<th>OGL Cortex + Claude Code</th>
 <th>Agent library (LangChain, CrewAI, AutoGen)</th>
 <th>Hosted agent platform</th>
 </tr>
@@ -329,15 +331,15 @@
 <tbody>
 <tr>
 <td>Tasks by status and assignee</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/tasks/*.json</code> (<code>status</code>, <code>assigned_to</code>)</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/tasks/*.json</code> (<code>status</code>, <code>assigned_to</code>)</td>
 </tr>
 <tr>
 <td>Approvals by category and outcome</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/approvals/</code></td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/approvals/</code></td>
 </tr>
 <tr>
 <td>Events (heartbeats, messages, Telegram traffic, completions)</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/analytics/events/**/*.jsonl</code></td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/**/*.jsonl</code></td>
 </tr>
 <tr>
 <td>Per-seat rollup</td>
@@ -384,4 +386,4 @@
 <li><code>scripts/install-whisper-model.sh</code></li>
 <li><code>templates/orchestrator/</code></li>
 </ul>
-</article><nav class="pager"><a class="prev" href="04-failsafe-boundary-log.html"><small>Previous</small>04 Fail-Safes and Boundaries</a><a class="next" href="11-ai-safety-governance.html"><small>Next</small>11 AI Safety and Governance</a></nav></main></div></body></html>
+</article><nav class="pager"><a class="prev" href="05-memory-architecture.html"><small>Previous</small>05 Memory Architecture</a><a class="next" href="11-ai-safety-governance.html"><small>Next</small>11 AI Safety and Governance</a></nav></main></div></body></html>

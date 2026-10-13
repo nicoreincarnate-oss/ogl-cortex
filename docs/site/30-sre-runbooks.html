@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">30</div><div><p class="dg">Operations and security</p>
-<h1>SRE runbooks</h1><p class="meta">4,583 words · <a href="../30-sre-runbooks.md">Markdown source</a></p></div></header>
+<h1>SRE runbooks</h1><p class="meta">4,592 words · <a href="../30-sre-runbooks.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#conventions">Conventions</a></li><li><a href="#summary-table">Summary table</a></li><li><a href="#rb-01-claude-weekly-cap-outage-or-rate-limit">RB-01 Claude weekly cap, outage or rate limit</a></li><li><a href="#rb-02-a-seat-is-busy-and-messages-go-unanswered">RB-02 A seat is busy and messages go unanswered</a></li><li><a href="#rb-03-daemon-down-or-a-seat-needs-a-restart">RB-03 Daemon down, or a seat needs a restart</a></li><li><a href="#rb-04-telegram-not-delivering">RB-04 Telegram not delivering</a></li><li><a href="#rb-05-swap-spike-or-low-free-disk">RB-05 Swap spike or low free disk</a></li><li><a href="#rb-06-leaked-or-compromised-key">RB-06 Leaked or compromised key</a></li><li><a href="#rb-07-mcp-server-down">RB-07 MCP server down</a></li><li><a href="#rb-08-vendor-billing-failure">RB-08 Vendor billing failure</a></li><li><a href="#rb-09-google-oauth-on-the-wrong-account">RB-09 Google OAuth on the wrong account</a></li><li><a href="#rb-10-cron-not-firing">RB-10 Cron not firing</a></li><li><a href="#rb-11-bad-deploy">RB-11 Bad deploy</a></li><li><a href="#rb-12-seat-context-too-full">RB-12 Seat context too full</a></li><li><a href="#rules-that-apply-to-every-runbook">Rules that apply to every runbook</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>Twelve runbooks for the failures an OGL Cortex install meets most often. Each one follows the same shape: symptom, check, fix, verify, rollback, owner.</p>
 <p>Related documents:</p>
@@ -45,6 +46,7 @@
 </ul>
 <h2 id="conventions">Conventions</h2>
 <h3 id="paths">Paths</h3>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <table>
 <thead>
 <tr>
@@ -56,7 +58,7 @@
 <tbody>
 <tr>
 <td><code>$CORTEX_HOME</code></td>
-<td>The cortextOS framework checkout</td>
+<td>The framework checkout</td>
 <td>wherever you cloned it</td>
 </tr>
 <tr>
@@ -81,13 +83,13 @@
 </tr>
 <tr>
 <td><code>$SENTINEL_DIR</code></td>
-<td>Directory that holds the launchd sentinel scripts, with <code>logs/</code> and <code>state/</code> below it</td>
+<td>Directory that holds your sentinel scripts (optional, not included), with <code>logs/</code> and <code>state/</code> below it</td>
 <td>chosen at install</td>
 </tr>
 <tr>
 <td><code>$SHIP</code></td>
-<td>The <code>ship.sh</code> deploy wrapper</td>
-<td>chosen at install</td>
+<td>The deploy wrapper <code>harness/tools/ship.sh</code></td>
+<td>your repo checkout, or a copy on <code>PATH</code></td>
 </tr>
 </tbody>
 </table>
@@ -234,7 +236,7 @@
 <p><strong>Check</strong></p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus check-usage-api <span class="at">--json</span>            <span class="co"># five_hour and seven_day utilisation plus resets_at</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-3</span> <span class="va">$SENTINEL_DIR</span>/state/quota-ledger.jsonl    <span class="co"># ledger history and pace, if the quota ledger is installed</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> <span class="va">$CTX_ROOT</span>/logs/auth-sentinel.log          <span class="co"># OK / </span><span class="al">ALERT</span><span class="co"> kind=cap|auth|probe</span></span></code></pre></div>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> <span class="va">$CTX_ROOT</span>/logs/auth-sentinel.log          <span class="co"># if you run an auth sentinel (optional, not included)</span></span></code></pre></div>
 <p>Read the alert kind:</p>
 <ul>
 <li><code>kind=cap</code>: usage cap. There is nothing to run. Wait for <code>resets_at</code>.</li>
@@ -285,7 +287,7 @@
 <p><strong>Owner.</strong> Orchestrator.</p>
 <hr />
 <h2 id="rb-03-daemon-down-or-a-seat-needs-a-restart">RB-03 Daemon down, or a seat needs a restart</h2>
-<p><strong>What it is.</strong> One process, the cortextOS daemon, runs every seat. It runs under pm2 as <code>cortextos-daemon</code>. State lives under <code>$CTX_ROOT</code>.</p>
+<p><strong>What it is.</strong> One process, the OGL Cortex daemon, runs every seat. It runs under pm2 as <code>cortextos-daemon</code>. State lives under <code>$CTX_ROOT</code>.</p>
 <p><strong>The instance trap.</strong> <code>cortextos restart</code>, <code>stop</code>, <code>start</code> and <code>doctor</code> take <code>--instance &lt;id&gt;</code> with a default of <code>default</code>. Run from a shell without <code>CTX_INSTANCE_ID</code>, they read the wrong state tree and print "Daemon is not running" while the daemon is fine.</p>
 <p><strong>Symptom</strong></p>
 <ul>
@@ -328,7 +330,7 @@
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-c</span> <span class="st">&quot;fetch failed&quot;</span> ~/.pm2/logs/cortextos-daemon-out.log</span>
 <span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-iE</span> <span class="st">&quot;telegram|409&quot;</span> ~/.pm2/logs/cortextos-daemon-error.log <span class="kw">|</span> <span class="fu">tail</span> <span class="at">-5</span></span>
 <span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="fu">grep</span> <span class="at">-n</span> <span class="st">&quot;ALLOWED_USER&quot;</span> <span class="va">$SEAT_DIR</span>/.env <span class="kw">|</span> <span class="fu">sed</span> <span class="st">&#39;s/=.*/=&lt;set&gt;/&#39;</span>   <span class="co"># present? value hidden</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> ~/.claude/hooks/orwell-lint.log                      <span class="co"># did the send guard refuse it?</span></span></code></pre></div>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-5</span> ~/.ogl-cortex/state/orwell-lint.log                  <span class="co"># did the send guard refuse it?</span></span></code></pre></div>
 <p><strong>Known causes, most common first</strong></p>
 <ol type="1">
 <li><strong>Network dips.</strong> The poller logs <code>fetch failed</code> and retries on its own.</li>
@@ -347,7 +349,7 @@
 <hr />
 <h2 id="rb-05-swap-spike-or-low-free-disk">RB-05 Swap spike or low free disk</h2>
 <p><strong>What it is.</strong> A host running several Claude sessions, a browser, containers and local models fills disk and swap fast. On macOS, swap lives as 1 GB files on the data volume, so each new swap file takes disk. When free disk falls, swap cannot grow and the whole fleet stalls.</p>
-<p><strong>Default thresholds (reference sentinels)</strong></p>
+<p><strong>Example thresholds (sentinels are optional and not included in this repository)</strong></p>
 <table>
 <thead>
 <tr>
@@ -478,13 +480,12 @@
 </ul>
 <p><strong>Check</strong></p>
 <div class="sourceCode" id="cb10"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ls</span> ~/.google_workspace_mcp/credentials/                    <span class="co"># one file per account</span></span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">tail</span> <span class="at">-20</span> ~/.claude/hooks/gws-account-guard.log              <span class="co"># blocked calls</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-c</span> <span class="st">&quot;import json;print(json.dumps(json.load(open(&#39;</span><span class="va">$SENTINEL_DIR</span><span class="st">/state/cred-identity.json&#39;)),indent=1)[:1500])&quot;</span></span></code></pre></div>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-c</span> <span class="st">&quot;import json;print(json.dumps(json.load(open(&#39;</span><span class="va">$SENTINEL_DIR</span><span class="st">/state/cred-identity.json&#39;)),indent=1)[:1500])&quot;</span></span></code></pre></div>
 <p>Do not run a credential identity check by hand just to look. It can refresh tokens and page. Its scheduled run already does this.</p>
 <p><strong>Fix</strong></p>
 <ol type="1">
 <li>Use the MCP only for the account its session is bound to. For other accounts, use a direct token path that reads that account's credential file.</li>
-<li>Install the Google Workspace account guard (<code>gws-account-guard.py</code>, PreToolUse). It blocks MCP calls for any account you list and any <code>start_google_auth</code> call.</li>
+<li>Add a Google Workspace account guard (optional, not included in this repository): a PreToolUse hook that blocks MCP calls for any account you list and any <code>start_google_auth</code> call.</li>
 <li>If a credential file holds the wrong account, re-authorise that account with a script that checks the token's real identity before saving. The owner taps the consent screen.</li>
 <li>On any access failure, retry with the other account before calling it a login problem.</li>
 <li>Never start an OAuth flow unattended. Whoever is at the screen can finish it with the wrong account.</li>
@@ -525,7 +526,7 @@
 <p><strong>Owner.</strong> The seat that owns the cron. Ops for the scheduler.</p>
 <hr />
 <h2 id="rb-11-bad-deploy">RB-11 Bad deploy</h2>
-<p><strong>What it is.</strong> Every website deploy goes through <code>$SHIP</code>: gate the static files, deploy a candidate with production env but without the domain, gate the candidate URL, then promote that exact build. A raw <code>vercel --prod</code> skips both gates.</p>
+<p><strong>What it is.</strong> Every website deploy goes through <code>$SHIP</code> (<code>harness/tools/ship.sh</code>): gate the static files, deploy a candidate with production env but without the domain, gate the candidate URL, then promote that exact build (preview-then-promote mode, <code>--promote-cmd</code>). A raw <code>vercel --prod</code> skips both gates.</p>
 <p><strong><code>ship.sh</code> exit codes</strong></p>
 <table>
 <thead>
@@ -539,7 +540,7 @@
 <tbody>
 <tr>
 <td>0</td>
-<td>Promoted, both gates passed, prod answers 200</td>
+<td>Shipped: both gates passed, prod answers 200</td>
 <td>Yes, correctly</td>
 <td>Verify live, then report</td>
 </tr>
@@ -557,33 +558,27 @@
 </tr>
 <tr>
 <td>4</td>
-<td>Candidate deploy failed or gave no URL</td>
+<td>Deploy failed, or no candidate URL</td>
 <td>No</td>
 <td>Fix the build</td>
 </tr>
 <tr>
 <td>5</td>
-<td><strong>Live and wrong</strong>: prod is on an ungated build, or not 200</td>
+<td><strong>Live and wrong</strong>: deployed, but prod is not 200 or the live gate failed</td>
 <td><strong>Yes</strong></td>
 <td>Roll back now</td>
 </tr>
 <tr>
 <td>6</td>
-<td>Candidate not 200, or its gate or indexing check failed; candidate removed</td>
+<td>Candidate not 200, or its gate failed; candidate removed if <code>--remove-cmd</code> is set</td>
 <td>No</td>
-<td>Fix; run the restore command it prints for any dangling alias</td>
+<td>Fix and ship again</td>
 </tr>
 <tr>
 <td>7</td>
-<td>Promote did not take; prod still on the old build</td>
+<td>Promote failed; prod still on the old build</td>
 <td>No</td>
 <td>Safe to retry</td>
-</tr>
-<tr>
-<td>8</td>
-<td>Shipped, but prod sends <code>X-Robots-Tag: noindex</code></td>
-<td>Yes</td>
-<td>Find and fix the header</td>
 </tr>
 </tbody>
 </table>
@@ -603,7 +598,7 @@
 </ol>
 <p><strong>Verify.</strong> <code>vercel inspect &lt;prod-domain&gt;</code> names the good deployment, the site returns 200, and the rendered page (not the source) shows the expected content.</p>
 <p><strong>Rollback of the rollback.</strong> <code>vercel promote &lt;bad-id&gt;</code>. You should not need it.</p>
-<p><strong>Owner.</strong> Ops owns <code>ship.sh</code>. The seat that shipped runs the rollback and tells the orchestrator.</p>
+<p><strong>Owner.</strong> Ops owns <code>harness/tools/ship.sh</code> and its gate command. The seat that shipped runs the rollback and tells the orchestrator.</p>
 <hr />
 <h2 id="rb-12-seat-context-too-full">RB-12 Seat context too full</h2>
 <p><strong>What it is.</strong> Each seat has a fixed context window. The statusLine hook (<code>cortextos bus hook-context-status</code>) writes the current percent to <code>$CTX_ROOT/state/&lt;seat&gt;/context_status.json</code>. The daemon's fast-checker warns the seat at <code>ctx_warning_threshold</code> and triggers a handoff at <code>ctx_handoff_threshold</code> (defaults 30 and 60, set per seat in <code>config.json</code>; a handoff threshold of 0 or less opts out).</p>

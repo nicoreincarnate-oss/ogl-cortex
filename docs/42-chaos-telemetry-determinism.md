@@ -18,7 +18,7 @@ Related documents: `31-observability-alerting.md` (alert routing), `32-security-
 | Question | Answer |
 |---|---|
 | Does OGL Cortex ship a chaos programme? | No scheduled fault injection against the fleet. It ships fault classes to rehearse (section 2.3) and strong deliberate tests for guards and sentinels |
-| What gets tested on purpose? | Guards (real-shell oracle, mutants, replay over real command history), sentinels (fixture suites with mutants and self-tests), fixes (hunter passes) |
+| What gets tested on purpose? | Guards and tools (`harness/tests/run_all.py`: must-block and must-allow cases per hook, must-pass and must-fail cases per tool), fixes (adversarial passes). Optional, not included: real-shell oracles, mutant suites, replay over real command history, sentinel fixtures |
 | One telemetry standard? | The event log is the reference format. Sentinel and guard logs use their own line shapes; section 3.3 lists the differences |
 | How much is deterministic? | Guards, sentinels and the ship wrapper are deterministic. Orchestration decisions are model judgement. A few hooks call a model |
 
@@ -37,24 +37,26 @@ Related documents: `31-observability-alerting.md` (alert routing), `32-security-
 | Daemon restarts | Cleanups, network dips, external `pm2 restart` | Storm watch, commander watch, crash relay |
 | Provider limits | Weekly cap, rate limits, free-tier 429s | Quota ledger, auth sentinel, pre-reset burn |
 | Billing holds | Declined card | Billing alerts, site watchers |
-| Wrong-account credential writes | OAuth flow finished with the wrong account | Account guard, identity check |
+| Wrong-account credential writes | OAuth flow finished with the wrong account | Account guard and identity check (optional, not included) |
 | Evicted LaunchAgents | Jobs without `RunAtLoad` or `KeepAlive` lost on restart | Pre-restart inventory of ancillary services |
 | Wedged seat | Process up, model not reasoning (for example a session-limit screen) | Session liveness watch; PID and heartbeat alone do not prove reasoning |
 
 Most serious stress on a single-host fleet is self-inflicted by fleet work: a scan, a model, a storm, a prune. External faults are rarer. Memory and disk pressure is the dominant failure mode.
 
-### 2.2 Deliberate tests that ship with the harness
+### 2.2 Deliberate tests
+
+The harness ships one suite: `python3 harness/tests/run_all.py`. The other rows describe tests to build for your own guards and sentinels; their scripts are not included in this repository.
 
 | Target | Method | Pass bar |
 |---|---|---|
+| Every shipped hook and tool | `harness/tests/run_all.py`: hook JSON on stdin, exit code asserted; tools run against fakes | `ALL PASS` |
 | Shared-surface guard | Real-shell oracle: each probe shape run in `bash`, `zsh` and `sh`, in script and inline forms, under `sandbox-exec`, with a must-find control first that voids the run on a miss | `MISS 0`, `over-flag 0`; every mutant killed |
-| Any guard change | `mutants.py`, unit tests (must-flag and must-allow), `replay_diff.py` over real command history | Tests red on live, green on candidate; only intended verdict changes in the replay |
+| Any guard change | A mutant suite, unit tests (must-flag and must-allow), and a replay diff over real command history | Tests red on live, green on candidate; only intended verdict changes in the replay |
 | Heartbeat sentinel | Fixture cases including a forged heartbeat and a reload case, plus mutants | All fixtures pass; mutants red |
 | Session liveness watch | Self-test with stale, fresh, process-down and orphan cases, and a named mutant | All `PASS` lines |
 | Auth sentinel | "Drive it to fail once": a bogus model id and a sink file instead of Telegram | Alert written to the sink |
-| Account guard | Live positive control with an invalid address | `BLOCK` line in the guard log |
 | Send guard and fail-closed paths | Corpus replays and mutant suites | Mutants killed; no new false positives on the corpus |
-| Any guard, hook or fix | `hunter.sh` fenced pass on one claim | Reachable findings fixed test-first |
+| Any guard, hook or fix | `harness/tools/adversarial-pass.sh` fenced pass on one claim | Reachable findings fixed test-first |
 
 ```mermaid
 flowchart LR
@@ -70,7 +72,7 @@ flowchart LR
     D1["Real-shell oracle"]
     D2["Mutant suites"]
     D3["Sentinel fixtures"]
-    D4["Hunter passes"]
+    D4["Adversarial passes"]
     D5["Live positive controls"]
   end
   A1 --> S["Disk and swap sentinels"]
@@ -106,9 +108,9 @@ flowchart TB
   Seat["Claude Code seat"] -->|"log-event"| EV["CTX_ROOT/orgs/ORG/analytics/events/SEAT/DATE.jsonl"]
   Seat -->|"send-telegram"| OUT["CTX_ROOT/logs/SEAT/outbound-messages.jsonl"]
   TG["Telegram poller"] --> IN["CTX_ROOT/logs/SEAT/inbound-messages.jsonl"]
-  Daemon["cortextOS daemon"] --> CR["CTX_ROOT/logs/SEAT/crashes.log, restarts.log, stdout.log"]
-  Hooks["PreToolUse guards"] --> GL["~/.claude/hooks/GUARD.log"]
-  Launchd["launchd sentinels"] --> SL["SENTINEL_DIR/logs and state"]
+  Daemon["OGL Cortex daemon"] --> CR["CTX_ROOT/logs/SEAT/crashes.log, restarts.log, stdout.log"]
+  Hooks["PreToolUse guards"] --> GL["OGL_STATE_DIR/GUARD.log"]
+  Launchd["launchd sentinels (optional)"] --> SL["SENTINEL_DIR/logs and state"]
   Launchd -->|"some also call log-event"| EV
 ```
 
@@ -173,6 +175,8 @@ Guard logs are fleet-wide: one file holds verdicts for every seat that runs the 
 
 Practical effect: a question like "what happened at 05:03" needs several greps with different patterns. If you build a merged timeline, normalise to the event-log shape: `timestamp` key, ISO 8601 seconds, UTC.
 
+The command-line tool is named `cortextos`.
+
 **Recommended standard for new logs.** JSON lines with `timestamp` (ISO 8601 UTC, seconds), `agent`, `event`, `severity`, and a `metadata` object. Write through `cortextos bus log-event` when a seat is the producer.
 
 ### 3.4 Retention
@@ -186,26 +190,29 @@ Practical effect: a question like "what happened at 05:03" needs several greps w
 
 ## 4. Determinism: rule versus judgement
 
-### 4.1 Hooks in a reference orchestrator seat
+### 4.1 Hooks in an orchestrator seat
+
+Shipped hooks install to `<seat>/.claude/hooks/ogl/`. Rows marked "optional, not included" describe components this repository does not ship.
 
 | Event | Hook | Class |
 |---|---|---|
 | PermissionRequest, PreToolUse AskUserQuestion | `cortextos bus hook-permission-telegram`, `hook-planmode-telegram`, and the AskUserQuestion relay | Deterministic relay |
-| PreToolUse Bash and send MCPs | `orwell-lint.py` | Deterministic (regex and word lists) |
-| PreToolUse Google Workspace MCP | `gws-account-guard.py` | Deterministic (account list) |
-| PreToolUse Bash | `shared-surface-guard.py` | Deterministic (shell parser) |
+| PreToolUse Bash and send MCPs | `orwell_lint.py` | Deterministic (regex and word lists) |
+| PreToolUse Google Workspace MCP | account guard (optional, not included) | Deterministic (account list) |
+| PreToolUse Bash | `shared_surface_guard.py` | Deterministic (shell parser) |
+| PreToolUse Bash | `ship_gate.py` | Deterministic |
 | PreToolUse Bash | `brief_guard.py` | Deterministic |
 | PreToolUse Bash, Write, Edit | `future_time_guard.py` | Deterministic, clock-dependent |
-| PreToolUse Bash | `attribution-lint.py` | Deterministic, shadow tier |
+| PreToolUse Bash | attribution lint (optional, not included) | Deterministic, shadow tier |
 | Stop | `cortextos bus hook-idle-flag` | Deterministic |
-| Stop | memory consolidation hook | **Spawns a model** in the background |
-| SessionEnd, PreCompact | `cortextos crash-alert`, `hook-compact-telegram`, checkpoint script | Deterministic |
-| SessionEnd, PreCompact | memory digest | **Spawns a model** in the background |
-| SessionStart | inject script; `after_compact.py` | Deterministic |
-| PostToolUse | compaction meter; fix-commit trigger | Deterministic |
-| PostCompact | `save_summary.py` | Deterministic |
-| UserPromptSubmit | client recall hook | Deterministic |
-| UserPromptSubmit | prompt router | **Model call on every owner message** (headless small model, one turn). Injects nothing on timeout or failure |
+| Stop | memory consolidation hook (optional, not included) | **Spawns a model** in the background |
+| SessionEnd, PreCompact | `cortextos crash-alert`, `hook-compact-telegram`; checkpoint script (optional, not included) | Deterministic |
+| SessionEnd, PreCompact | memory digest (optional, not included) | **Spawns a model** in the background |
+| SessionStart | `compaction/after_compact.py`; inject script (optional, not included) | Deterministic |
+| PostToolUse | `compaction/meter.py`; fix-commit trigger (optional, not included) | Deterministic |
+| PostCompact | `compaction/save_summary.py` | Deterministic |
+| UserPromptSubmit | client recall hook (optional, not included) | Deterministic |
+| UserPromptSubmit | prompt router (optional, not included) | **Model call on every owner message** (headless small model, one turn). Injects nothing on timeout or failure |
 
 All of these are `type: command` hooks. A command hook can still call a model; check the script, not the hook type.
 
@@ -213,7 +220,7 @@ All of these are `type: command` hooks. A command hook can still call a model; c
 
 | Scheduler | Deterministic part | Judgement part |
 |---|---|---|
-| cortextOS daemon crons | When the prompt fires (30-second tick; one catch-up fire after downtime) | Everything after: the prompt is text a model interprets |
+| OGL Cortex daemon crons | When the prompt fires (30-second tick; one catch-up fire after downtime) | Everything after: the prompt is text a model interprets |
 | launchd sentinels | Shell scripts end to end | None, except when a script pages a seat for a decision |
 | pm2 loops | Schedule and pass or fail on exact output | The auth probe calls a model as its test subject, by design |
 
@@ -226,7 +233,7 @@ flowchart LR
   subgraph Rule["Deterministic"]
     H["PreToolUse guards"]
     L["launchd sentinels"]
-    S["Shell tools: ship.sh, emitters, brief audit"]
+    S["Shell tools: ship.sh, emit-truth-correction.sh, brief_audit.py"]
     K["Compaction meter and STATE re-inject"]
   end
   subgraph Judge["Model judgement"]
@@ -254,7 +261,7 @@ Not fenced deterministically:
 
 | Suite | How to run | What it proves |
 |---|---|---|
-| cortextOS framework | `npm test` (Vitest) in `$CORTEX_HOME` | The source tree. Run it before and after any framework change |
+| Framework | `npm test` (Vitest) in `$CORTEX_HOME` | The source tree. Run it before and after any framework change |
 | Framework CI | `.github/workflows/ci.yml` runs `npm test` on pushed commits | Only commits that reach a remote with CI |
 | Guard packets | `python3 tests/test_<guard>.py`, `python3 mutants.py`, oracle and replay scripts in each packet folder | The candidate guard, at install time |
 | Sentinel suites | `test-*.sh` beside the sentinel scripts; self-test modes | Sentinel logic, at build time |
@@ -271,7 +278,7 @@ Two structural limits:
 
 | Enterprise item | Fit | Closest equivalent |
 |---|---|---|
-| Chaos platform and game days | No | Section 2.3 rehearsals; guard oracles; hunter passes |
+| Chaos platform and game days | No | Section 2.3 rehearsals; guard oracles; adversarial passes |
 | Load and soak testing | No | Disk and swap sentinels measure real load continuously |
 | Distributed tracing | No | Event ids and Telegram message ids |
 | Central log store | No | Plain files; the dashboard reads event JSONL |

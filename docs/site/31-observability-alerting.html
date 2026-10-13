@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,16 +33,17 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">31</div><div><p class="dg">Operations and security</p>
-<h1>Observability and alerting</h1><p class="meta">2,327 words · <a href="../31-observability-alerting.md">Markdown source</a></p></div></header>
+<h1>Observability and alerting</h1><p class="meta">2,333 words · <a href="../31-observability-alerting.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#1-three-kinds-of-signal">1. Three kinds of signal</a></li><li><a href="#2-signal-flow">2. Signal flow</a></li><li><a href="#3-where-records-are-written">3. Where records are written</a></li><li><a href="#4-signal-inventory-with-default-thresholds">4. Signal inventory with default thresholds</a></li><li><a href="#5-paths-that-reach-the-owner-without-the-orchestrator">5. Paths that reach the owner without the orchestrator</a></li><li><a href="#6-signals-that-look-live-but-are-not">6. Signals that look live but are not</a></li><li><a href="#7-known-limitations">7. Known limitations</a></li><li><a href="#8-design-notes-cheap-additions">8. Design notes: cheap additions</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>What OGL Cortex measures, where each record lands, what writes it, the default thresholds, and who hears about it.</p>
 <p>Related documents: <code>30-sre-runbooks.md</code> (what to do when an alert fires), <code>32-security-red-team-log.md</code> (guards as defences), <code>40-finops-capacity.md</code> (quota and capacity limits), <code>42-chaos-telemetry-determinism.md</code> (raw log formats). Path names (<code>$CTX_ROOT</code>, <code>$SENTINEL_DIR</code>, <code>&lt;seat&gt;</code>) and role names follow the conventions in <code>30-sre-runbooks.md</code>.</p>
 <h2 id="1-three-kinds-of-signal">1. Three kinds of signal</h2>
 <ol type="1">
-<li><strong>Self-reports.</strong> Seats write heartbeats, events and message logs about themselves through the cortextOS bus.</li>
+<li><strong>Self-reports.</strong> Seats write heartbeats, events and message logs about themselves through the OGL Cortex bus.</li>
 <li><strong>Sentinels.</strong> Shell or Python scripts run by launchd (or pm2) outside any model. They check the machine, the quota, credentials and websites. They keep working when every seat is down or capped.</li>
 <li><strong>Agent crons.</strong> The daemon injects a prompt into a seat on a schedule. The seat runs a check and decides whether to speak. These need a live seat with quota.</li>
 </ol>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <p>A <strong>page</strong> means a <code>cortextos bus send-message &lt;seat&gt; high '&lt;text&gt;'</code> call. It lands in that seat's inbox. Most pages go to the orchestrator, which decides whether the owner hears about it. A short list of producers reaches the owner's Telegram directly (section 5), so that a capped or busy orchestrator cannot swallow them.</p>
 <h2 id="2-signal-flow">2. Signal flow</h2>
 <figure class="diagram"><img src="img/e538ceb80159.svg" alt="Diagram"></figure>
@@ -336,7 +338,7 @@
 <tbody>
 <tr>
 <td>Guard verdicts</td>
-<td>PreToolUse guards: shared-surface guard, send guard, attribution lint, Google account guard, brief guard, future-time guard</td>
+<td>PreToolUse guards in <code>&lt;seat&gt;/.claude/hooks/ogl/</code>: ship gate, shared-surface guard, send guard, brief guard, future-time guard</td>
 <td>Per guard (see <code>32-security-red-team-log.md</code>)</td>
 <td>The acting seat</td>
 <td>Exit 2 blocks the call; the reason goes to the model</td>

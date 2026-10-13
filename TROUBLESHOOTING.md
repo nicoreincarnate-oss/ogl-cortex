@@ -26,6 +26,8 @@ Path names: `$CTX_ROOT` is `~/.cortextos/<instance>`; `<instance>` is your daemo
 
 ## 1. "Daemon is not running", but the seats are working
 
+The command-line tool is named `cortextos`.
+
 **Cause.** `cortextos restart`, `stop`, `start` and `doctor` default to `--instance default`, and your shell does not set `CTX_INSTANCE_ID`.
 
 **Check**
@@ -59,7 +61,7 @@ grep -i "SECURITY: ALLOWED_USER" ~/.pm2/logs/cortextos-daemon-out.log | tail -3
 ```bash
 tail -3 $CTX_ROOT/logs/<seat>/outbound-messages.jsonl
 grep -c "fetch failed" ~/.pm2/logs/cortextos-daemon-out.log
-tail -5 ~/.claude/hooks/orwell-lint.log
+tail -5 ~/.ogl-cortex/state/orwell-lint.log
 ```
 
 **Fix.** No line in the outbound log means the send never succeeded: read the guard log and reword. Network dips heal by themselves; if the poller stays dead with a working network, run `pm2 restart cortextos-daemon`. Put any text with `$` in single quotes.
@@ -113,11 +115,11 @@ claude mcp get <name>
 
 **Check**
 ```bash
-tail -5 ~/.claude/hooks/surface-guard.log
-tail -5 ~/.claude/hooks/orwell-lint.log
+tail -5 ~/.ogl-cortex/state/surface-guard.log     # $OGL_STATE_DIR when set
+tail -5 ~/.ogl-cortex/state/orwell-lint.log
 ```
 
-**Fix.** Read the reason and fix the command. For the shared-surface guard, check the consumers it names, take a backup, then release one command with `touch ~/.claude/hooks/.surface-pass-once-$CTX_AGENT_NAME`. For the send guard, reword; the one-send escape is `touch ~/.claude/hooks/.orwell-pass-once-$CTX_AGENT_NAME`. Never disable a guard to get past one block.
+**Fix.** Read the reason and fix the command. For the shared-surface guard, check the consumers it names, take a backup, then release one command with `touch ~/.ogl-cortex/state/.surface-pass-once-$CTX_AGENT_NAME`. For the send guard, reword; the one-send escape is `touch ~/.ogl-cortex/state/.orwell-pass-once-$CTX_AGENT_NAME`. Never disable a guard to get past one block.
 
 **Runbook.** [RB-05](docs/30-sre-runbooks.md#rb-05-swap-spike-or-low-free-disk) for cleanup blocks; [FAQ 4.1 to 4.3 and 4.10](docs/41-support-known-issues-faq.md#4-faq) for the others.
 
@@ -169,10 +171,9 @@ ps aux -m | head -10
 **Check**
 ```bash
 ls ~/.google_workspace_mcp/credentials/
-tail -10 ~/.claude/hooks/gws-account-guard.log
 ```
 
-**Fix.** Retry with the other account before you call it a login problem. Use the MCP only for its bound account. Install `gws-account-guard.py`. If a credential file holds the wrong account, re-authorise it with a script that checks the token's real identity; a human taps the consent screen.
+**Fix.** Retry with the other account before you call it a login problem. Use the MCP only for its bound account. Consider an account guard hook that blocks calls for other accounts (optional, not included in this repository). If a credential file holds the wrong account, re-authorise it with a script that checks the token's real identity; a human taps the consent screen.
 
 **Runbook.** [RB-09](docs/30-sre-runbooks.md#rb-09-google-oauth-on-the-wrong-account)
 

@@ -1,15 +1,17 @@
 # 10. Product Requirements (PRD)
 
-This document states why OGL Cortex exists, who it is for, what it must do, why it is built on cortextOS and Claude Code, and what it does not try to do. Architecture, the execution engine, configuration and fail-safes are in `01-core-architecture.md` to `04-failsafe-boundary-log.md`. Safety, privacy, vendors and setup are in `11-ai-safety-governance.md` to `14-readme-quickstart.md`.
+This document states why OGL Cortex exists, who it is for, what it must do, why it is built on its framework and Claude Code, and what it does not try to do. Architecture, the execution engine, configuration and fail-safes are in `01-core-architecture.md` to `04-failsafe-boundary-log.md`. Safety, privacy, vendors and setup are in `11-ai-safety-governance.md` to `14-readme-quickstart.md`.
 
 ## Terms
 
-- **OGL Cortex**: the cortextOS framework plus the OGL layer on top of it: seat templates, hooks and guards, skills, crons, the memory protocol, approval gates and the ship gate.
+The command-line tool is named `cortextos`.
+
+- **OGL Cortex**: the framework (daemon, bus, CLI, dashboard) plus the OGL layer on top of it: seat templates, hooks and guards, skills, crons, the memory protocol, approval gates and the ship gate.
 - **Owner**: the one person who runs an install and holds every approval.
 - **Seat** (or agent): one long-running Claude Code session with its own name, folder, Telegram bot, memory and role.
 - **Bus**: the `cortextos bus` command family seats use to send messages, create tasks, log events and request approvals.
 - **Cron**: a scheduled prompt the daemon injects into a seat.
-- **Instance**: one runtime state folder, `$CORTEX_HOME/<instance>` (by default `~/.cortextos/default`).
+- **Instance**: one runtime state folder, `$CTX_ROOT` = `~/.cortextos/<instance>` (by default `~/.cortextos/default`).
 
 ---
 
@@ -28,7 +30,7 @@ There is one principal user and a small set of indirect ones.
 | User | Channel | What they get |
 |---|---|---|
 | Owner | Telegram, one bot per seat. Text, voice notes, photos, files | Replies, briefings, deliverables, approval prompts |
-| Owner | cortextOS web dashboard (Next.js, `cortextos dashboard`) | Tasks, heartbeats, approvals, analytics |
+| Owner | OGL Cortex web dashboard (Next.js, `cortextos dashboard`) | Tasks, heartbeats, approvals, analytics |
 | Owner (optional) | A control surface on a private network (for example over Tailscale) | Approve or reject, fleet actions, panic stop |
 | A client (optional) | A client-facing seat whose Telegram chat belongs to the client | Answers inside a narrow scope the owner defines |
 | Clients in general | None. They receive what the owner sends | Sites, documents, campaigns |
@@ -76,7 +78,7 @@ Seat names are free text. Examples in these docs use names like `boss` or `devop
 | Availability | Seats restart on crash and rotate context on a timer (`max_session_seconds`, default about 71 hours). pm2 restarts the daemon |
 | Supervision | pm2 runs `cortextos-daemon` and `cortextos-dashboard`; extra processes (for example an auth sentinel) can be added to `ecosystem.config.js` |
 | Cost | Flat Claude subscription with a weekly cap. Other runtimes (`codex-app-server`, `opencode`, `hermes`) are optional per seat |
-| Data | All state is local files under `$CORTEX_HOME/<instance>` and the org folder. Disk encryption is required |
+| Data | All state is local files under `$CTX_ROOT` and the org folder. Disk encryption is required |
 | Scale | Bounded by one machine and one subscription. Documents 01 and 02 cover seat limits |
 
 ## 6. Non-goals
@@ -90,9 +92,9 @@ Seat names are free text. Examples in these docs use names like `boss` or `devop
 
 ## 7. Build versus buy
 
-OGL Cortex builds on cortextOS (MIT, `github.com/grandamenium/cortextos`) with Claude Code as the agent runtime.
+OGL Cortex builds on an MIT-licensed framework (upstream `github.com/grandamenium/cortextos`) with Claude Code as the agent runtime.
 
-| Need | cortextOS + Claude Code | Agent library (LangChain, CrewAI, AutoGen) | Hosted agent platform |
+| Need | OGL Cortex + Claude Code | Agent library (LangChain, CrewAI, AutoGen) | Hosted agent platform |
 |---|---|---|---|
 | Phone control | Telegram bot per seat, built in | Must be built | Usually web UI |
 | Real tool use on the host (files, browser, git, deploys, local services) | Native to Claude Code | Every tool must be wired | Sandboxed in the vendor cloud |
@@ -113,9 +115,9 @@ Trade-offs of this choice:
 
 | Metric | Source |
 |---|---|
-| Tasks by status and assignee | `$CORTEX_HOME/<instance>/orgs/<org>/tasks/*.json` (`status`, `assigned_to`) |
-| Approvals by category and outcome | `$CORTEX_HOME/<instance>/orgs/<org>/approvals/` |
-| Events (heartbeats, messages, Telegram traffic, completions) | `$CORTEX_HOME/<instance>/orgs/<org>/analytics/events/**/*.jsonl` |
+| Tasks by status and assignee | `$CTX_ROOT/orgs/<org>/tasks/*.json` (`status`, `assigned_to`) |
+| Approvals by category and outcome | `$CTX_ROOT/orgs/<org>/approvals/` |
+| Events (heartbeats, messages, Telegram traffic, completions) | `$CTX_ROOT/orgs/<org>/analytics/events/**/*.jsonl` |
 | Per-seat rollup | `analytics/reports/latest.json` |
 | Correction rate | Count of `truth_correction` events |
 | Quality score | Daily analyst score (theta wave) |

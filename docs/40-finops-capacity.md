@@ -25,6 +25,8 @@ On a flat Claude subscription (for example a Max plan), tokens do not cost money
 | Built-in warning | Claude Code warns near the 5-hour limit. There is no built-in warning for the 7-day window, which is why the quota ledger exists |
 
 Read the meter:
+The command-line tool is named `cortextos`.
+
 ```bash
 cortextos bus check-usage-api --json         # five_hour and seven_day utilisation and resets_at (3-minute cache)
 cortextos bus check-usage-api --force --json # bypass the cache
@@ -34,7 +36,7 @@ cortextos bus list-oauth-accounts            # if you configured more than one a
 ### 2.2 What makes quota burn faster
 
 - **Long sessions with big boot files.** Every turn re-reads the context. Large bootstrap files and long transcripts multiply cost per turn.
-- **Hooks that call a model on every prompt.** A prompt router or digest hook spends quota on every message.
+- **Hooks that call a model on every prompt.** An optional prompt router or digest hook (neither ships with this repository) spends quota on every message.
 - **Background spawns.** Memory-consolidation hooks that start `claude -p` sessions, especially several at once.
 - **Model choice.** Larger models use the same window faster.
 
@@ -116,7 +118,7 @@ If every seat runs on one Claude account, a cap stops the whole fleet. Options: 
 | Claude subscription | Flat monthly | Every Claude seat |
 | The host | Owned hardware, power, internet | Everything |
 | Telegram Bot API | Free | Owner channel |
-| Web hosting (for example Vercel) | Flat monthly per team, plus usage | Sites shipped through `ship.sh` |
+| Web hosting (for example Vercel) | Flat monthly per team, plus usage | Sites shipped through `harness/tools/ship.sh` |
 | DNS and object storage (for example Cloudflare) | Usage-based, often small | Zones, R2, video |
 | Domains | Yearly per domain | Client and own sites |
 | Email sending platform | Monthly or yearly; check which | Outbound campaigns |
@@ -197,7 +199,7 @@ macOS stores swap as files (about 1 GB each) on the same data volume as your fil
 | Local model disk headroom | Free disk at least 2x the model size before any load | Any seat loading a model |
 | Local model announce | Tell infra watch before a download over 1 GB; run with `keep_alive=0` | Every seat |
 | Scratch jobs over 5 GB | Check headroom and cache inventory first | Every seat |
-| No deploys under heavy swap | Pause `ship.sh` until swap settles | Every seat |
+| No deploys under heavy swap | Pause `harness/tools/ship.sh` runs until swap settles | Every seat |
 | Concurrent Claude seats | Stagger boots; keep the active count modest | Orchestrator |
 
 **Why 2x for models.** The download costs the model's size once. Loading it into memory on a host that is already swapping costs about the same again as new swap files.

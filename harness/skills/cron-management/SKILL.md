@@ -8,7 +8,7 @@ triggers: ["every day", "every hour", "every week", "schedule", "recurring", "cr
 
 Derived from the cortextOS `cron-management` skill (MIT). OGL Cortex adds the standing-duty rule and first-fire proof.
 
-Crons live in `$CTX_ROOT/.cortextOS/state/agents/$CTX_AGENT_NAME/crons.json` (`$CTX_ROOT` is `~/.cortextos/<instance>`). The cortextOS daemon dispatches them. They survive
+Crons live in `$CTX_ROOT/.cortextOS/state/agents/$CTX_AGENT_NAME/crons.json` (`$CTX_ROOT` is `~/.cortextos/<instance>`). The OGL Cortex daemon dispatches them. They survive
 session restarts, compaction and daemon restarts. `/loop` and in-session schedulers die with the session: do not use
 them for recurring work.
 

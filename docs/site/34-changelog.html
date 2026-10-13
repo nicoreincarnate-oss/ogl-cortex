@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,16 +33,18 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">34</div><div><p class="dg">Operations and security</p>
-<h1>Changelog</h1><p class="meta">1,865 words · <a href="../34-changelog.md">Markdown source</a></p></div></header>
+<h1>Changelog</h1><p class="meta">2,059 words · <a href="../34-changelog.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#release-map">Release map</a></li><li><a href="#hook-inventory-at-v05">Hook inventory at v0.5</a></li><li><a href="#v05-delete-guards-and-memory-hygiene">v0.5: Delete guards and memory hygiene</a></li><li><a href="#v04-the-guard-layer">v0.4: The guard layer</a></li><li><a href="#v03-send-path-and-ship-path">v0.3: Send path and ship path</a></li><li><a href="#v02-instruments">v0.2: Instruments</a></li><li><a href="#v01-foundation">v0.1: Foundation</a></li><li><a href="#deprecations">Deprecations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
-<article><p>Release notes for the OGL Cortex harness layer: the hooks, guards, sentinels, memory protocol and deploy path that sit on top of the cortextOS framework. Framework changes are tracked upstream in the cortextOS repository.</p>
-<p>Version labels group features in the order they were added. Each entry says what the feature does and why it exists, as a property of the software.</p>
+<article><p>The version labels v0.1 to v0.5 group features in the order they were added. They are not tagged releases.</p>
+<p>Release notes for the OGL Cortex harness layer: the hooks, guards, tools, memory protocol and deploy path that sit on top of the framework. Framework changes are tracked in the upstream framework repository.</p>
+<p>Each entry says what the feature does and why it exists, as a property of the software.</p>
 <p>Related documents: <code>32-security-red-team-log.md</code> (how each guard works), <code>31-observability-alerting.md</code> (each sentinel's thresholds), <code>30-sre-runbooks.md</code> (what to do when one fires).</p>
 <h2 id="release-map">Release map</h2>
-<figure class="diagram"><img src="img/66b1f7882e84.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/9af9c5beef69.svg" alt="Diagram"></figure>
 
 <h2 id="hook-inventory-at-v05">Hook inventory at v0.5</h2>
-<p>A reference orchestrator seat registers these hooks. Specialist seats register a subset.</p>
+<p>An orchestrator seat set up with <code>harness/install.sh</code> registers these hooks. Specialist seats register a subset. Hook files install to <code>&lt;seat&gt;/.claude/hooks/ogl/</code>. Entries marked "not included" describe optional components that this repository does not ship.</p>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <table>
 <thead>
 <tr>
@@ -53,17 +56,17 @@
 <tbody>
 <tr>
 <td>PreToolUse (Bash, send MCPs)</td>
-<td><code>orwell-lint.py</code> send guard</td>
+<td><code>orwell_lint.py</code> send guard</td>
 <td>v0.3</td>
 </tr>
 <tr>
 <td>PreToolUse (Google Workspace MCP)</td>
-<td><code>gws-account-guard.py</code></td>
+<td>account guard (optional, not included)</td>
 <td>v0.4</td>
 </tr>
 <tr>
 <td>PreToolUse (Bash)</td>
-<td><code>shared-surface-guard.py</code> with <code>surface.py</code> and <code>codewrites.py</code></td>
+<td><code>shared_surface_guard.py</code> with <code>surface.py</code> and <code>codewrites.py</code></td>
 <td>v0.4</td>
 </tr>
 <tr>
@@ -78,12 +81,12 @@
 </tr>
 <tr>
 <td>PreToolUse (Bash)</td>
-<td><code>attribution-lint.py</code></td>
+<td>attribution lint (optional, not included)</td>
 <td>v0.4</td>
 </tr>
 <tr>
-<td>PreToolUse (Bash), user level</td>
-<td><code>ship_gate_hook.py</code></td>
+<td>PreToolUse (Bash), seat or user level</td>
+<td><code>ship_gate.py</code></td>
 <td>v0.3</td>
 </tr>
 <tr>
@@ -98,32 +101,32 @@
 </tr>
 <tr>
 <td>SessionEnd</td>
-<td><code>cortextos crash-alert</code>; memory digest</td>
+<td><code>cortextos crash-alert</code>; memory digest (optional, not included)</td>
 <td>framework; v0.4</td>
 </tr>
 <tr>
 <td>PreCompact</td>
-<td><code>cortextos bus hook-compact-telegram</code>; checkpoint script; memory digest</td>
+<td><code>cortextos bus hook-compact-telegram</code>; checkpoint script and memory digest (optional, not included)</td>
 <td>framework; v0.4</td>
 </tr>
 <tr>
 <td>SessionStart</td>
-<td>session inject script; on <code>compact</code>, <code>after_compact.py</code></td>
+<td>on <code>compact</code>, <code>compaction/after_compact.py</code>; session inject script (optional, not included)</td>
 <td>v0.4</td>
 </tr>
 <tr>
 <td>PostToolUse</td>
-<td>compaction meter <code>meter.py</code>; fix-commit hunter trigger</td>
+<td>compaction meter <code>compaction/meter.py</code>; fix-commit trigger (optional, not included)</td>
 <td>v0.4</td>
 </tr>
 <tr>
 <td>PostCompact</td>
-<td><code>save_summary.py</code></td>
+<td><code>compaction/save_summary.py</code></td>
 <td>v0.4</td>
 </tr>
 <tr>
 <td>UserPromptSubmit</td>
-<td>client recall hook; prompt router</td>
+<td>client recall hook and prompt router (optional, not included)</td>
 <td>v0.4</td>
 </tr>
 <tr>
@@ -141,20 +144,20 @@
 <li><strong>U2, trash and Finder deletes.</strong> <code>trash &lt;path&gt;</code> and <code>osascript</code> Finder <code>delete</code> on a protected root count as deletes.</li>
 <li><strong>U3, <code>find</code> as a delete.</strong> <code>find &lt;root&gt; -delete</code> and <code>find -exec</code> running any write verb on <code>{}</code> (<code>rm</code>, <code>truncate</code>, <code>chmod</code>, <code>sed -i</code>, <code>sh -c ': &gt; "$1"'</code>, <code>dd of=</code>) now block.</li>
 <li><strong>U4, transcript and auto-memory protection.</strong> Deletes under <code>~/.claude/projects/</code> block. Writes stay allowed. A single named topic file may still be removed.</li>
-<li>Each U-series packet changes only <code>surface.py</code>. The installer verifies that <code>shared-surface-guard.py</code> and <code>codewrites.py</code> are unchanged.</li>
+<li>Each U-series packet changes only <code>surface.py</code>; <code>shared_surface_guard.py</code> and <code>codewrites.py</code> stay unchanged.</li>
 </ul>
 <h3 id="security">Security</h3>
 <ul>
-<li><strong>Redacted secret scan.</strong> The pentest gate no longer writes raw secret-scan output to disk. Hits are stored as short hashes. An unverified hit with no recorded disposition is a blocker, not a warning.</li>
+<li><strong>Redacted secret scan</strong> (optional, not included in this repository). The pentest gate no longer writes raw secret-scan output to disk. Hits are stored as short hashes. An unverified hit with no recorded disposition is a blocker, not a warning.</li>
 <li><strong>Shared test-fixture list.</strong> Known fake keys used in tests can be marked as fixtures. The list never applies to a verified hit.</li>
 </ul>
 <h3 id="memory-and-knowledge-base">Memory and knowledge base</h3>
 <ul>
-<li><strong>KB replace-by-source.</strong> <code>kb-ingest</code> replaces all chunks from a source file on re-ingest instead of appending. Oversized memory files are refused until pruned.</li>
+<li><strong>KB replace-by-source</strong> (optional, not included in this repository). A guarded <code>kb-ingest</code> wrapper replaces all chunks from a source file on re-ingest instead of appending. Oversized memory files are refused until pruned.</li>
 </ul>
 <h3 id="capacity">Capacity</h3>
 <ul>
-<li><strong>Floor guard without auto-prune.</strong> The disk floor guard pages under 10 GiB and escalates under 6 GiB. It no longer deletes anything by itself.</li>
+<li><strong>Floor guard without auto-prune</strong> (optional, not included in this repository). The disk floor guard pages under 10 GiB and escalates under 6 GiB. It no longer deletes anything by itself.</li>
 </ul>
 <h3 id="known-limitations-in-this-release">Known limitations in this release</h3>
 <ul>
@@ -167,25 +170,25 @@
 <h3 id="new-guards">New guards</h3>
 <ul>
 <li><strong>Shared-surface guard.</strong> Blocks commands that change surfaces other seats depend on: package cache prunes, global package installs, <code>brew upgrade</code>, and writes under <code>~/.claude*</code> and shared credential folders. The block names live consumers. A per-seat pass token releases one command. The parser grew through several revisions to handle multi-line <code>-c</code> code, heredoc redirects, text after an in-word <code>#</code>, <code>$(...)</code> indirection, commands after shell keywords, wrappers, and one invocation parser per shell.</li>
-<li><strong>Google Workspace account guard.</strong> Blocks MCP calls for listed accounts, accounts in an open credential-mismatch episode, and any <code>start_google_auth</code> call.</li>
+<li><strong>Google Workspace account guard</strong> (optional, not included in this repository). Blocks MCP calls for listed accounts, accounts in an open credential-mismatch episode, and any <code>start_google_auth</code> call.</li>
 <li><strong>Fail-closed guards.</strong> The send guard and the shared-surface guard now fail closed when the command is in scope and the guard errors.</li>
 <li><strong>Brief guard.</strong> Cross-seat <code>create-task</code> calls need <code>TASK:</code>, <code>FILES:</code>, <code>BAR:</code> and <code>RETURN:</code> lines.</li>
 <li><strong>Future-time guard.</strong> Refuses writes to memory and <code>STATE.md</code>, and sends, that stamp a UTC time more than 3 minutes ahead of the clock.</li>
-<li><strong>Attribution lint.</strong> Checks that numbers and quotes in outgoing text carry a source. Ships in shadow mode; the send-boundary branch turns on with <code>CTX_SEND_BOUNDARY=1</code>.</li>
+<li><strong>Attribution lint</strong> (optional, not included in this repository). Checks that numbers and quotes in outgoing text carry a source, in a log-only shadow mode first.</li>
 <li><strong>Guard liveness canary.</strong> Each seat's heartbeat attempts one write the shared-surface guard must block. A landed file means the guard is down.</li>
 <li><strong>Code-gate warn window.</strong> New code-analysis rules start in warn mode (<code>SURFACE_CODE_MODE=warn</code>) and move to block after a measured window.</li>
 </ul>
 <h3 id="orchestration">Orchestration</h3>
 <ul>
-<li><strong>STATE.md and compaction hooks.</strong> A meter hook nudges the seat as context grows. After compaction, <code>after_compact.py</code> hands <code>STATE.md</code> back. <code>autoCompactWindow</code> is set in seat settings.</li>
-<li><strong>Hunter passes.</strong> <code>hunter.sh --claim "&lt;rule&gt;" --cd &lt;dir&gt; &lt;files&gt;</code> runs a fenced, read-only adversarial session against one claim. A PostToolUse hook suggests a hunter pass on commits whose subject names a fix, guard, hook, bug, block or gate.</li>
-<li><strong>Auditor subagent.</strong> A read-only subagent (<code>Read</code>, <code>Grep</code>, <code>Glob</code>, <code>WebFetch</code>) that returns <code>VERDICT / EVIDENCE / MISSED / NOT CHECKED / NEXT</code>.</li>
-<li><strong>Brief audit.</strong> A script that labels a worker's writes IN or OUT of the brief's FILES line.</li>
-<li><strong>Memory digest.</strong> SessionEnd and PreCompact hooks start a background digest of the session into searchable memory.</li>
-<li><strong>Prompt router.</strong> A UserPromptSubmit hook picks a reply style with a small model. It injects nothing on timeout or failure. It adds several seconds per message; turn it off if latency matters more.</li>
-<li><strong>Client recall.</strong> A UserPromptSubmit hook injects known facts when a client name appears in a prompt. It never blocks.</li>
+<li><strong>STATE.md and compaction hooks</strong> (<code>harness/hooks/compaction/</code>). A meter hook nudges the seat as context grows. After compaction, <code>after_compact.py</code> hands <code>STATE.md</code> back and <code>save_summary.py</code> saves the summary. <code>autoCompactWindow</code> is set in seat settings.</li>
+<li><strong>Adversarial passes.</strong> <code>harness/tools/adversarial-pass.sh --claim "&lt;rule&gt;" --cd &lt;dir&gt; &lt;files&gt;</code> runs a fenced, read-only adversarial session against one claim. An optional PostToolUse hook (not included) can suggest a pass on commits whose subject names a fix, guard, hook, bug, block or gate.</li>
+<li><strong>Auditor subagent</strong> (optional, not included in this repository). A read-only subagent (<code>Read</code>, <code>Grep</code>, <code>Glob</code>, <code>WebFetch</code>) that returns <code>VERDICT / EVIDENCE / MISSED / NOT CHECKED / NEXT</code>.</li>
+<li><strong>Brief audit.</strong> <code>harness/tools/brief_audit.py</code> labels a worker's writes IN, tmp or OUT of the brief's FILES line.</li>
+<li><strong>Memory digest</strong> (optional, not included in this repository). SessionEnd and PreCompact hooks start a background digest of the session into searchable memory.</li>
+<li><strong>Prompt router</strong> (optional, not included in this repository). A UserPromptSubmit hook picks a reply style with a small model. It injects nothing on timeout or failure. It adds several seconds per message; turn it off if latency matters more.</li>
+<li><strong>Client recall</strong> (optional, not included in this repository). A UserPromptSubmit hook injects known facts when a client name appears in a prompt. It never blocks.</li>
 </ul>
-<h3 id="sentinels-and-capacity">Sentinels and capacity</h3>
+<h3 id="sentinels-and-capacity-optional-not-included-in-this-repository">Sentinels and capacity (optional, not included in this repository)</h3>
 <ul>
 <li><strong>Calendar launchd jobs.</strong> Sentinels use <code>StartCalendarInterval</code> instead of <code>StartInterval</code>, which can stall after sleep. Each job writes a receipt.</li>
 <li><strong>Quota ledger.</strong> Reads plan utilisation every 10 minutes, appends one JSONL line per run, computes pace and a projected 100% time, and pages on <code>PACE</code>, <code>WARN80</code>, <code>DEGRADED90</code>, <code>STALE</code> and <code>DAYBURN</code>. The owner is paged at 7-day 90% and on a proven cap.</li>
@@ -194,22 +197,22 @@
 </ul>
 <h3 id="deploy-path">Deploy path</h3>
 <ul>
-<li><strong>Indexing gate.</strong> <code>ship.sh</code> refuses a candidate whose <code>sitemap.xml</code> or <code>robots.txt</code> is wrong or that sends noindex, and exits 8 if production sends <code>X-Robots-Tag: noindex</code>.</li>
+<li><strong>Indexing gate</strong> (optional, not included in this repository). A gate check that refuses a candidate whose <code>sitemap.xml</code> or <code>robots.txt</code> is wrong or that sends noindex. With <code>harness/tools/ship.sh</code>, put it in the <code>--gate-cmd</code> command.</li>
 </ul>
 <hr />
 <h2 id="v03-send-path-and-ship-path">v0.3: Send path and ship path</h2>
 <h3 id="send-path">Send path</h3>
 <ul>
-<li><strong>Send guard (<code>orwell-lint.py</code>).</strong> Lints outgoing Telegram and mail sends against a fixed rule set before they run. Later revisions lint the full text of multi-line sends and ignore quoted material. A per-seat pass token releases one send.</li>
+<li><strong>Send guard (<code>harness/hooks/orwell_lint.py</code>).</strong> Lints outgoing Telegram and mail sends against a fixed rule set before they run. Later revisions lint the full text of multi-line sends and ignore quoted material. A per-seat pass token releases one send.</li>
 </ul>
 <h3 id="ship-path">Ship path</h3>
 <ul>
-<li><strong><code>ship.sh</code> for every deploy.</strong> Static gate, candidate deploy without the domain, candidate gate, then promote the same build. Exit codes 0 to 8 (see RB-11).</li>
-<li><strong>Pentest gate.</strong> Secret scan, dependency audit, ZAP with <code>--url</code>, header checks, API authorisation evidence with <code>--requires-authz</code>.</li>
-<li><strong>Ship gate hook.</strong> A user-level PreToolUse hook blocks recognised ship commands without a passing report.</li>
-<li><strong>Ship verdict rule.</strong> Only a <code>SHIPPED</code> line or exit 0 counts as shipped.</li>
+<li><strong><code>harness/tools/ship.sh</code> for every deploy.</strong> Static gate, candidate deploy without the domain, candidate gate, then promote the same build, then a live re-check. Exit codes 0, 2 to 7 (see RB-11).</li>
+<li><strong>Pentest gate</strong> (optional, not included in this repository). Secret scan, dependency audit, ZAP with a URL, header checks, API authorisation evidence. <code>ship.sh</code> and the ship gate hook read only its report file.</li>
+<li><strong>Ship gate hook</strong> (<code>harness/hooks/ship_gate.py</code>). A PreToolUse hook at seat or user level blocks recognised ship commands without a passing report.</li>
+<li><strong>Ship verdict rule.</strong> Only exit 0 from <code>ship.sh</code> counts as shipped.</li>
 </ul>
-<h3 id="sentinels">Sentinels</h3>
+<h3 id="sentinels-optional-not-included-in-this-repository">Sentinels (optional, not included in this repository)</h3>
 <ul>
 <li><strong>Auth sentinel.</strong> Probes the Claude login from inside the login session (pm2 loop), so it can reach the keychain. Alerts the owner directly. Classifies alerts as <code>cap</code>, <code>auth</code> or <code>probe</code>, and pages once per cap episode with the reset time instead of a login fix.</li>
 <li><strong>Sender identity.</strong> Every sentinel page names the script that sent it.</li>
@@ -219,22 +222,22 @@
 <h3 id="operations">Operations</h3>
 <ul>
 <li><strong>Claude Code version pin.</strong> The auto-updater is off and the version is pinned. Upgrades go through a daemon-restart preflight.</li>
-<li><strong>Dream brake.</strong> The memory-consolidation Stop hook checks a brake file first, to stop concurrent background spawns.</li>
+<li><strong>Consolidation brake</strong> (optional, not included in this repository). The memory-consolidation Stop hook checks a brake file first, to stop concurrent background spawns.</li>
 </ul>
 <hr />
 <h2 id="v02-instruments">v0.2: Instruments</h2>
 <ul>
-<li><strong>Fleet lint.</strong> A nightly launchd job lints every seat's config and instructions out of band and pages on any non-clean verdict.</li>
-<li><strong>Truth-correction emitter.</strong> <code>emit-truth-correction.sh</code> records a correction to a past claim as an event with a <code>kind</code> (for example <code>artifact_catch</code>), so false-claim catch rates can be measured.</li>
-<li><strong>Boot-time pin.</strong> Sentinels record the host boot time, so a reboot is detected instead of read as a gap.</li>
-<li><strong>KB freshness sentinel.</strong> Pages when the newest <code>ingested_at</code> in the knowledge base is too old.</li>
+<li><strong>Fleet lint</strong> (optional, not included in this repository). A nightly scheduled job lints every seat's config and instructions out of band and pages on any non-clean verdict.</li>
+<li><strong>Truth-correction emitter.</strong> <code>harness/tools/emit-truth-correction.sh</code> records a correction to a past claim as an event with a <code>kind</code> (for example <code>artifact_catch</code>), so false-claim catch rates can be measured.</li>
+<li><strong>Boot-time pin</strong> (optional, not included in this repository). Sentinels record the host boot time, so a reboot is detected instead of read as a gap.</li>
+<li><strong>KB freshness sentinel</strong> (optional, not included in this repository). Pages when the newest <code>ingested_at</code> in the knowledge base is too old.</li>
 <li><strong>Cron watchdog review.</strong> Interval crons whose period is at least the heartbeat period can drift; the documented default is a 5-field wall-clock schedule with a first-fire receipt.</li>
-<li><strong>Control inventory.</strong> A census of every control, with its mechanism and whether it is installed.</li>
+<li><strong>Control inventory</strong> (optional, not included in this repository). A census of every control, with its mechanism and whether it is installed.</li>
 </ul>
 <hr />
 <h2 id="v01-foundation">v0.1: Foundation</h2>
 <ul>
-<li><strong>cortextOS daemon</strong> under pm2 runs every seat as a Claude Code PTY with crash recovery and session rotation (<code>max_session_seconds</code>).</li>
+<li><strong>OGL Cortex daemon</strong> under pm2 runs every seat as a Claude Code PTY with crash recovery and session rotation (<code>max_session_seconds</code>).</li>
 <li><strong>Seats</strong> created from templates (<code>agent</code>, <code>orchestrator</code>, <code>analyst</code>) with bootstrap files: <code>IDENTITY.md</code>, <code>SOUL.md</code>, <code>GUARDRAILS.md</code>, <code>GOALS.md</code>, <code>HEARTBEAT.md</code>, <code>MEMORY.md</code>, <code>USER.md</code>, <code>TOOLS.md</code>, <code>SYSTEM.md</code>.</li>
 <li><strong>Telegram channel</strong> per seat, gated by <code>ALLOWED_USER</code>.</li>
 <li><strong>Bus</strong>: messages, tasks, approvals, events, heartbeats.</li>

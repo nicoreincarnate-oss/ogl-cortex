@@ -8,7 +8,7 @@ Placeholders (`$CORTEX_HOME`, `$CTX_ROOT`, `<instance>`, `<org>`, `<seat>`) are 
 
 ## 1. Summary
 
-1. One Node process, the **cortextOS daemon**, runs under **pm2** (a process supervisor that restarts a crashed program). The daemon starts one **Claude Code** CLI process per enabled seat inside a **pseudo-terminal** (PTY, a fake terminal so the program behaves as if a person were typing). No tmux is involved.
+1. One Node process, the **OGL Cortex daemon**, runs under **pm2** (a process supervisor that restarts a crashed program). The daemon starts one **Claude Code** CLI process per enabled seat inside a **pseudo-terminal** (PTY, a fake terminal so the program behaves as if a person were typing). No tmux is involved.
 2. Every seat runs Claude Code's normal **tool loop**: the model reads its context, calls a tool (Bash, Read, Edit, an MCP tool, a subagent), receives the result, and repeats until it ends its turn. No custom planner sits in front of it.
 3. The daemon talks to a session by **typing into the PTY**. Telegram messages, agent-to-agent messages, cron fires and context warnings all arrive as pasted text. If the model is mid-turn, Claude Code queues the paste and shows it at the next step.
 4. **Hooks** add context to prompts, re-inject state after compaction, and block bad tool calls. A blocking hook returns its reason to the model as the tool result; the model rewrites and retries. Hooks are mechanical, so they outrank written instructions.
@@ -26,6 +26,8 @@ Placeholders (`$CORTEX_HOME`, `$CTX_ROOT`, `<instance>`, `<org>`, `<seat>`) are 
 | `cortextos-daemon` | `$CORTEX_HOME/dist/daemon.js` | `--instance <instance>` | Instance defaults to `default`. `max_restarts` 10 and `restart_delay` act as the crash-storm circuit breaker |
 | `cortextos-dashboard` | `$CORTEX_HOME/dashboard` (Next.js) | port 3001 | Run a production build for long-lived use |
 | optional watchdogs | for example an auth-health loop | none | Separate from the daemon |
+
+The command-line tool is named `cortextos`.
 
 Every `cortextos` command reads `CTX_INSTANCE_ID` to find the runtime root. Outside a seat terminal it defaults to `default`. If your daemon runs another instance name, pass `--instance <instance>` (for example `cortextos restart --instance <instance>`), or the CLI reports "Daemon is not running".
 
@@ -185,11 +187,10 @@ These are Read tool calls, so they land in the conversation, not the system prom
 
 | Event | Hook | What it adds |
 |---|---|---|
-| SessionStart (any) | `<seat>/.claude/hooks/sessionstart-inject.sh` | `[MECHANICAL CHECKPOINT INJECTION]`: the last 4,000 chars of `memory/checkpoints/latest.md` if under 72 h old, the last 3,000 chars of today's (or yesterday's) daily memory, and an ENTITIES.md reminder |
-| SessionStart (`compact`) | `kem-compaction/after_compact.py` | All of `STATE.md`, prefixed "The conversation was just compacted ... Trust it over the summary where they differ" |
-| UserPromptSubmit | `tools/ops-graph/recall_hook.py` | `[client memory graph: ...]` facts, up to 6,000 chars, only when the prompt names a client or person in the graph. Skips `[CRON FIRED` prompts; for Telegram and agent blocks it reads only the newest fenced message |
-| UserPromptSubmit | `tools/prompt-router/router.py` | `[reply style: <style>] <guidance>`. A Haiku call classifies the owner's words into one style from `skins.json`. Crons and agent messages get nothing; any failure injects nothing; each decision is logged to `decisions.jsonl` |
-| PostToolUse | `kem-compaction/meter.py` | The context meter (4.5) |
+| SessionStart (any) | Optional checkpoint-inject hook (not included in this repository) | The newest pre-compaction checkpoint and the tail of today's daily memory, if you add such a hook |
+| SessionStart (`compact`) | `<seat>/.claude/hooks/ogl/compaction/after_compact.py` | All of `STATE.md`, prefixed "The conversation was just compacted ... Trust it over the summary where they differ" |
+| UserPromptSubmit | Optional, not included in this repository | A client-graph recall hook or a reply-style router can inject text here. Keep such hooks silent for cron prompts and agent messages, and make any failure inject nothing |
+| PostToolUse | `<seat>/.claude/hooks/ogl/compaction/meter.py` | The context meter (4.5) |
 | statusLine | `cortextos bus hook-context-status` (every 5 s) | Not model context. Writes `$CTX_ROOT/state/<seat>/context_status.json` for the daemon |
 
 ### 4.5 Compaction and context limits
@@ -199,17 +200,17 @@ Three mechanisms watch context size:
 | Mechanism | Setting | Action | Code / config |
 |---|---|---|---|
 | Claude Code auto-compact | `autoCompactWindow` in `<seat>/.claude/settings.json` | Compacts the conversation in place | Claude Code |
-| Context meter (PostToolUse) | `nudge`, `warning`, `limit` token counts in `kem-compaction/compaction.json` | At nudge: "bring STATE.md up to date at every checkpoint". At warning: "rewrite STATE.md in full, before any other tool call" | `kem-compaction/meter.py` |
+| Context meter (PostToolUse) | `nudge`, `warning`, `limit` token counts in `<seat>/.claude/hooks/ogl/compaction/compaction.json` | At nudge: "bring STATE.md up to date at every checkpoint". At warning: "rewrite STATE.md in full, before any other tool call" | `<seat>/.claude/hooks/ogl/compaction/meter.py` |
 | Daemon fast-checker | `ctx_warning_threshold` and `ctx_handoff_threshold` (percent of the model window) in `config.json`. Code defaults 30 and 60 | Injects `[CONTEXT] Window at N%`, then `[CONTEXT HANDOFF REQUIRED]` (write a handoff doc, hard-restart). Force-restarts after a 5-minute grace if the seat does not comply | `src/daemon/fast-checker.ts` |
 
 Choose one primary policy. With a 1M-token window and `autoCompactWindow` at 430,000, auto-compact always fires before an 80% daemon threshold (800,000 tokens), so the daemon handoff acts only as a backstop. With a small window and no `autoCompactWindow`, the daemon handoff is the primary mechanism.
 
 Around a compaction these hooks run in order:
 
-1. **PreCompact:** `cortextos bus hook-compact-telegram` (Telegram notice), `precompact-checkpoint.sh` (writes the last ~120 transcript lines to `memory/checkpoints/`), `kem-memory/digest/session_end.py` (digest).
+1. **PreCompact:** `cortextos bus hook-compact-telegram` (Telegram notice). Optional hooks not included in this repository can also write a transcript checkpoint or a session digest here.
 2. **Claude Code writes the summary.** A "Compact Instructions" section in `<seat>/CLAUDE.md` tells the summariser what to keep first: current checkpoint and next step, promises to the owner, live surfaces and rollback, plan changes, dead ends, the owner's rules.
-3. **PostCompact:** `kem-compaction/save_summary.py` saves the summary to `compactions/`.
-4. **SessionStart (`compact`):** `sessionstart-inject.sh` and `after_compact.py` hand back the checkpoint, the daily-memory tail and STATE.md.
+3. **PostCompact:** `compaction/save_summary.py` saves the summary to `compactions/`.
+4. **SessionStart (`compact`):** `compaction/after_compact.py` hands back STATE.md.
 
 ### 4.6 Context status bridge
 
@@ -256,7 +257,7 @@ There are two ways to hand work out:
 
 `create-task` with `--assignee` also sends a `normal` inbox message to that seat (`src/cli/bus.ts`).
 
-The OGL orchestrator contract adds four tests before handing work out: it splits into independent pieces; each piece fits a four-line brief; the orchestrator will verify every return; it is worth roughly 15 times the tokens. Any "no" means do the work in one window. A dispatch carries four lines in `--desc`: `TASK:`, `FILES:`, `BAR:`, `RETURN:`. `brief_guard.py` blocks (exit 2) a `create-task --assignee <other seat>` whose description lacks any of them. Before accepting a return, `tools/brief-audit/audit.py <task_id>` lists every file the worker wrote and marks each IN or OUT of the brief's FILES line. Workers that edit code get their own worktree or branch.
+The OGL orchestrator contract adds four tests before handing work out: it splits into independent pieces; each piece fits a four-line brief; the orchestrator will verify every return; it is worth roughly 15 times the tokens. Any "no" means do the work in one window. A dispatch carries four lines in `--desc`: `TASK:`, `FILES:`, `BAR:`, `RETURN:`. `brief_guard.py` blocks (exit 2) a `create-task --assignee <other seat>` whose description lacks any of them. Before accepting a return, `python3 harness/tools/brief_audit.py <task_id>` lists every file the worker wrote and marks each IN or OUT of the brief's FILES line. Workers that edit code get their own worktree or branch.
 
 ### 5.5 Guard hooks and what a block looks like
 
@@ -264,16 +265,14 @@ PreToolUse hooks run before a tool call. Exit code 2 blocks the call, and Claude
 
 | Hook | Matcher | Blocks when | Release |
 |---|---|---|---|
-| `~/.claude/hooks/orwell-lint.py` | Bash; MCP send, reply, post and draft tools | Outgoing human-facing text breaks Orwell's six rules or the no-em-dash rule | One pass token per seat, valid 10 min |
-| `<seat>/.claude/hooks/attribution-lint.py` | Bash | An owner-bound send states a score as fact without a receipt, or presents an estimate as a measurement. Fails closed for owner sends | Rewrite |
-| `~/.claude/hooks/shared-surface-guard.py` | Bash | Changes to shared surfaces: `uv cache prune`, global npm installs, `brew upgrade`, writes to `~/.claude*` or shared credential folders | Pass token after naming consumers and a backup |
-| `~/.claude/hooks/gws-account-guard.py` | `mcp__google-workspace__.*` | A call for a denied account, or a re-auth flow | None by design |
-| `<seat>/.claude/hooks/brief_guard.py` | Bash | Dispatch without TASK, FILES, BAR, RETURN | Add the four lines |
-| `<seat>/.claude/hooks/future_time_guard.py` | Bash, Write, Edit | An `HH:MM UTC` stamp more than 3 min in the future in memory, STATE.md or a send | Use the real clock. Fails open on error |
-| `ship_gate_hook.py` (user level) | Bash | `git push`, `gh pr merge`, `vercel deploy`, `wrangler deploy` and similar with no passing pentest report in the directory tree | Pass the gate |
+| `<seat>/.claude/hooks/ogl/orwell_lint.py` | Bash; MCP send, reply, post and draft tools | Outgoing human-facing text breaks Orwell's six rules or the no-em-dash rule | One pass token per seat, valid 10 min |
+| `<seat>/.claude/hooks/ogl/shared_surface_guard.py` | Bash | Changes to shared surfaces: `uv cache prune`, global npm installs, `brew upgrade`, writes to `~/.claude*` or shared credential folders | Pass token after naming consumers and a backup |
+| `<seat>/.claude/hooks/ogl/brief_guard.py` | Bash | Dispatch without TASK, FILES, BAR, RETURN | Add the four lines |
+| `<seat>/.claude/hooks/ogl/future_time_guard.py` | Bash, Write, Edit | An `HH:MM UTC` stamp more than 3 min in the future in memory, STATE.md or a send | Use the real clock. Fails open on error |
+| `<seat>/.claude/hooks/ogl/ship_gate.py` | Bash | `git push`, `gh pr merge`, `vercel deploy`, `wrangler deploy` and similar with no passing pentest report in the directory tree | Pass the gate |
 | `cortextos bus hook-ask-telegram` | AskUserQuestion | Not a block. Forwards the question to Telegram | n/a |
 
-Example block and rewrite from `~/.claude/hooks/orwell-lint.log`:
+Example block and rewrite from `$OGL_STATE_DIR/orwell-lint.log` (default `~/.ogl-cortex/state/`):
 
 ```
 <ts> BLOCK Bash 1 issues: 'Understood. The 4 core documents are being written by 4 agents i...'
@@ -282,7 +281,7 @@ Example block and rewrite from `~/.claude/hooks/orwell-lint.log`:
 
 The passive "are being written" was blocked. Seconds later the active rewrite passed.
 
-Other tool-related hooks: PostToolUse `tools/adversarial-trigger/fix_commit_hook.py` on Bash; Stop `~/.claude/skills/aa-dream/dream-hook.sh`; SessionEnd `cortextos crash-alert` (Telegram notice that distinguishes planned from unplanned exits) and the session digest.
+Other tool-related hooks: SessionEnd `cortextos crash-alert` (Telegram notice that distinguishes planned from unplanned exits). An optional post-commit adversarial trigger and a session digest are not included in this repository.
 
 ---
 
@@ -317,7 +316,7 @@ The timestamp keeps the dedup check from rejecting the same prompt on the next f
 
 Schedules are intervals (`20m`, `4h`) counted from the last fire, or 5-field cron expressions evaluated on the daemon's local clock. Set `TZ` for the daemon to the timezone you want cron expressions to use. After downtime, the scheduler fires once for the most recent missed slot, not once per missed slot.
 
-A fire is pasted text. If the seat is busy, it waits in Claude Code's queue like any message. Prompt hooks can treat it differently: the reference `recall_hook.py` skips it and `router.py` gives it no reply style. Cron prompts should end with `cortextos bus update-cron-fire <name>` so the seat records a completed run.
+A fire is pasted text. If the seat is busy, it waits in Claude Code's queue like any message. Prompt hooks can treat it differently: an optional recall hook or reply-style router (neither is included in this repository) should skip cron fires. Cron prompts should end with `cortextos bus update-cron-fire <name>` so the seat records a completed run.
 
 ```mermaid
 sequenceDiagram

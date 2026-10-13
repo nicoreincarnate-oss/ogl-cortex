@@ -6,13 +6,15 @@ This document defines the rules that govern what OGL Cortex agents may do to the
 
 Enterprise AI governance means an ethics board, model cards, a responsible-AI policy, red-team programmes and audit committees. OGL Cortex runs one owner and a fleet of Claude Code seats. The equivalents are:
 
+The command-line tool is named `cortextos`.
+
 | Enterprise item | OGL Cortex equivalent | Where it lives |
 |---|---|---|
 | AI ethics board / risk committee | The owner, plus an auditor seat whose role is "forensic auditor and quality enforcer; escalate severity to the owner" | `cortextos bus list-agents` role text |
 | Responsible-AI policy | `GUARDRAILS.md` per seat and the "Cardinal rules" block in the org `knowledge.md` | seat and org files |
 | Model inventory | The model column of `cortextos status` and each seat's `config.json` `model` | `cortextos status --instance <instance>` |
-| Red-team programme | Fenced adversarial passes with `hunter.sh`: one claim, a fresh read-only session, one round | seat `CLAUDE.md` "Adversarial passes" |
-| Pre-release security review | The Cortex pentest gate and `ship.sh` | `~/.claude/CLAUDE.md`; `GUARDRAILS.md` |
+| Red-team programme | Fenced adversarial passes with `harness/tools/adversarial-pass.sh`: one claim, a fresh read-only session, one round | seat `CLAUDE.md` "Adversarial passes" |
+| Pre-release security review | Your pentest gate command, the ship gate hook and `harness/tools/ship.sh` | `~/.claude/CLAUDE.md`; `GUARDRAILS.md` |
 | Incident and correction register | `memory/topics/incidents.md` and `truth_correction` events on the bus | seat memory; analytics event store |
 | Human-in-the-loop policy | Approval categories and the approval bus | `USER.md`; `cortextos bus create-approval` |
 
@@ -57,8 +59,8 @@ sequenceDiagram
 | Rule | What it says | Enforcement |
 |---|---|---|
 | No website changes without the owner | Never change a website without explicit owner approval via Telegram. No edit is too small. Covers client sites and any backend tied to them | Instruction, plus the deploy gate below. No hook checks for an approval id |
-| Pentest gate before anything ships | Run the `cortex-pentest-gate` skill first. Required artifact: `security/pentest-gate-report.json` with `"status": "pass"`, or an explicit owner risk acceptance in `security/pentest-risk-acceptance.md` | Mechanical: user-level PreToolUse hook `ship_gate_hook.py` blocks `git push`, `vercel deploy`, `npm publish`, `wrangler deploy`, `scp`, `rsync` over ssh and similar without a passing report |
-| Every site deploy goes through `ship.sh` | Never type a production deploy command directly for a site | Wrapper script |
+| Pentest gate before anything ships | Run your pentest gate first (any scanner that writes the report; not included in this repository). Required artifact: `security/pentest-gate-report.json` with `"status": "pass"`, or an explicit owner risk acceptance in `security/pentest-risk-acceptance.md` | Mechanical: PreToolUse hook `ship_gate.py` (seat or user level) blocks `git push`, `vercel deploy`, `npm publish`, `wrangler deploy`, `scp`, `rsync` over ssh and similar without a passing report |
+| Every site deploy goes through `harness/tools/ship.sh` | Never type a production deploy command directly for a site | Wrapper script |
 | Agents do not send client email | Customer email is the owner's send. "Write" is not "send" | Instruction, plus the Orwell lint on outgoing mail tools |
 | Business-lane hard gates | No live-site edits, CRM writes, lead imports, calls, sends, SMS registration, workflow activation, credential work or other external movement without explicit approval | Instruction |
 | No restart without inventory | Before a daemon restart: inventory every ancillary service, verify launchd `RunAtLoad` and `KeepAlive`, show the owner a checklist, restart only on an explicit go | Instruction |
@@ -103,7 +105,7 @@ Pre-launch sites are the highest-risk surface for invented social proof: a site 
 | Corrections go through a tool | Statements wrong at the time of writing are corrected with `emit-truth-correction.sh` and verified in the raw event log | seat tools |
 | Sent claims need a send record | End-of-turn text never reaches Telegram. A claim that something was sent cites the outbound log id | auto-memory |
 
-The rules form a correction loop. The truth ledger records each catch; the auditor scores the catch rate nightly. They reduce repeat errors. They do not prevent a first error, which is why the narrow mechanical checks (attribution lint, future-time guard) exist.
+The rules form a correction loop. The truth ledger records each catch; the auditor scores the catch rate nightly. They reduce repeat errors. They do not prevent a first error, which is why narrow mechanical checks such as the future-time guard exist.
 
 ## 5. Regulatory and platform considerations
 
@@ -133,7 +135,7 @@ OGL Cortex ships no general copyright policy. Set one per install. Guidance:
 | Third-party web tools | Flag every free web tool that stores uploads in the seat `TOOLS.md`, and never upload client files to a flagged tool |
 | Product names | Record trademark risk calls and the owner's ruling in `ENTITIES.md` so agents do not re-raise settled questions |
 
-A licence check step (fonts, images, third-party code) is a good addition to `ship.sh` and the truth audit for any fleet that builds client sites.
+A licence check step (fonts, images, third-party code) is a good addition to the gate command `harness/tools/ship.sh` runs and to the truth audit for any fleet that builds client sites.
 
 ## 7. Secrets
 
@@ -177,11 +179,10 @@ Rules held only by memory fail under load. These hooks turn rules into blocks. `
 
 | Hook | Rule it enforces | Where configured |
 |---|---|---|
-| `ship_gate_hook.py` | Pentest gate before outward-facing commands | `~/.claude/settings.json` PreToolUse (user level) |
-| `orwell-lint.py` | Plain-English lint on outgoing sends | seat `.claude/settings.json` |
-| `gws-account-guard.py` | Blocks Google Workspace MCP calls for accounts on the always-block list | seat `.claude/settings.json` |
-| `shared-surface-guard.py` | Blocks changes to surfaces other seats depend on (uv cache, global npm, `~/.claude*`, Google credentials) | every seat `.claude/settings.json` |
-| `attribution-lint.py`, `brief_guard.py`, `future_time_guard.py` | Attribution on owner sends; dispatch briefs carry TASK, FILES, BAR, RETURN; no future timestamps | orchestrator `.claude/settings.json` |
+| `ship_gate.py` | Pentest gate before outward-facing commands | seat `.claude/settings.json`, or `~/.claude/settings.json` with `install.sh --user-level` |
+| `orwell_lint.py` | Plain-English lint on outgoing sends | seat `.claude/settings.json`, or user level |
+| `shared_surface_guard.py` | Blocks changes to surfaces other seats depend on (uv cache, global npm, `brew upgrade`, `~/.claude*`, roots in `OGL_SURFACE_EXTRA_ROOTS`) | every seat `.claude/settings.json`, or user level |
+| `brief_guard.py`, `future_time_guard.py` | Dispatch briefs carry TASK, FILES, BAR, RETURN; no future timestamps | orchestrator `.claude/settings.json` |
 | `cortextos bus hook-permission-telegram`, `hook-planmode-telegram` | Permission prompts and plan mode go to the owner on Telegram | seat `.claude/settings.json` |
 
 ## 9. Model and prompt-injection risk
@@ -209,7 +210,7 @@ Rules held only by memory fail under load. These hooks turn rules into blocks. `
 ## Design notes
 
 - Decide whether website deploys should be blocked mechanically unless they cite an approval id, the same way they are blocked without a pentest pass.
-- Decide whether a licence check belongs in `ship.sh` for client sites.
+- Decide whether a licence check belongs in the gate command `ship.sh` runs for client sites.
 - Decide whether customer-facing bots must state that they are AI.
 
 ## Source files
@@ -220,4 +221,4 @@ Rules held only by memory fail under load. These hooks turn rules into blocks. `
 - `src/hooks/hook-planmode-telegram.ts`
 - `src/cli/bus.ts` (`create-approval`, `update-approval`, `log-event`)
 - `templates/` (seat `GUARDRAILS.md`, `USER.md`, `TOOLS.md`)
-- OGL layer: `hooks/orwell-lint.py`, `hooks/gws-account-guard.py`, `hooks/shared-surface-guard.py`, `cortex-pentest-gate/scripts/ship_gate_hook.py`
+- OGL layer: `harness/hooks/orwell_lint.py`, `harness/hooks/shared_surface_guard.py`, `harness/hooks/ship_gate.py`, `harness/tools/ship.sh`

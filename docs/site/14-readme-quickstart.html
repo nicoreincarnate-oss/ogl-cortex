@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,13 +33,14 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">14</div><div><p class="dg">Strategy and governance</p>
-<h1>README and quickstart: install, run, change safely, ship</h1><p class="meta">3,087 words · <a href="../14-readme-quickstart.md">Markdown source</a></p></div></header>
+<h1>README and quickstart: install, run, change safely, ship</h1><p class="meta">3,177 words · <a href="../14-readme-quickstart.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-prerequisites">1. Prerequisites</a></li><li><a href="#2-install">2. Install</a></li><li><a href="#3-first-boot">3. First boot</a></li><li><a href="#4-the-instance-flag">4. The instance flag</a></li><li><a href="#5-start-stop-restart">5. Start, stop, restart</a></li><li><a href="#6-talking-to-the-fleet">6. Talking to the fleet</a></li><li><a href="#7-adding-a-seat">7. Adding a seat</a></li><li><a href="#8-crons">8. Crons</a></li><li><a href="#9-logs-and-state">9. Logs and state</a></li><li><a href="#10-changing-the-harness-safely">10. Changing the harness safely</a></li><li><a href="#11-ci-and-the-ship-chain">11. CI and the ship chain</a></li><li><a href="#12-troubleshooting-quick-table">12. Troubleshooting quick table</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document takes a new operator from an empty machine to a running OGL Cortex fleet, then covers daily operation, safe changes and the ship chain. Internals are in <code>01-core-architecture.md</code> and <code>02-execution-engine.md</code>. Settings are in <code>03-configuration-registry.md</code>. Guards are in <code>04-failsafe-boundary-log.md</code>.</p>
-<p>Every <code>cortextos</code> command below was checked against the CLI's <code>--help</code> output. Commands from the OGL layer (the ship wrapper and the pentest gate) are marked as such; their location depends on how you install the layer.</p>
+<p>The command-line tool is named <code>cortextos</code>.</p>
+<p>Every <code>cortextos</code> command below was checked against the CLI's <code>--help</code> output. Commands from the OGL layer are marked as such and live in this repo's <code>harness/</code> folder (<code>harness/tools/ship.sh</code>, <code>harness/install.sh</code>). The pentest gate is your own scanner and is not included.</p>
 <h2 id="terms">Terms</h2>
 <ul>
-<li><strong>Instance</strong>: one runtime state folder, <code>$CORTEX_HOME/&lt;instance&gt;</code>. <code>$CORTEX_HOME</code> is <code>~/.cortextos</code>. The default instance id is <code>default</code>.</li>
+<li><strong>Instance</strong>: one runtime state folder, <code>$CTX_ROOT</code> = <code>~/.cortextos/&lt;instance&gt;</code>. The default instance id is <code>default</code>. <code>$CORTEX_HOME</code> is the framework checkout (for example <code>~/cortextos</code>).</li>
 <li><strong>Org</strong>: a group of seats that share a knowledge base, tasks and approvals. Lives in the framework checkout at <code>orgs/&lt;org&gt;/</code>.</li>
 <li><strong>Seat</strong>: one agent, in <code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/</code>.</li>
 <li><strong>Daemon</strong>: the Node process (<code>dist/daemon.js</code>) that keeps every seat's Claude Code session alive.</li>
@@ -82,7 +84,7 @@
 </tr>
 <tr>
 <td>Optional: whisper.cpp model</td>
-<td><code>scripts/install-whisper-model.sh</code></td>
+<td><code>scripts/install-whisper-model.sh</code> in the framework repo</td>
 <td>Local voice-note transcription</td>
 </tr>
 <tr>
@@ -121,7 +123,7 @@
 <div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> ecosystem <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span> --org <span class="op">&lt;</span>org<span class="op">&gt;</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">pm2</span> start ecosystem.config.js <span class="kw">&amp;&amp;</span> <span class="ex">pm2</span> save <span class="kw">&amp;&amp;</span> <span class="ex">pm2</span> startup</span></code></pre></div>
 <h3 id="23-add-the-ogl-layer">2.3 Add the OGL layer</h3>
-<p>The OGL layer is seat files and hooks, not a framework fork. For each seat, copy from this repo's <code>harness/</code> folder:</p>
+<p>The OGL layer is seat files and hooks, not a framework fork. For each seat, <code>harness/install.sh &lt;seat-dir&gt; --apply</code> installs from this repo's <code>harness/</code> folder:</p>
 <table>
 <thead>
 <tr>
@@ -131,19 +133,19 @@
 </thead>
 <tbody>
 <tr>
-<td>Bootstrap files (<code>CLAUDE.md</code>, <code>GUARDRAILS.md</code>, <code>MEMORY.md</code>, <code>USER.md</code>, <code>SYSTEM.md</code>, <code>TOOLS.md</code>, <code>HEARTBEAT.md</code>)</td>
+<td>Seat templates (<code>harness/templates/CLAUDE.md</code>, <code>harness/templates/STATE.md</code>); the other bootstrap files come from the framework template</td>
 <td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/</code></td>
 </tr>
 <tr>
-<td>Seat hooks and <code>settings.json</code></td>
-<td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/</code></td>
+<td>Hooks (<code>harness/hooks/</code>) and the <code>settings.example.json</code> block</td>
+<td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/hooks/ogl/</code>, merged into <code>.claude/settings.json</code></td>
 </tr>
 <tr>
-<td>User-level hooks (surface guard, send lint, account guard)</td>
-<td><code>~/.claude/hooks/</code>, registered in <code>~/.claude/settings.json</code></td>
+<td>Optional user-level guards (ship gate, surface guard, send lint), with <code>--user-level</code></td>
+<td><code>~/.claude/hooks/ogl/</code>, registered in <code>~/.claude/settings.json</code></td>
 </tr>
 <tr>
-<td>Skills</td>
+<td>Skills (<code>harness/skills/</code>)</td>
 <td><code>orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/skills/&lt;skill&gt;/SKILL.md</code></td>
 </tr>
 <tr>
@@ -152,7 +154,7 @@
 </tr>
 </tbody>
 </table>
-<p>Status: the <code>harness/</code> contents and an installer are part of this repo's build. Check the repo root README for the current install script before copying by hand.</p>
+<p>The installer is a dry run unless you pass <code>--apply</code>. See <a href="../harness/README.md"><code>harness/README.md</code></a> for what it writes and how to remove it.</p>
 <h2 id="3-first-boot">3. First boot</h2>
 <h3 id="31-the-architecture-you-just-started">3.1 The architecture you just started</h3>
 <figure class="diagram"><img src="img/9154f9c06e9d.svg" alt="Diagram"></figure>
@@ -171,7 +173,7 @@
 </ol>
 <h2 id="4-the-instance-flag">4. The instance flag</h2>
 <p>Every lifecycle command defaults to <code>--instance default</code>: <code>install</code>, <code>setup</code>, <code>init</code>, <code>add-agent</code>, <code>start</code>, <code>stop</code>, <code>restart</code>, <code>enable</code>, <code>disable</code>, <code>doctor</code>, <code>dashboard</code>, <code>ecosystem</code>. <code>status</code> and <code>list-agents</code> take <code>--instance</code> with no default.</p>
-<p>If your fleet runs under another instance id and you leave the flag off, the CLI reads <code>$CORTEX_HOME/default</code> and reports "Daemon is not running" while the daemon is healthy. Do not run <code>cortextos start</code> in response; it can create orphan processes.</p>
+<p>If your fleet runs under another instance id and you leave the flag off, the CLI reads <code>~/.cortextos/default</code> and reports "Daemon is not running" while the daemon is healthy. Do not run <code>cortextos start</code> in response; it can create orphan processes.</p>
 <p>Rule: pass <code>--instance &lt;instance&gt;</code> on every lifecycle command, or use the instance id <code>default</code> for single-fleet installs.</p>
 <h2 id="5-start-stop-restart">5. Start, stop, restart</h2>
 <table>
@@ -287,7 +289,7 @@
 <td>An entrypoint can start a job that sends or posts</td>
 </tr>
 <tr>
-<td>Read <code>$CORTEX_HOME/&lt;instance&gt;/logs/&lt;seat&gt;/restarts.log</code> before deciding why a seat restarted</td>
+<td>Read <code>$CTX_ROOT/logs/&lt;seat&gt;/restarts.log</code> before deciding why a seat restarted</td>
 <td></td>
 </tr>
 <tr>
@@ -394,7 +396,7 @@ The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code
 </tr>
 </tbody>
 </table>
-<p>Storage: <code>$CORTEX_HOME/&lt;instance&gt;/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code>, envelope <code>{ "updated_at": "&lt;ISO&gt;", "crons": [ ... ] }</code>, written atomically (<code>src/bus/crons.ts</code>, <code>src/bus/crons-schema.ts</code>). The daemon owns dispatch and reloads the file across restarts.</p>
+<p>Storage: <code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code>, envelope <code>{ "updated_at": "&lt;ISO&gt;", "crons": [ ... ] }</code>, written atomically (<code>src/bus/crons.ts</code>, <code>src/bus/crons-schema.ts</code>). The daemon owns dispatch and reloads the file across restarts.</p>
 <p>Guidance:</p>
 <ul>
 <li>Prefer 5-field wall-clock expressions (<code>"0 8 * * *"</code>). An interval at or above the heartbeat length can starve on the scheduler.</li>
@@ -413,7 +415,7 @@ The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code
 <tbody>
 <tr>
 <td>Per-seat logs</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/logs/&lt;seat&gt;/</code> (<code>stdout.log</code>, <code>crashes.log</code>, <code>restarts.log</code>, <code>inbound-messages.jsonl</code>, <code>outbound-messages.jsonl</code>)</td>
+<td><code>$CTX_ROOT/logs/&lt;seat&gt;/</code> (<code>stdout.log</code>, <code>crashes.log</code>, <code>restarts.log</code>, <code>inbound-messages.jsonl</code>, <code>outbound-messages.jsonl</code>)</td>
 </tr>
 <tr>
 <td>pm2 logs</td>
@@ -421,19 +423,19 @@ The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code
 </tr>
 <tr>
 <td>Tasks, approvals, events</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/{tasks,approvals,analytics}</code></td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/{tasks,approvals,analytics}</code></td>
 </tr>
 <tr>
 <td>Crons</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code></td>
+<td><code>$CTX_ROOT/.cortextOS/state/agents/&lt;seat&gt;/crons.json</code></td>
 </tr>
 <tr>
 <td>Seat runtime state and scripts</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/state/&lt;seat&gt;/</code></td>
+<td><code>$CTX_ROOT/state/&lt;seat&gt;/</code></td>
 </tr>
 <tr>
 <td>Knowledge base</td>
-<td><code>$CORTEX_HOME/&lt;instance&gt;/orgs/&lt;org&gt;/knowledge-base/</code> (<code>config.json</code>, <code>chromadb/</code>)</td>
+<td><code>$CTX_ROOT/orgs/&lt;org&gt;/knowledge-base/</code> (<code>config.json</code>, <code>chromadb/</code>)</td>
 </tr>
 <tr>
 <td>Seat memory</td>
@@ -533,7 +535,7 @@ The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code
 </ul>
 <p>CI runs only on code pushed to GitHub. A local-only checkout gets the same checks from <code>npm run build &amp;&amp; npm test</code> by hand.</p>
 <h3 id="112-shipping-a-website">11.2 Shipping a website</h3>
-<figure class="diagram"><img src="img/72cd34944646.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/752d0a0bb057.svg" alt="Diagram"></figure>
 
 <table>
 <thead>
@@ -549,27 +551,27 @@ The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code
 </tr>
 <tr>
 <td>Wrapper (OGL layer)</td>
-<td><code>bash $CORTEX_HOME/&lt;instance&gt;/state/&lt;deploy-seat&gt;/scripts/ship.sh &lt;abs-dir&gt; &lt;prod-url&gt; [--deploy-cmd "&lt;cmd&gt;"] [--no-index-check "&lt;reason&gt;"]</code></td>
+<td><code>harness/tools/ship.sh &lt;dir&gt; &lt;prod-url&gt; --gate-cmd "&lt;cmd&gt;" [--deploy-cmd "&lt;cmd&gt;"] [--promote-cmd "&lt;cmd&gt;"] [--remove-cmd "&lt;cmd&gt;"]</code>. Each option can also come from <code>OGL_SHIP_GATE_CMD</code>, <code>OGL_SHIP_DEPLOY_CMD</code>, <code>OGL_SHIP_PROMOTE_CMD</code>, <code>OGL_SHIP_REMOVE_CMD</code></td>
 </tr>
 <tr>
-<td>Default deploy</td>
-<td><code>vercel deploy --prod --skip-domain --yes --format json</code> inside <code>&lt;dir&gt;</code>. The candidate builds with production env but no domain. <code>vercel promote --yes</code> runs only after the candidate passes, so the artifact that passed is the artifact that goes live</td>
+<td>Deploy modes</td>
+<td>Default deploy command: <code>vercel deploy --prod --yes</code> (direct mode). For preview-then-promote on Vercel pass <code>--deploy-cmd 'vercel deploy --prod --skip-domain --yes --format json' --promote-cmd 'vercel promote --yes' --remove-cmd 'vercel remove --yes'</code>. The promote runs only after the candidate passes, so the artifact that passed is the artifact that goes live</td>
 </tr>
 <tr>
 <td>Abort conditions</td>
-<td>Missing or invalid gate URL; gate status not pass; ZAP not completed or return code not 0 or 2; any High finding; a report older than the step's start; candidate not HTTP 200</td>
+<td>Gate report missing, not written during that step, or status not <code>pass</code>; deploy command fails or prints no candidate URL; candidate or prod not HTTP 200</td>
 </tr>
 <tr>
 <td>Index checks</td>
-<td>Candidate <code>sitemap.xml</code> and <code>robots.txt</code> answer 200 and point at the production host; no <code>noindex</code> meta on the candidate root</td>
+<td>Not built in. Put <code>sitemap.xml</code>, <code>robots.txt</code> and <code>noindex</code> checks in your gate command if you need them</td>
 </tr>
 <tr>
 <td>Exit codes</td>
-<td>0 shipped; 2 usage; 3 aborted before deploy; 4 candidate deploy failed; 5 promoted but prod does not serve the candidate; 6 candidate failed, prod untouched; 7 promote did not take; 8 shipped with a <code>noindex</code> header warning</td>
+<td>0 shipped; 2 usage error; 3 pre-deploy gate failed, nothing deployed; 4 deploy failed or no candidate URL, prod untouched; 5 live and wrong (prod not 200 or live gate failed); 6 candidate failed, prod untouched; 7 promote failed, prod on the old deployment</td>
 </tr>
 <tr>
-<td>Pentest gate (OGL layer)</td>
-<td><code>python3 &lt;gate-dir&gt;/cortex_pentest_gate.py &lt;root&gt; --output security [--url &lt;url&gt;] [--requires-authz --authz-evidence &lt;file&gt;] [--skip-zap]</code>. Passing state: <code>security/pentest-gate-report.json</code> has <code>"status": "pass"</code></td>
+<td>Pentest gate (bring your own; not included)</td>
+<td>Any command that scans <code>&lt;dir&gt;</code> (and the URL in <code>$1</code> when given) and writes <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code>. <code>ship.sh</code> runs it as <code>bash -c "&lt;cmd&gt;" _ "&lt;url&gt;"</code></td>
 </tr>
 <tr>
 <td>Risk acceptance</td>
@@ -577,11 +579,11 @@ The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code
 </tr>
 <tr>
 <td>Hook backstop (OGL layer)</td>
-<td>A user-level PreToolUse hook (<code>ship_gate_hook.py</code>) blocks <code>git push</code>, <code>gh release</code>, <code>gh pr merge</code>, <code>npm publish</code>, <code>vercel deploy</code>, <code>netlify deploy</code>, <code>firebase deploy</code>, <code>wrangler deploy</code>, <code>railway up</code>, <code>scp</code>, <code>sftp</code>, <code>rsync</code> over ssh and similar unless a passing gate report exists in the working folder or a parent</td>
+<td>The PreToolUse hook <code>harness/hooks/ship_gate.py</code> (installed to <code>&lt;seat&gt;/.claude/hooks/ogl/</code>, or <code>~/.claude/hooks/ogl/</code> with <code>--user-level</code>) blocks <code>git push</code>, <code>gh release</code>, <code>gh pr merge</code>, <code>npm publish</code>, <code>vercel deploy</code>, <code>netlify deploy</code>, <code>firebase deploy</code>, <code>wrangler deploy</code>, <code>railway up</code>, <code>scp</code>, <code>sftp</code>, <code>rsync</code> over ssh and similar unless a passing gate report exists in the working folder or a parent</td>
 </tr>
 </tbody>
 </table>
-<p>Rollback: on candidate failure, production is untouched. After a bad promote (exit 5), promote the previous deployment again with <code>vercel promote</code> or re-point the alias.</p>
+<p>Rollback: on candidate failure, production is untouched. After exit 5 (live and wrong), promote the previous deployment again with <code>vercel promote</code> or re-point the alias.</p>
 <h3 id="113-deploy-rules">11.3 Deploy rules</h3>
 <table>
 <thead>

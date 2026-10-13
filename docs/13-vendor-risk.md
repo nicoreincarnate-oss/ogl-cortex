@@ -22,6 +22,8 @@ Tiers:
 
 ## 1. Tier 1: required foundations
 
+The command-line tool is named `cortextos`.
+
 | Vendor | Role in OGL Cortex | Data sent | If it stops | Risk controls |
 |---|---|---|---|---|
 | **Anthropic (Claude, Claude Code)** | Runtime for every `claude-code` seat | Everything a seat reads or writes | Seats stop reasoning. The daemon and crons keep firing into idle sessions | Pin the Claude Code version and trial upgrades on one seat. Watch the weekly usage cap; a cap-out looks like a hung seat. Configure OAuth account rotation (`cortextos bus list-oauth-accounts` shows the pool) |

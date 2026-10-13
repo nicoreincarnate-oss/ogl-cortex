@@ -44,8 +44,8 @@ Hooks load from two settings scopes. Each scope fences a different set of sessio
 
 | Settings file | Scope | Default OGL Cortex content |
 |---|---|---|
-| `~/.claude/settings.json` | Every Claude Code session for that OS user, including desktop sessions the owner opens by hand | The ship gate |
-| `$CORTEX_HOME/orgs/<org>/agents/<seat>/.claude/settings.json` | Sessions started in that seat folder | The orchestrator template registers about two dozen hook commands across 9 events: PermissionRequest, PreToolUse, PostToolUse, Stop, SessionEnd, PreCompact, PostCompact, SessionStart, UserPromptSubmit. Every seat template registers the shared-surface guard |
+| `~/.claude/settings.json` | Every Claude Code session for that OS user, including desktop sessions the owner opens by hand | Nothing by default. With `harness/install.sh --user-level`: the ship gate, shared-surface guard and Orwell send-lint, in `~/.claude/hooks/ogl/` |
+| `$CORTEX_HOME/orgs/<org>/agents/<seat>/.claude/settings.json` | Sessions started in that seat folder | The framework template hooks (Telegram relays, loop detector, idle flag, crash alert, compaction notice) plus the OGL block from `harness/settings.example.json`, merged by `harness/install.sh`. Hook scripts live in `<seat>/.claude/hooks/ogl/` |
 
 Default guard placement:
 
@@ -53,35 +53,34 @@ Default guard placement:
 |---|---|
 | Shared-surface guard | All seats. The builder runs full block mode; other seats start with `SURFACE_CODE_MODE=warn` for the code-analysis rule |
 | Orwell send-guard | Every seat that writes to a human |
-| Google Workspace account guard | Seats that use the Google Workspace MCP |
-| Brief guard, future-time guard, attribution lint, compaction meter | The orchestrator |
+| Brief guard, future-time guard, compaction kit | The orchestrator, and any seat with long sessions |
 
 Option: a guard registered only in seat settings does not fence a desktop session the owner starts outside the seat folders. To put home-wide cleanups behind the same fences, also register the shared-surface guard in `~/.claude/settings.json` and give the owner a personal pass token.
 
 ### 1.2 Mechanical guards
 
+The command-line tool is named `cortextos`.
+
 | # | Guard (file) | Event and matcher | What it blocks | Mode | How to release | Tests |
 |---|---|---|---|---|---|---|
-| 1 | Shared-surface guard (`~/.claude/hooks/shared-surface-guard.py`, parser `surface.py`, code reader `codewrites.py`) | PreToolUse, Bash | Commands that change things every seat depends on: writes or deletes under `~/.claude`, `~/.claude.json`, the Google Workspace MCP credential folder, shared config folders and `~/.cache/uv`; `uv cache prune` and `uv cache clean`; global npm and pnpm installs; `brew upgrade` | Block (exit 2). Code-analysis hits are warn-only on seats in warn mode. A detected write to a guarded root blocks in every mode | `touch ~/.claude/hooks/.surface-pass-once-<seat>`, one use, 10 minutes. If the guard crashes on a guarded path it blocks, and the token does not apply | `--selftest`. Release suites carry block and allow rows, mutation tests, and a replay of a recorded command corpus that must show zero verdict changes |
-| 2 | Orwell send-guard (`~/.claude/hooks/orwell-lint.py`) | PreToolUse on Bash and on MCP send tools (mail send, CRM send-message, social create-post, reply, forward, create-draft) | Outgoing human-facing text that breaks Orwell's six rules or uses em or en dashes. Deterministic, no model involved | Block (exit 2). An optional truth check runs warn-only | `touch ~/.claude/hooks/.orwell-pass-once-<seat>` (the rule 6 exception). A crash on a send fails closed | `--selftest`, plus fail-closed and truth-warn suites |
-| 3 | Google Workspace account guard (`~/.claude/hooks/gws-account-guard.py`) | PreToolUse, `mcp__google-workspace__.*` | Any call for an account on the always-block list, any account in a live credential-mismatch episode, and any `start_google_auth` call | Block (exit 2). Other internal errors fail open | No pass token by design. Edit the always-block list once the MCP can no longer store a wrong account's token | Guard and install suites |
-| 4 | Brief guard (`<seat>/.claude/hooks/brief_guard.py`) | PreToolUse, Bash | `cortextos bus create-task --assignee <other agent>` whose description lacks the four lines TASK, FILES, BAR, RETURN | Block (exit 2). Crash in scope fails closed; out of scope fails open | None. Rewrite the brief | Unit tests |
-| 5 | Future-time guard (`<seat>/.claude/hooks/future_time_guard.py`) | PreToolUse, Bash, Write, Edit | A UTC clock stamp more than 3 minutes in the future written to `memory/`, `STATE.md`, or a `send-telegram` / `send-message` call | Block. Fails open on any error: it is a tripwire, not a gate | None | `--selftest` |
-| 6 | Attribution lint (`<seat>/.claude/hooks/attribution-lint.py`) | PreToolUse, Bash | In a send to the owner's chat: a figure framed as "a number, not my opinion", or a score stated as fact ("N/100") with no receipt or "estimate" label | Tier A blocks. Tier B (unsourced numbers) is log-only shadow. Fails closed on an owner send it cannot parse, with a 5 s alarm | None | `--selftest` (test mode writes to a temp log), mutants, over-block replay |
-| 7 | Pentest ship gate (`ship_gate_hook.py` in the `cortex-pentest-gate` skill) | PreToolUse, Bash, user level | `git push`, `vercel deploy`, `npm publish`, `wrangler deploy`, `scp` and `rsync` to a remote, unless `security/pentest-gate-report.json` with `"status": "pass"` exists | Block (exit 2). See 1.3 | `CORTEX_PENTEST_OVERRIDE=accepted-risk` plus `security/pentest-risk-acceptance.md` | Sample payloads; see 1.3 |
+| 1 | Shared-surface guard (`<seat>/.claude/hooks/ogl/shared_surface_guard.py`, parser `surface.py`, code reader `codewrites.py`) | PreToolUse, Bash | Commands that change things every seat depends on: writes or deletes under `~/.claude`, `~/.claude.json`, the shared uv cache and any root listed in `OGL_SURFACE_EXTRA_ROOTS` (for example an MCP credential folder); `uv cache prune` and `uv cache clean`; global npm and pnpm installs; `brew upgrade` | Block (exit 2). Code-analysis hits are warn-only on seats in warn mode. A detected write to a guarded root blocks in every mode | `touch ~/.ogl-cortex/state/.surface-pass-once-<seat>`, one use, 10 minutes. If the guard crashes on a guarded path it blocks, and the token does not apply | `--selftest`. Release suites carry block and allow rows, mutation tests, and a replay of a recorded command corpus that must show zero verdict changes |
+| 2 | Orwell send-guard (`<seat>/.claude/hooks/ogl/orwell_lint.py`) | PreToolUse on Bash and on MCP send tools (mail send, CRM send-message, social create-post, reply, forward, create-draft) | Outgoing human-facing text that breaks Orwell's six rules or uses em or en dashes. Deterministic, no model involved | Block (exit 2) | `touch ~/.ogl-cortex/state/.orwell-pass-once-<seat>` (the rule 6 exception). A crash on a send fails closed | `--selftest`, `harness/tests/test_orwell_lint.py` |
+| 3 | Brief guard (`<seat>/.claude/hooks/ogl/brief_guard.py`) | PreToolUse, Bash | `cortextos bus create-task --assignee <other agent>` whose description lacks the four lines TASK, FILES, BAR, RETURN | Block (exit 2). Crash in scope fails closed; out of scope fails open | None. Rewrite the brief | `harness/tests/test_brief_guard.py` |
+| 4 | Future-time guard (`<seat>/.claude/hooks/ogl/future_time_guard.py`) | PreToolUse, Bash, Write, Edit | A UTC clock stamp more than 3 minutes in the future written to `memory/`, `STATE.md`, or a `send-telegram` / `send-message` call | Block. Fails open on any error: it is a tripwire, not a gate | None | `--selftest` |
+| 5 | Pentest ship gate (`<seat>/.claude/hooks/ogl/ship_gate.py`) | PreToolUse, Bash (seat or user level) | `git push`, `vercel --prod`, `vercel deploy`, `npm publish`, `wrangler deploy`, `scp` and `rsync` to a remote, unless `security/pentest-gate-report.json` with `"status": "pass"` exists | Block (exit 2). See 1.3 | `OGL_PENTEST_OVERRIDE=accepted-risk` in the session environment plus `security/pentest-risk-acceptance.md` | `harness/tests/test_ship_gate.py`; see 1.3 |
 
 Wrapper gates are scripts the agent calls. They are mechanical only when used:
 
 | Wrapper | What it enforces |
 |---|---|
-| `ship.sh` (builder) | Deploys a preview, runs the pentest gate and a ZAP scan against it, checks indexing and noindex, and promotes to production only on pass. Exit map: 0 shipped, 3 aborted, 4 deploy failed, 5 live and wrong, 6 candidate failed, 7 promote did not take, 8 live with warning |
-| `emit-truth-correction.sh` | Validates every truth-ledger entry: canonical kind, catcher derived from a real message id, unique dedupe key, real past timestamp, and a dry-run flag that cannot be swallowed |
-| `kb-ingest-guarded.sh` | Refuses a knowledge-base ingest that would not replace by source, so repeated ingests cannot pile up duplicate chunks |
-| `brief-audit/audit.py` | Checks a worker's return against its brief before the orchestrator accepts it |
+| `harness/tools/ship.sh` | Runs your pentest gate command, deploys, and re-checks production (HTTP 200 plus the gate again with the live URL). With `--promote-cmd` it gates a preview candidate and promotes only on pass. Exit map: 0 shipped, 2 usage error, 3 pre-deploy gate failed, 4 deploy failed, 5 live and wrong, 6 candidate failed, 7 promote failed |
+| `harness/tools/emit-truth-correction.sh` | Validates every truth-ledger entry: canonical kind, catcher derived from a real message id, unique dedupe key, real past timestamp, and a dry-run flag that cannot be swallowed |
+| `harness/tools/brief_audit.py` | Lists every file a worker wrote in the task window and marks each IN, tmp or OUT of the brief's FILES line, before the orchestrator accepts the return |
+| Guarded KB ingest (optional, not included) | A wrapper that refuses a knowledge-base ingest that would not replace by source, so repeated ingests cannot pile up duplicate chunks |
 
-Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; dream hook; session digest; compaction meter, state hand-back and summary saver; PreCompact checkpoint; session-start injection; prompt-time recall and routing; and the fix-commit hunter trigger, which starts a background adversarial Claude review after any commit whose subject says fix, guard, hook, bug, block or gate. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.
+Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; compaction meter, state hand-back and summary saver. Optional hooks not included in this repository fit the same slot: a PreCompact checkpoint, session-start injection, a session digest, prompt-time recall and routing, and a post-commit trigger for `harness/tools/adversarial-pass.sh`. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.
 
-Every guard writes a log under `~/.claude/hooks/` (`surface-guard.log`, `orwell-lint.log`, `gws-account-guard.log`, `attribution-lint.log`). Each line carries a verdict (PASS, BLOCK, WARN, NOTE, shadow, pass-once, FAIL-CLOSED, FAIL-OPEN) and the seat. A guard counts as live only after a real call leaves a line in its log.
+The shared-surface guard and the Orwell send-lint write logs under `$OGL_STATE_DIR` (default `~/.ogl-cortex/state/`: `surface-guard.log`, `orwell-lint.log`). Each line carries a verdict (PASS, BLOCK, WARN, NOTE, shadow, pass-once, FAIL-CLOSED, FAIL-OPEN) and the seat. A guard counts as live only after a real call leaves a line in its log.
 
 ### 1.3 Ship gate requirements
 
@@ -89,7 +88,7 @@ The ship gate is the guard most likely to look stronger than it is. It meets the
 
 - **Exit 2 on block.** A hook that prints "BLOCKED" and returns 1 does not stop the command.
 - **Match every deploy form.** `vercel --prod`, `npx vercel --prod --yes` and `vercel deploy --prod` are all production deploys. A pattern that requires the word `deploy` misses the first two.
-- **Bind the report to the tree.** A pass report in any parent folder with no date check lets any command under that folder through. Require the report to be newer than the last change in the tree being shipped, or route every deploy through `ship.sh` and block raw `vercel`.
+- **Bind the report to the tree.** A pass report in any parent folder with no date check lets any command under that folder through. Require the report to be newer than the last change in the tree being shipped, or route every deploy through `harness/tools/ship.sh` and block raw `vercel`.
 - **Prove it with a sink.** Feed the hook a payload that must be refused and check the exit code is 2. A passing selftest does not prove the live hook blocks.
 - **Never let a wrapper rewrite a verdict.** Risk acceptance lives in a separate file. The report always carries the true verdict.
 
@@ -112,7 +111,7 @@ The code-analysis rule ships warn-only and flips to block per seat after a 48-ho
 
 Every PreToolUse guard is deterministic Python. There is no inline LLM judge and no classifier model in the tool path. Model-based checks run after the fact:
 
-- the fix-commit hunter, a fresh read-only Claude session that attacks one claim in a commit, in the background, never blocking;
+- the adversarial pass (`harness/tools/adversarial-pass.sh`), a fresh read-only Claude session that attacks one claim, never blocking;
 - the `auditor` subagent type, a read-only checker the orchestrator uses before saying "done";
 - the auditor seat, a full Claude seat doing hourly audits (1.7).
 
@@ -129,7 +128,7 @@ These rule classes have no hook behind them by default. They hold only if the ag
 | Never edit your own bootstrap files, skills or core | `GUARDRAILS.md` | Partial. The surface guard covers `~/.claude`, not a seat's own `CLAUDE.md`, `AGENTS.md` or `.claude/skills` |
 | Secrets never over chat | `GUARDRAILS.md` | None at send time. The pentest gate's TruffleHog scan covers shipped trees only |
 | Owner-facing dates in the owner's time zone, never raw `date -u` | `STATE.md` clock rule | Partial. The future-time guard catches only future UTC stamps |
-| Every number carries its source | `STATE.md` | Partial. Attribution lint blocks two narrow forms |
+| Every number carries its source | `STATE.md` | None by default. An optional attribution lint (not included) can block narrow forms |
 | List the whole DNS zone before a nameserver switch; add then delete | `GUARDRAILS.md` | None |
 | Address UI controls by identity, never by a CSS state selector | `GUARDRAILS.md` | None |
 | Ask before any shared `~/.claude` skill install | `GUARDRAILS.md` | Partial. The surface guard blocks once; the agent can self-release |
@@ -157,7 +156,7 @@ Pass tokens are a speed bump, not an approval. The agent that was blocked can re
 |---|---|---|
 | Model and window | `claude-opus-5-5[1m]`, 1,000,000 tokens | `config.json` `model`; daemon state `context_status.json` |
 | Claude Code auto-compaction point | 430,000 tokens | `.claude/settings.json` `autoCompactWindow` |
-| Compaction meter | nudge at 300,000, warn at 360,000, "limit" label at 400,000 | `.claude/hooks/kem-compaction/compaction.json` |
+| Compaction meter | nudge at 300,000, warn at 360,000, "limit" label at 400,000 | `.claude/hooks/ogl/compaction/compaction.json` |
 | Daemon context thresholds | warn 80%, hand-off 88% of the window | `config.json` `ctx_warning_threshold`, `ctx_handoff_threshold`; logic in `src/daemon/fast-checker.ts` |
 | Planned session rotation | 255,600 s = 71 hours | `config.json` `max_session_seconds`; `src/daemon/agent-process.ts` |
 | Crash cap | 10 crashes per day | `config.json` `max_crashes_per_day` |
@@ -175,10 +174,9 @@ sequenceDiagram
   M->>R: 300k nudge, keep STATE.md current at every checkpoint
   M->>R: 360k warning, rewrite STATE.md in full before any other tool call
   CC->>CC: 430k auto-compact
-  CC->>R: PreCompact hooks run Telegram notice, checkpoint script, session digest
+  CC->>R: PreCompact hooks run the Telegram notice
   CC->>R: PostCompact saves the summary to compactions/TIME.md
   CC->>R: SessionStart(compact) hands STATE.md back in full and resets the meter
-  CC->>R: SessionStart(any) injects latest checkpoint and daily memory tail
 ```
 
 ### 2.3 What is lost and how it comes back
@@ -188,9 +186,9 @@ sequenceDiagram
 | Exact tool output, file contents, reasoning | Not recovered. The Compact Instructions in `CLAUDE.md` tell the summary to drop tool output already acted on |
 | Current checkpoint, promises to the owner, live changes and rollbacks, dead ends, owner rules | `STATE.md`, handed back in full after every compaction |
 | What survived in the summary | `compactions/<time>.md` |
-| Last exchanges before compaction | PreCompact checkpoint script into `memory/checkpoints/latest.md` |
-| The current day's work log | Tail of the daily memory file, injected at session start |
-| Session as a whole | Session digest on PreCompact and SessionEnd |
+| Last exchanges before compaction | An optional PreCompact checkpoint hook (not included), for example into `memory/checkpoints/latest.md` |
+| The current day's work log | The daily memory file, read at session start per the boot checklist |
+| Session as a whole | An optional session digest on PreCompact and SessionEnd (not included) |
 
 Implementation note for checkpoint hooks: a shell hook that runs `python3 - << 'EOF'` gives Python the script on stdin, so the hook's JSON payload never arrives and `transcript_path` is empty. Pass the script as a file or with `-c`, read the payload from stdin, write to a dedicated file rather than a shared boot card, and write nothing when zero messages are captured. Test with a real hook payload. Alert when a checkpoint reports zero messages.
 
@@ -270,18 +268,18 @@ Each guard exists to stop a class of failure. This table maps class to defence a
 | 2 | A large download fills disk and swap mid-task | Downloads are not guarded | Pre-flight size check for any download over 1 GB; notify the sentinel first | Alert only |
 | 3 | A delete form the parser does not know reaches a protected root | Parser gap | Parser coverage table (1.4) and replay suites | Yes, for seats |
 | 4 | A shared cache prune breaks every running MCP server | `uv cache prune --force` overrides the in-use lock | Shared-surface guard | Yes (block once, then self-release) |
-| 5 | A credential file holds the wrong Google account and readers report the wrong inbox as read | An MCP-started OAuth window completes with the wrong signed-in account | Readers check the token email; account guard; identity check | Yes |
+| 5 | A credential file holds the wrong Google account and readers report the wrong inbox as read | An MCP-started OAuth window completes with the wrong signed-in account | Readers check the token email; an optional account guard (not included); identity check | Partly |
 | 6 | A seat goes dark on a usage cap and alerts point at the wrong fix | A cap answer looks like a login failure | Sentinel `kind=cap` branch; quota ledger every 10 min | Detection only |
 | 7 | A full disk resets the Docker VM | Disk fills during a build | Disk alerts and auto-prune | Partly |
 | 8 | Sentinels vanish silently and still read as live | Untracked files inside a git repo are removed by `git clean` | Sentinels live outside any repo | Yes, by placement |
 | 9 | A checkpoint hook writes empty checkpoints | Heredoc takes stdin from the hook payload | See 2.3 | Alert on zero |
 | 10 | A guard is reported live before the running session has loaded it | Settings edited mid-session are not reloaded | A guard is live only after a real call leaves a log line | Rule |
 | 11 | Sends built in `$MSG` variables or heredocs skip command-text guards | Guards read the Bash command text, not the final message | Send-boundary lint inside `cortextos bus send-telegram` | Planned |
-| 12 | Production deploy before the gate, ungated previews, a client file on a public URL | Gate depends on vigilance | `ship.sh`, preview then promote | Yes, when used |
-| 13 | A site launches without search indexing | No launch step asks | Indexing and noindex gates in `ship.sh` | Yes, inside `ship.sh` |
+| 12 | Production deploy before the gate, ungated previews, a client file on a public URL | Gate depends on vigilance | `harness/tools/ship.sh`, preview then promote | Yes, when used |
+| 13 | A site launches without search indexing | No launch step asks | An indexing and noindex check inside your gate command (`ship.sh --gate-cmd`) | Only if your gate checks it |
 | 14 | A DNS move drops records | Expected records are copied, not the zone | List the whole zone; add then delete | No |
 | 15 | A UI automation loop toggles live switches | Controls addressed by state, not identity | Address controls by identity; read the result after | No |
-| 16 | Wrong dates or unsourced numbers reach the owner | `date -u` read as the owner's calendar; numbers stated from memory | Clock rule; truth check (warn); attribution lint (narrow) | Partly |
+| 16 | Wrong dates or unsourced numbers reach the owner | `date -u` read as the owner's calendar; numbers stated from memory | Clock rule; future-time guard; optional attribution lint (not included) | Partly |
 
 Smaller patterns: cron cannot reach the login keychain, so a sentinel that needs it runs inside the login session; a lint that reads only line 1 of a multi-line send misses the rest; a watcher that stops on one failed account stops on all of them unless it counts failures per account; a gate run from the wrong folder can scan gigabytes.
 
@@ -307,13 +305,13 @@ Likelihood (L) and impact (I) are scored 1 to 5 for a typical single-owner insta
 
 | Rank | Risk | L | I | Score | Recommended control |
 |---|---|---|---|---|---|
-| 1 | A deploy reaches production without a gate pass | 4 | 5 | 20 | Ship gate exits 2, matches every deploy form, binds the report to the tree; or block raw `vercel` and require `ship.sh`. Prove with a sink deploy that must be refused |
+| 1 | A deploy reaches production without a gate pass | 4 | 5 | 20 | Ship gate exits 2, matches every deploy form, binds the report to the tree; or block raw `vercel` and require `harness/tools/ship.sh`. Prove with a sink deploy that must be refused |
 | 2 | The host runs out of disk or memory mid-task | 4 | 4 | 16 | Permanent launchd disk and swap watch; pre-flight size check on large downloads; log rotation; scheduled host and Docker restarts |
 | 3 | A human or desktop session deletes agent data | 3 | 5 | 15 | Register the surface guard at user level with an owner pass token, or keep agent evidence outside paths a cleanup sweeps |
 | 4 | A false claim reaches the owner (dates, numbers, "done") | 5 | 3 | 15 | Send-boundary lint; local-date check on the send path; hourly audit |
 | 5 | Context lost at compaction | 5 | 2 | 10 | Working PreCompact checkpoint, tested with a real payload; `STATE.md` discipline |
 | 6 | A usage cap takes a seat down before a dated event | 2 | 5 | 10 | Quota ledger with a page at a set level (for example 90%) when an event falls before the reset |
-| 7 | A shared credential is overwritten or a wrong account is read | 2 | 4 | 8 | Account guard on every seat that uses the MCP; identity check |
+| 7 | A shared credential is overwritten or a wrong account is read | 2 | 4 | 8 | An account guard (optional, not included) on every seat that uses the MCP; identity check |
 | 8 | A silent knowledge-layer outage leads agents to answer from memory | 4 | 2 | 8 | Session-start MCP health line in the heartbeat; remove dead MCP entries |
 | 9 | A shared toolchain breaks for all seats | 2 | 4 | 8 | Surface guard in block mode after the readout window; audit self-release tokens |
 | 10 | Database loss with no current backup | 1 | 4 | 4 | Decide per database; arm backups for anything live |
@@ -336,4 +334,4 @@ Likelihood (L) and impact (I) are scored 1 to 5 for a typical single-owner insta
 - `src/hooks/hook-permission-telegram.ts`
 - `src/hooks/hook-planmode-telegram.ts`
 - `src/hooks/hook-extract-facts.ts`
-- OGL layer: `hooks/shared-surface-guard.py`, `hooks/surface.py`, `hooks/codewrites.py`, `hooks/orwell-lint.py`, `hooks/gws-account-guard.py`; seat hooks `brief_guard.py`, `future_time_guard.py`, `attribution-lint.py`, `kem-compaction/`, `precompact-checkpoint.sh`, `sessionstart-inject.sh`; `cortex-pentest-gate/scripts/ship_gate_hook.py`
+- OGL layer: `harness/hooks/shared_surface_guard.py`, `harness/hooks/surface.py`, `harness/hooks/codewrites.py`, `harness/hooks/orwell_lint.py`, `harness/hooks/brief_guard.py`, `harness/hooks/future_time_guard.py`, `harness/hooks/ship_gate.py`, `harness/hooks/compaction/`; tools in `harness/tools/`

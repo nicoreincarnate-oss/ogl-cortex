@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">40</div><div><p class="dg">Business and assurance</p>
-<h1>FinOps and capacity</h1><p class="meta">2,148 words · <a href="../40-finops-capacity.md">Markdown source</a></p></div></header>
+<h1>FinOps and capacity</h1><p class="meta">2,161 words · <a href="../40-finops-capacity.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#1-the-cost-model-in-one-paragraph">1. The cost model in one paragraph</a></li><li><a href="#2-claude-quota">2. Claude quota</a></li><li><a href="#3-other-run-costs">3. Other run costs</a></li><li><a href="#4-telegram-limits">4. Telegram limits</a></li><li><a href="#5-host-capacity">5. Host capacity</a></li><li><a href="#6-enterprise-items-and-their-equivalents">6. Enterprise items and their equivalents</a></li><li><a href="#7-known-limitations">7. Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>How cost works when an OGL Cortex fleet runs on a Claude subscription plan, which limits bind first, and the disk, memory and swap rules that keep one host healthy.</p>
 <p>Related documents: <code>30-sre-runbooks.md</code> (RB-01 cap, RB-05 disk), <code>31-observability-alerting.md</code> (quota ledger and disk sentinels), <code>41-support-known-issues-faq.md</code>. Path and role names follow <code>30-sre-runbooks.md</code>.</p>
@@ -72,14 +73,14 @@
 </tr>
 </tbody>
 </table>
-<p>Read the meter:</p>
+<p>Read the meter: The command-line tool is named <code>cortextos</code>.</p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus check-usage-api <span class="at">--json</span>         <span class="co"># five_hour and seven_day utilisation and resets_at (3-minute cache)</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus check-usage-api <span class="at">--force</span> <span class="at">--json</span> <span class="co"># bypass the cache</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus list-oauth-accounts            <span class="co"># if you configured more than one account</span></span></code></pre></div>
 <h3 id="22-what-makes-quota-burn-faster">2.2 What makes quota burn faster</h3>
 <ul>
 <li><strong>Long sessions with big boot files.</strong> Every turn re-reads the context. Large bootstrap files and long transcripts multiply cost per turn.</li>
-<li><strong>Hooks that call a model on every prompt.</strong> A prompt router or digest hook spends quota on every message.</li>
+<li><strong>Hooks that call a model on every prompt.</strong> An optional prompt router or digest hook (neither ships with this repository) spends quota on every message.</li>
 <li><strong>Background spawns.</strong> Memory-consolidation hooks that start <code>claude -p</code> sessions, especially several at once.</li>
 <li><strong>Model choice.</strong> Larger models use the same window faster.</li>
 </ul>
@@ -192,7 +193,7 @@
 <tr>
 <td>Web hosting (for example Vercel)</td>
 <td>Flat monthly per team, plus usage</td>
-<td>Sites shipped through <code>ship.sh</code></td>
+<td>Sites shipped through <code>harness/tools/ship.sh</code></td>
 </tr>
 <tr>
 <td>DNS and object storage (for example Cloudflare)</td>
@@ -367,7 +368,7 @@
 </tr>
 <tr>
 <td>No deploys under heavy swap</td>
-<td>Pause <code>ship.sh</code> until swap settles</td>
+<td>Pause <code>harness/tools/ship.sh</code> runs until swap settles</td>
 <td>Every seat</td>
 </tr>
 <tr>

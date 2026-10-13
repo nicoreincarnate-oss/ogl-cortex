@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Run every hook test and print one summary line per hook. Exit 0 only if all pass.
+"""Run every hook and tool test and print one summary line each. Exit 0 only if all pass.
 Usage: python3 harness/tests/run_all.py"""
 import importlib, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 TESTS = ["test_ship_gate", "test_shared_surface_guard", "test_orwell_lint", "test_brief_guard",
-         "test_future_time_guard", "test_compaction"]
+         "test_future_time_guard", "test_compaction", "test_tools"]
 
 ok = True
 for name in TESTS:

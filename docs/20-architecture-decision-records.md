@@ -4,7 +4,7 @@ This document records the design decisions behind OGL Cortex. Each record states
 
 OGL Cortex has two layers:
 
-- **cortextOS**, the upstream MIT framework. It provides the daemon, the message bus, crons, tasks, approvals, the dashboard and the agent templates.
+- **Framework**, the upstream MIT project (`github.com/grandamenium/cortextos`). It provides the daemon, the message bus, crons, tasks, approvals, the dashboard and the agent templates.
 - **The OGL layer** on top. It adds seat roles, hooks and guards, the memory protocol, the delivery pipeline, the approval gates and the ship gate.
 
 Each record names the layer it belongs to.
@@ -19,10 +19,10 @@ Each record names the layer it belongs to.
 | Auditor | A read-only reviewer seat. It checks claims and gates guard changes. |
 | Sentinel | A maintenance seat that watches fleet health and shared infrastructure. |
 | Hook | A script Claude Code runs at a fixed point (before a tool call, after it, at prompt submit, at compaction). A PreToolUse hook blocks the call by exiting with code 2. |
-| Cron | A scheduled prompt that the cortextOS daemon types into a seat's terminal. |
+| Cron | A scheduled prompt that the OGL Cortex daemon types into a seat's terminal. |
 | Owner | The one human who runs the fleet and approves external actions. |
 
-Path conventions: `$CORTEX_HOME` is your cortextOS checkout. `$CTX_ROOT` is the runtime state root for one daemon instance (`~/.cortextos/<instance>`). `<org>` and `<seat>` are folder names under `$CORTEX_HOME/orgs/`.
+Path conventions: `$CORTEX_HOME` is your framework checkout. `$CTX_ROOT` is the runtime state root for one daemon instance (`~/.cortextos/<instance>`). `<org>` and `<seat>` are folder names under `$CORTEX_HOME/orgs/`.
 
 Related documents: architecture in `01-core-architecture.md`, the execution engine in `02-execution-engine.md`, configuration in `03-configuration-registry.md`, the enforcement layers in `04-failsafe-boundary-log.md`, data shapes in `21-data-models-schema-registry.md`, prompt surfaces in `22-prompt-registry.md`, tests in `23-evals-and-benchmarks.md`, and model management in `24-model-lifecycle.md`.
 
@@ -31,9 +31,9 @@ Related documents: architecture in `01-core-architecture.md`, the execution engi
 | # | Title | Layer | Status |
 |---|---|---|---|
 | 001 | One named knowledge source of truth, with seat boot files as fallback | OGL | Accepted |
-| 002 | Crons are daemon-managed, not CronCreate or /loop | cortextOS | Accepted |
-| 003 | 1M-token context is the default for new agents | cortextOS | Accepted |
-| 004 | Agent templates default to bypassPermissions | cortextOS | Accepted |
+| 002 | Crons are daemon-managed, not CronCreate or /loop | Framework | Accepted |
+| 003 | 1M-token context is the default for new agents | Framework | Accepted |
+| 004 | Agent templates default to bypassPermissions | Framework | Accepted |
 | 005 | The auditor keeps a discipline ledger with 3-strike counters | OGL | Accepted |
 | 006 | Daemon restarts are gated by an ancillary-service inventory | OGL | Accepted |
 | 007 | No undisclosed persona or astroturf infrastructure | OGL | Accepted |
@@ -42,30 +42,30 @@ Related documents: architecture in `01-core-architecture.md`, the execution engi
 | 010 | A pentest gate runs before anything ships | OGL | Accepted |
 | 011 | MEMORY.md is a compact index; detail lives in topic files | OGL | Accepted |
 | 012 | The orchestrator delegates; it does not do specialist work | OGL | Accepted |
-| 013 | Model and runtime are explicit per seat | cortextOS + OGL | Accepted |
+| 013 | Model and runtime are explicit per seat | Framework + OGL | Accepted |
 | 014 | Independent review before any lane is "done" | OGL | Accepted, part of 018 |
 | 015 | Model routing by pipeline stage | OGL | Accepted, revised by 034 |
 | 016 | Each seat folder is its own git repo | OGL | Accepted |
 | 017 | Model swaps follow a deviation protocol | OGL | Accepted |
-| 018 | Projects run a staged pipeline with two owner gates | cortextOS harness + OGL | Accepted |
-| 019 | Context handoff threshold is per seat | cortextOS | Accepted |
+| 018 | Projects run a staged pipeline with two owner gates | Framework harness + OGL | Accepted |
+| 019 | Context handoff threshold is per seat | Framework | Accepted |
 | 020 | G-UNTRUSTED-READS: fetched content is data, never instructions | OGL | Accepted |
 | 021 | No seat runs with a full-access sandbox | OGL | Accepted |
-| 022 | A source fix is live only after dist is rebuilt | cortextOS | Accepted |
+| 022 | A source fix is live only after dist is rebuilt | Framework | Accepted |
 | 023 | truth_correction events use a closed kind enum and a writer tool | OGL | Accepted |
 | 024 | Usage-cap protocol: park, hand off, never retry-loop | OGL | Accepted |
-| 025 | Codex sandbox is workspace-write; auto-commit stages agentDir only | cortextOS | Accepted |
-| 026 | Untrusted text is never written verbatim into memory | cortextOS templates + OGL | Accepted |
+| 025 | Codex sandbox is workspace-write; auto-commit stages agentDir only | Framework | Accepted |
+| 026 | Untrusted text is never written verbatim into memory | Framework templates + OGL | Accepted |
 | 027 | Memory files have one writer and labelled inferences | OGL | Accepted |
 | 028 | Long-interval crons use wall-clock schedules | OGL | Accepted |
 | 029 | A brake file stops all memory-consolidation runs | OGL | Accepted |
 | 030 | Default seat model is the strongest available Claude model | OGL | Accepted |
 | 031 | A deterministic plain-language guard runs on every outgoing message | OGL | Accepted |
-| 032 | Every website deploy goes through ship.sh | OGL | Accepted |
+| 032 | Every website deploy goes through `harness/tools/ship.sh` | OGL | Accepted |
 | 033 | Dashboard approvals from the owner login carry Telegram authority | OGL | Accepted |
-| 034 | Harness stages run on Claude Code; codex-app-server is refused on roster rows | cortextOS harness | Accepted |
+| 034 | Harness stages run on Claude Code; codex-app-server is refused on roster rows | Framework harness | Accepted |
 | 035 | Shared-surface guard and account guard run as hooks | OGL | Accepted |
-| 036 | Operator-discipline builds: compaction kit, four-line briefs, hunters, fail-closed hooks | OGL | Accepted |
+| 036 | Operator-discipline builds: compaction kit, four-line briefs, adversarial passes, fail-closed hooks | OGL | Accepted |
 | 037 | Freeze the gated copy before an edit; a wrapper never rewrites a verdict | OGL | Accepted |
 | 038 | The shared-surface guard covers every delete form | OGL | Accepted |
 
@@ -84,7 +84,7 @@ flowchart LR
     A009["009 write gate"]
     A011["011 index memory"]
     A027["027 one writer"]
-    A029["029 dream brake"]
+    A029["029 consolidation brake"]
   end
   subgraph Safety["Safety boundary"]
     A004["004 bypassPermissions"]
@@ -121,6 +121,8 @@ flowchart LR
 - **Consequences.** If the store's MCP server fails to connect, seats fall back to their boot files without saying so. Add a boot health check for the store and state the fallback order in the seat CLAUDE.md, or the boot files become the real source of truth by default.
 
 ## ADR-002: crons are daemon-managed, not CronCreate or /loop
+
+The command-line tool is named `cortextos`.
 
 - **Context.** Claude Code's in-session `CronCreate` and `/loop` die when the session restarts. Concurrent updates to one cron file can lose writes, and a daemon crash mid-fire can fire a job twice.
 - **Decision.** Each seat's crons live in a daemon-owned file, `$CTX_ROOT/.cortextOS/state/agents/<seat>/crons.json`. The daemon scheduler fires them. Agents manage them only through `cortextos bus add-cron`, `update-cron`, `remove-cron` and `list-crons`. The scheduler stamps `last_fire_attempted_at` before dispatch so a crash cannot double-fire. Templates do not teach CronCreate.
@@ -171,8 +173,8 @@ flowchart LR
 ## ADR-010: a pentest gate runs before anything ships
 
 - **Context.** Agents can deploy sites and send deliverables with no security check.
-- **Decision.** Nothing ships, deploys, publishes or goes to a client until `cortex_pentest_gate.py` writes `security/pentest-gate-report.json` with `"status": "pass"`, or the owner accepts the risk in `security/pentest-risk-acceptance.md`. Web surfaces need `--url <url>`. Apps with accounts, roles or user data need `--requires-authz`.
-- **Consequences.** Every ship has a security record. A gate run without `--url` skips the web scan, so ADR-032 wraps the gate in a script that requires the URL and checks the report's own scan return codes.
+- **Decision.** Nothing ships, deploys, publishes or goes to a client until the pentest gate (your scanner; not included in this repository) writes `security/pentest-gate-report.json` with `"status": "pass"`, or the owner accepts the risk in `security/pentest-risk-acceptance.md`. Web surfaces need `--url <url>`. Apps with accounts, roles or user data need `--requires-authz`.
+- **Consequences.** Every ship has a security record. A gate run without a URL skips the web scan, so ADR-032 wraps the gate in a script that runs it again with the candidate and production URLs and rejects a stale report.
 
 ## ADR-011: MEMORY.md is a compact index; detail lives in topic files
 
@@ -272,20 +274,20 @@ flowchart LR
 
 ## ADR-027: memory files have one writer and labelled inferences
 
-- **Context.** A memory-consolidation ("dream") run and the live session can both read a file, edit it and write it back, and the second write erases the first. An inference drawn from a degraded page can be stored as fact and later repeated.
+- **Context.** A memory-consolidation run and the live session can both read a file, edit it and write it back, and the second write erases the first. An inference drawn from a degraded page can be stored as fact and later repeated.
 - **Decision.** Each memory file has one writer or a lock. A consolidation run backs up first, re-reads the live file right before each edit, edits in place, then grep-verifies. Anything concluded by observation is written as `INFERRED (condition, date)` and corrected in place when confirmed or killed. Keep one copy of each boot file.
 - **Consequences.** Lost-update races disappear when the rule holds. ADR-029 adds a global brake.
 
 ## ADR-028: long-interval crons use wall-clock schedules
 
-- **Context.** On the cortextOS scheduler, other fires for the same seat push an interval cron's next fire back. An interval at least as long as the seat's heartbeat interval can starve and never fire.
+- **Context.** On the OGL Cortex scheduler, other fires for the same seat push an interval cron's next fire back. An interval at least as long as the seat's heartbeat interval can starve and never fire.
 - **Decision.** If a cron's interval is at least the seat's heartbeat interval, use a 5-field cron expression (for example `0 8 * * *`). Confirm the first fire by an artifact, not by the absence of an error. A recurring duty with no cron entry does not count as covered. One-shot jobs use `fire_at`, never a dated 5-field expression, which repeats yearly.
 - **Consequences.** Crons are checked by receipt. Prompt text for crons is catalogued in `22-prompt-registry.md`.
 
 ## ADR-029: a brake file stops all memory-consolidation runs
 
 - **Context.** Several consolidation processes running at once race on memory files.
-- **Decision.** The dream hook script checks for a brake file on its first line and exits if the file exists. The brake comes off only after a per-seat fix is verified.
+- **Decision.** The consolidation job (optional, not included in this repository) checks for a brake file on its first line and exits if the file exists. The brake comes off only after a per-seat fix is verified.
 - **Consequences.** One cheap global off switch. Keep the brake file out of temp folders the OS clears on reboot, or a reboot silently releases it.
 
 ## ADR-030: default seat model is the strongest available Claude model
@@ -297,13 +299,13 @@ flowchart LR
 ## ADR-031: a deterministic plain-language guard runs on every outgoing message
 
 - **Context.** A writing rule held only in context is not reliably followed, and every message to the owner or a client carries it.
-- **Decision.** `~/.claude/hooks/orwell-lint.py` runs as a PreToolUse hook on `cortextos bus send-telegram` calls and on email or post MCP tools. It applies Orwell's six rules with word lists and regex, no model. Exit 2 blocks the send and prints reasons. A per-seat, 10-minute, one-shot pass file (`~/.claude/hooks/.orwell-pass-once-<seat>`) covers genuine exceptions. It fails closed when it crashes on input in its scope.
+- **Decision.** `orwell_lint.py` (`harness/hooks/orwell_lint.py`, installed to `<seat>/.claude/hooks/ogl/`) runs as a PreToolUse hook on `cortextos bus send-telegram` calls and on email or post MCP tools. It applies Orwell's six rules with word lists and regex, no model. Exit 2 blocks the send and prints reasons. A per-seat, 10-minute, one-shot pass file (`~/.ogl-cortex/state/.orwell-pass-once-<seat>`) covers genuine exceptions. It fails closed when it crashes on input in its scope.
 - **Consequences.** Message style is enforced, not requested. This hook is the template for the other deterministic guards.
 
-## ADR-032: every website deploy goes through ship.sh
+## ADR-032: every website deploy goes through `harness/tools/ship.sh`
 
 - **Context.** Deploying first and gating later leaves ungated builds live. Previews and shared archives on public URLs need the same gate as production.
-- **Decision.** All deploys run `ship.sh`: deploy a candidate, gate it with `--url`, and promote the same build only on pass. A raw `vercel --prod` is a red flag. Exit codes: 0 shipped, 5 live and wrong, 6 rejected, 7 promote not taken. The script rejects stale scan reports. Its final line is the verdict.
+- **Decision.** All deploys run `harness/tools/ship.sh`: gate the source, deploy a candidate, gate it with its URL, and promote the same build only on pass (`--promote-cmd`). A raw `vercel --prod` is a red flag. Exit codes: 0 shipped, 3 pre-deploy gate failed, 4 deploy failed, 5 live and wrong, 6 candidate rejected, 7 promote failed. The script rejects stale gate reports.
 - **Consequences.** One path to production, with a record for each ship. Re-run the gate after any later change; a pass does not cover the next deploy.
 
 ## ADR-033: dashboard approvals from the owner login carry Telegram authority
@@ -315,31 +317,31 @@ flowchart LR
 ## ADR-034: harness stages run on Claude Code; codex-app-server is refused on roster rows
 
 - **Context.** A mixed-vendor pool needs two logins, two billing paths and two sandbox models.
-- **Decision.** The harness roster (`src/harness/roster.ts`) assigns its research-build-test pool to `claude-code` with Sonnet 5.5. The roster schema refuses `codex-app-server` on roster rows. Adversarial hunter passes also run on Claude.
+- **Decision.** The harness roster (`src/harness/roster.ts`) assigns its research-build-test pool to `claude-code` with Sonnet 5.5. The roster schema refuses `codex-app-server` on roster rows. Adversarial passes (`harness/tools/adversarial-pass.sh`) also run on Claude by default.
 - **Consequences.** One vendor to log in, bill and monitor. Seat `config.json` files outside the roster can still name other models; keep them consistent with the roster when you enable the harness.
 
 ## ADR-035: shared-surface guard and account guard run as hooks
 
 - **Context.** Some commands change surfaces every seat depends on: `~/.claude*`, package caches, the CLI install. A cache prune can delete files running MCP servers need. An MCP server bound to one Google account can overwrite another account's credential file.
-- **Decision.** Two PreToolUse hooks. `shared-surface-guard.py`, with its rules module `surface.py`, blocks changes to shared surfaces and releases one command per pass token (`~/.claude/hooks/.surface-pass-once-<seat>`, valid 600 seconds). `gws-account-guard.py` refuses Google Workspace MCP calls whose `user_google_email` is not the expected account. New guard rules ship to one seat first, then the fleet, after an auditor PASS. Code-pattern checks start in WARN mode (`SURFACE_CODE_MODE=warn`) and flip to BLOCK after a quiet window.
+- **Decision.** Two PreToolUse hooks. `shared_surface_guard.py`, with its rules module `surface.py` and code reader `codewrites.py`, blocks changes to shared surfaces and releases one command per pass token (`~/.ogl-cortex/state/.surface-pass-once-<seat>`, valid 600 seconds). An account guard (optional, not included in this repository) refuses Google Workspace MCP calls whose `user_google_email` is not the expected account. New guard rules ship to one seat first, then the fleet, after an auditor PASS. Code-pattern checks start in WARN mode (`SURFACE_CODE_MODE=warn`) and flip to BLOCK after a quiet window.
 - **Consequences.** Shared infrastructure survives agent cleanups. Each new rule needs a false-positive replay before it blocks (ADR-038).
 
 ## ADR-036: operator-discipline builds
 
 - **Context.** Long sessions lose state at compaction, dispatches go out vague, fixes go unreviewed, and a crashing guard can wave a command through.
 - **Decision.** The OGL layer ships these builds on the orchestrator seat:
-  1. **Compaction kit** (`.claude/hooks/kem-compaction/`). The seat keeps `STATE.md` current. A PostToolUse meter nudges as context grows and warns near the limit. After compaction, a SessionStart hook (matcher `compact`) hands `STATE.md` back. A PostCompact hook saves the summary.
+  1. **Compaction kit** (`harness/hooks/compaction/`, installed to `.claude/hooks/ogl/compaction/`). The seat keeps `STATE.md` current. A PostToolUse meter nudges as context grows and warns near the limit. After compaction, a SessionStart hook (matcher `compact`) hands `STATE.md` back. A PostCompact hook saves the summary.
   2. **Four-line brief.** `brief_guard.py` blocks `cortextos bus create-task ... --assignee <other seat>` unless `--desc` has lines starting `TASK:`, `FILES:`, `BAR:`, `RETURN:`.
-  3. **Hunter passes.** One claim, a fresh read-only session, evidence as file and line plus a reproduction, one round, a budget. Run on every guard, hook, fix and plan.
-  4. **Session digest.** A hook writes a digest at session end and before compaction and indexes it into a local search index.
-  5. **Prompt router.** A UserPromptSubmit hook names a reply style.
-  6. **Auditor subagent.** Read-only, returns PASS or FAIL with evidence.
+  3. **Adversarial passes** (`harness/tools/adversarial-pass.sh`). One claim, a fresh read-only session, evidence as file and line plus a reproduction, one round, a budget. Run on every guard, hook, fix and plan.
+  4. **Session digest** (optional, not included). A hook writes a digest at session end and before compaction and indexes it into a local search index.
+  5. **Prompt router** (optional, not included). A UserPromptSubmit hook names a reply style.
+  6. **Auditor subagent** (a `.claude/agents/` definition you write; not included). Read-only, returns PASS or FAIL with evidence.
   7. **Align stage** in the harness (ADR-018).
   8. **Fail closed.** Guards fail closed when they crash on input in their scope. Risky skills cannot auto-invoke.
-  9. **Fix-commit trigger.** A hook starts a hunter pass when a fix commit lands.
-  10. **Brief audit.** `tools/brief-audit/audit.py <task_id>` flags edits outside a brief's FILES line.
+  9. **Fix-commit trigger** (optional, not included). A hook starts an adversarial pass when a fix commit lands.
+  10. **Brief audit.** `python3 harness/tools/brief_audit.py <task_id>` flags edits outside a brief's FILES line.
   11. **Future-time guard.** Blocks writes that carry clock stamps ahead of the real time.
-- **Consequences.** About 25 hook commands on the orchestrator seat, most of them custom scripts. Each adds latency to tool calls and needs its own tests (`23-evals-and-benchmarks.md`). Large build runs consume weekly usage quickly.
+- **Consequences.** Many hook commands on the orchestrator seat. Each adds latency to tool calls and needs its own tests (`23-evals-and-benchmarks.md`). Large build runs consume weekly usage quickly.
 
 ## ADR-037: freeze the gated copy before an edit; a wrapper never rewrites a verdict
 
@@ -387,5 +389,5 @@ flowchart LR
 - `src/pty/codex-app-server-pty.ts`
 - `templates/agent/.claude/settings.json`
 - `templates/orchestrator/CLAUDE.md`
-- OGL layer: `.claude/hooks/brief_guard.py`, `.claude/hooks/future_time_guard.py`, `.claude/hooks/kem-compaction/`, `.claude/agents/auditor.md`, `tools/emit-truth-correction.sh`, `tools/brief-audit/audit.py`
-- User-level hooks: `~/.claude/hooks/orwell-lint.py`, `shared-surface-guard.py`, `surface.py`, `gws-account-guard.py`
+- OGL layer: `harness/hooks/brief_guard.py`, `harness/hooks/future_time_guard.py`, `harness/hooks/compaction/`, `harness/tools/emit-truth-correction.sh`, `harness/tools/brief_audit.py`, `harness/tools/adversarial-pass.sh`, `harness/tools/ship.sh`
+- Machine-wide guards (seat or user level): `harness/hooks/orwell_lint.py`, `harness/hooks/shared_surface_guard.py`, `harness/hooks/surface.py`, `harness/hooks/codewrites.py`, `harness/hooks/ship_gate.py`

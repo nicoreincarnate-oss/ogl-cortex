@@ -6,13 +6,15 @@ Related documents: `30-sre-runbooks.md` (failures), `31-observability-alerting.m
 
 ## Recipe index
 
+The command-line tool is named `cortextos`.
+
 | # | The ask | Main tools | Gates |
 |---|---|---|---|
 | 1 | "What is this short video? Is it useful?" | Playwright, `yt-dlp`, `ffmpeg`, `mlx_whisper` or `whisper-cli` | Claim check at the live source |
-| 2 | "Build a landing page for a client and put it live" | Design skills, pentest gate, `ship.sh` | Owner go, pentest gate, ship wrapper, indexing check |
+| 2 | "Build a landing page for a client and put it live" | Design skills, pentest gate, `harness/tools/ship.sh` | Owner go, pentest gate, ship wrapper, indexing check |
 | 3 | "Run an outbound email campaign with auto-replies" | Sending platform API, a gated reply engine | Auditor code gate, client written OK, owner go |
 | 4 | "Remind me every day at X" | `cortextos bus add-cron` | Wall-clock schedule, first-fire receipt |
-| 5 | "Get the ops seat to fix X" | `cortextos bus create-task` with a four-line brief | Brief guard, auditor, hunter pass |
+| 5 | "Get the ops seat to fix X" | `cortextos bus create-task` with a four-line brief | Brief guard, brief audit, auditor, adversarial pass |
 | 6 | "Send me a designed PDF of this" | HTML, headless Chrome, `send-telegram --file` | Read-back, naming rule |
 | 7 | "Add this DNS record" | DNS provider REST API with a token file | Zone backup, owner's words, add-then-delete |
 | 8 | "How are the ads doing?" | Browser automation in the owner's logged-in browser | No screen input without a go |
@@ -53,20 +55,18 @@ Related documents: `30-sre-runbooks.md` (failures), `31-observability-alerting.m
 1. **Get the owner's go** for the specific change. Client sites always need it.
 2. **Find the live source of truth before you edit.** The obvious repo may be behind production, for example when the site was deployed from a CLI and the repo was not updated. Rebuild from what is live, or you will revert fixes on deploy.
 3. **Design pass** for anything visible. Start with the design skill family and end with a taste gate that includes a horizontal-overflow check at a 390x844 viewport.
-4. **Security gate**:
-   ```bash
-   python3 <path-to>/cortex_pentest_gate.py . --output security --url <candidate-or-local-url>
-   ```
-   Without `--url` the web scan is skipped and the gate can still report `pass`.
+4. **Security gate**: run your pentest gate (not included in this repository) against the source and a local or candidate URL. It must write `security/pentest-gate-report.json` with `"status": "pass"`. A gate run without a URL skips the web scan and can still report `pass`.
 5. **Ship through the wrapper**, never raw `vercel --prod`:
    ```bash
-   bash $SHIP <abs-site-dir> <prod-url> [--deploy-cmd "<cmd>"] [--no-index-check "<reason>"]
+   harness/tools/ship.sh <site-dir> <prod-url> --gate-cmd '<your gate> . --output security ${1:+--url "$1"}' \
+     --deploy-cmd 'vercel deploy --prod --skip-domain --yes --format json' \
+     --promote-cmd 'vercel promote --yes' --remove-cmd 'vercel remove --yes'
    ```
-   It deploys a candidate with production env but without the domain, gates the candidate URL, and promotes the same build only if it passes.
-6. **Read the exit code** (full table in RB-11): 0 shipped; 3 static gate failed; 4 deploy failed; 5 live and wrong; 6 candidate failed and removed; 7 promote did not take; 8 shipped with a noindex header.
+   It gates the source, deploys a candidate with production env but without the domain, gates the candidate URL, and promotes the same build only if it passes. Then it checks production answers 200 and passes the gate again.
+6. **Read the exit code** (full table in RB-11): 0 shipped; 2 usage error; 3 static gate failed; 4 deploy failed; 5 live and wrong; 6 candidate failed (removed if `--remove-cmd` is set); 7 promote failed.
 7. **Verify in the rendered page**, not the source. Load the live URL in a browser and check the DOM for the change.
 8. **Curl every referenced asset** on the live URL if the bundle was trimmed.
-9. **Check indexing.** "Launched" includes a search-console read: property, sitemap, coverage. `ship.sh` also refuses a candidate whose `sitemap.xml` or `robots.txt` is wrong or that sends noindex.
+9. **Check indexing.** "Launched" includes a search-console read: property, sitemap, coverage. `ship.sh` has no indexing check of its own; put `sitemap.xml`, `robots.txt` and `noindex` checks in your gate command if you want the ship to refuse on them.
 10. **Hand off.** Tell the owner with the deployment id. Update any watcher whose checks depend on the change in the same change.
 
 **Accepted risk.** When the static gate fails on pre-existing findings the owner accepts, record the acceptance in a separate note under `security/`, in the owner's words. The gate report keeps its true `fail`. Never rewrite the report.
@@ -155,14 +155,14 @@ For a one-time reminder that must survive restarts, `cortextos bus create-remind
    A message alone is not a dispatch. It is invisible on the dashboard.
 2. The brief guard enforces this. `brief_guard.py` (PreToolUse on Bash) blocks any `create-task` with an `--assignee` other than the current seat unless the description has `TASK:`, `FILES:`, `BAR:` and `RETURN:` lines. It also checks the wrapper script form and treats unexpanded `$VARS` as empty.
 3. When the worker reports done, treat it as a claim. Open the named files and run the BAR yourself.
-4. Run a scope audit over the worker's writes in the task window: label each write IN or OUT of the FILES line. OUT is a question for the worker, not a verdict.
-5. For a second opinion, use a read-only `auditor` subagent that returns `VERDICT / EVIDENCE / MISSED / NOT CHECKED / NEXT`.
-6. For guards, hooks and fixes, add one hunter pass (`32-security-red-team-log.md`, section 4.3).
+4. Run a scope audit over the worker's writes in the task window: `python3 harness/tools/brief_audit.py <task_id>` labels each write IN, tmp or OUT of the FILES line. OUT is a question for the worker, not a verdict.
+5. For a second opinion, use a read-only `auditor` subagent (a `.claude/agents/` definition you write; not included) that returns `VERDICT / EVIDENCE / MISSED / NOT CHECKED / NEXT`.
+6. For guards, hooks and fixes, add one adversarial pass with `harness/tools/adversarial-pass.sh` (`32-security-red-team-log.md`, section 4.3).
 7. Workers that edit code get their own worktree or branch. Merge one at a time. Only main ships.
 
 **Example brief: a delete guard extension**
 - TASK: treat `find -delete` and `find -exec rm` as deletes on every protected root.
-- FILES: candidate copies of `shared-surface-guard.py` and `surface.py`, plus `deliverables/surface-guard-find-<date>/`.
+- FILES: candidate copies of `shared_surface_guard.py` and `surface.py`, plus `deliverables/surface-guard-find-<date>/`.
 - BAR: tests fail on live and pass on the candidate for named commands; allowed cases stay allowed; a mutant that drops the rule goes red; auditor PASS before install; backup and rollback line.
 - RETURN: manifest hash, test counts, auditor verdict id, install time and backup path.
 
@@ -250,7 +250,7 @@ For a one-time reminder that must survive restarts, `cortextos bus create-remind
 4. Quote times from tool output. Print `date -u` in the same command.
 5. Before you say "I told the owner", find the line in `$CTX_ROOT/logs/<seat>/outbound-messages.jsonl` and cite its `message_id`.
 
-**Guards on the send path.** The send guard lints the text. The future-time guard refuses UTC stamps more than 3 minutes ahead. An attribution lint can check that numbers and quotes carry a source.
+**Guards on the send path.** The send guard lints the text. The future-time guard refuses UTC stamps more than 3 minutes ahead. An attribution lint (optional, not included) can check that numbers and quotes carry a source.
 
 **Trap.** Quoting the owner without their hedge words ("I think") turns a belief into a ruling.
 

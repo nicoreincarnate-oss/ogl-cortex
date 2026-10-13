@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,7 +33,7 @@
 <li class="on"><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">42</div><div><p class="dg">Business and assurance</p>
-<h1>Chaos, telemetry and determinism</h1><p class="meta">2,427 words · <a href="../42-chaos-telemetry-determinism.md">Markdown source</a></p></div></header>
+<h1>Chaos, telemetry and determinism</h1><p class="meta">2,536 words · <a href="../42-chaos-telemetry-determinism.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-summary">1. Summary</a></li><li><a href="#2-chaos-and-stress">2. Chaos and stress</a></li><li><a href="#3-telemetry">3. Telemetry</a></li><li><a href="#4-determinism-rule-versus-judgement">4. Determinism: rule versus judgement</a></li><li><a href="#5-test-suites">5. Test suites</a></li><li><a href="#6-enterprise-items-and-their-equivalents">6. Enterprise items and their equivalents</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>Three questions for any agent harness: what faults does it survive, what records does it keep, and which parts behave the same way every time?</p>
 <p>Related documents: <code>31-observability-alerting.md</code> (alert routing), <code>32-security-red-team-log.md</code> (guard testing method), <code>41-support-known-issues-faq.md</code>. Path and role names follow <code>30-sre-runbooks.md</code>.</p>
@@ -59,7 +60,7 @@
 </tr>
 <tr>
 <td>What gets tested on purpose?</td>
-<td>Guards (real-shell oracle, mutants, replay over real command history), sentinels (fixture suites with mutants and self-tests), fixes (hunter passes)</td>
+<td>Guards and tools (<code>harness/tests/run_all.py</code>: must-block and must-allow cases per hook, must-pass and must-fail cases per tool), fixes (adversarial passes). Optional, not included: real-shell oracles, mutant suites, replay over real command history, sentinel fixtures</td>
 </tr>
 <tr>
 <td>One telemetry standard?</td>
@@ -121,7 +122,7 @@
 <tr>
 <td>Wrong-account credential writes</td>
 <td>OAuth flow finished with the wrong account</td>
-<td>Account guard, identity check</td>
+<td>Account guard and identity check (optional, not included)</td>
 </tr>
 <tr>
 <td>Evicted LaunchAgents</td>
@@ -136,7 +137,8 @@
 </tbody>
 </table>
 <p>Most serious stress on a single-host fleet is self-inflicted by fleet work: a scan, a model, a storm, a prune. External faults are rarer. Memory and disk pressure is the dominant failure mode.</p>
-<h3 id="22-deliberate-tests-that-ship-with-the-harness">2.2 Deliberate tests that ship with the harness</h3>
+<h3 id="22-deliberate-tests">2.2 Deliberate tests</h3>
+<p>The harness ships one suite: <code>python3 harness/tests/run_all.py</code>. The other rows describe tests to build for your own guards and sentinels; their scripts are not included in this repository.</p>
 <table>
 <thead>
 <tr>
@@ -147,13 +149,18 @@
 </thead>
 <tbody>
 <tr>
+<td>Every shipped hook and tool</td>
+<td><code>harness/tests/run_all.py</code>: hook JSON on stdin, exit code asserted; tools run against fakes</td>
+<td><code>ALL PASS</code></td>
+</tr>
+<tr>
 <td>Shared-surface guard</td>
 <td>Real-shell oracle: each probe shape run in <code>bash</code>, <code>zsh</code> and <code>sh</code>, in script and inline forms, under <code>sandbox-exec</code>, with a must-find control first that voids the run on a miss</td>
 <td><code>MISS 0</code>, <code>over-flag 0</code>; every mutant killed</td>
 </tr>
 <tr>
 <td>Any guard change</td>
-<td><code>mutants.py</code>, unit tests (must-flag and must-allow), <code>replay_diff.py</code> over real command history</td>
+<td>A mutant suite, unit tests (must-flag and must-allow), and a replay diff over real command history</td>
 <td>Tests red on live, green on candidate; only intended verdict changes in the replay</td>
 </tr>
 <tr>
@@ -172,23 +179,18 @@
 <td>Alert written to the sink</td>
 </tr>
 <tr>
-<td>Account guard</td>
-<td>Live positive control with an invalid address</td>
-<td><code>BLOCK</code> line in the guard log</td>
-</tr>
-<tr>
 <td>Send guard and fail-closed paths</td>
 <td>Corpus replays and mutant suites</td>
 <td>Mutants killed; no new false positives on the corpus</td>
 </tr>
 <tr>
 <td>Any guard, hook or fix</td>
-<td><code>hunter.sh</code> fenced pass on one claim</td>
+<td><code>harness/tools/adversarial-pass.sh</code> fenced pass on one claim</td>
 <td>Reachable findings fixed test-first</td>
 </tr>
 </tbody>
 </table>
-<figure class="diagram"><img src="img/9996a93fcb65.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/e8c77bf08ec5.svg" alt="Diagram"></figure>
 
 <h3 id="23-rehearsals-worth-running">2.3 Rehearsals worth running</h3>
 <p>These faults have no shipped automated test. Run each once on a quiet night with the owner's go, and record the result.</p>
@@ -231,7 +233,7 @@
 <hr />
 <h2 id="3-telemetry">3. Telemetry</h2>
 <h3 id="31-where-records-go">3.1 Where records go</h3>
-<figure class="diagram"><img src="img/03f1f75dec13.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/15d2568d5f1a.svg" alt="Diagram"></figure>
 
 <h3 id="32-line-shapes">3.2 Line shapes</h3>
 <p><strong>Event log</strong> (the reference format), one JSON object per line, file named by UTC date:</p>
@@ -296,6 +298,7 @@
 </tbody>
 </table>
 <p>Practical effect: a question like "what happened at 05:03" needs several greps with different patterns. If you build a merged timeline, normalise to the event-log shape: <code>timestamp</code> key, ISO 8601 seconds, UTC.</p>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <p><strong>Recommended standard for new logs.</strong> JSON lines with <code>timestamp</code> (ISO 8601 UTC, seconds), <code>agent</code>, <code>event</code>, <code>severity</code>, and a <code>metadata</code> object. Write through <code>cortextos bus log-event</code> when a seat is the producer.</p>
 <h3 id="34-retention">3.4 Retention</h3>
 <ul>
@@ -306,7 +309,8 @@
 </ul>
 <hr />
 <h2 id="4-determinism-rule-versus-judgement">4. Determinism: rule versus judgement</h2>
-<h3 id="41-hooks-in-a-reference-orchestrator-seat">4.1 Hooks in a reference orchestrator seat</h3>
+<h3 id="41-hooks-in-an-orchestrator-seat">4.1 Hooks in an orchestrator seat</h3>
+<p>Shipped hooks install to <code>&lt;seat&gt;/.claude/hooks/ogl/</code>. Rows marked "optional, not included" describe components this repository does not ship.</p>
 <table>
 <thead>
 <tr>
@@ -323,18 +327,23 @@
 </tr>
 <tr>
 <td>PreToolUse Bash and send MCPs</td>
-<td><code>orwell-lint.py</code></td>
+<td><code>orwell_lint.py</code></td>
 <td>Deterministic (regex and word lists)</td>
 </tr>
 <tr>
 <td>PreToolUse Google Workspace MCP</td>
-<td><code>gws-account-guard.py</code></td>
+<td>account guard (optional, not included)</td>
 <td>Deterministic (account list)</td>
 </tr>
 <tr>
 <td>PreToolUse Bash</td>
-<td><code>shared-surface-guard.py</code></td>
+<td><code>shared_surface_guard.py</code></td>
 <td>Deterministic (shell parser)</td>
+</tr>
+<tr>
+<td>PreToolUse Bash</td>
+<td><code>ship_gate.py</code></td>
+<td>Deterministic</td>
 </tr>
 <tr>
 <td>PreToolUse Bash</td>
@@ -348,7 +357,7 @@
 </tr>
 <tr>
 <td>PreToolUse Bash</td>
-<td><code>attribution-lint.py</code></td>
+<td>attribution lint (optional, not included)</td>
 <td>Deterministic, shadow tier</td>
 </tr>
 <tr>
@@ -358,42 +367,42 @@
 </tr>
 <tr>
 <td>Stop</td>
-<td>memory consolidation hook</td>
+<td>memory consolidation hook (optional, not included)</td>
 <td><strong>Spawns a model</strong> in the background</td>
 </tr>
 <tr>
 <td>SessionEnd, PreCompact</td>
-<td><code>cortextos crash-alert</code>, <code>hook-compact-telegram</code>, checkpoint script</td>
+<td><code>cortextos crash-alert</code>, <code>hook-compact-telegram</code>; checkpoint script (optional, not included)</td>
 <td>Deterministic</td>
 </tr>
 <tr>
 <td>SessionEnd, PreCompact</td>
-<td>memory digest</td>
+<td>memory digest (optional, not included)</td>
 <td><strong>Spawns a model</strong> in the background</td>
 </tr>
 <tr>
 <td>SessionStart</td>
-<td>inject script; <code>after_compact.py</code></td>
+<td><code>compaction/after_compact.py</code>; inject script (optional, not included)</td>
 <td>Deterministic</td>
 </tr>
 <tr>
 <td>PostToolUse</td>
-<td>compaction meter; fix-commit trigger</td>
+<td><code>compaction/meter.py</code>; fix-commit trigger (optional, not included)</td>
 <td>Deterministic</td>
 </tr>
 <tr>
 <td>PostCompact</td>
-<td><code>save_summary.py</code></td>
+<td><code>compaction/save_summary.py</code></td>
 <td>Deterministic</td>
 </tr>
 <tr>
 <td>UserPromptSubmit</td>
-<td>client recall hook</td>
+<td>client recall hook (optional, not included)</td>
 <td>Deterministic</td>
 </tr>
 <tr>
 <td>UserPromptSubmit</td>
-<td>prompt router</td>
+<td>prompt router (optional, not included)</td>
 <td><strong>Model call on every owner message</strong> (headless small model, one turn). Injects nothing on timeout or failure</td>
 </tr>
 </tbody>
@@ -410,7 +419,7 @@
 </thead>
 <tbody>
 <tr>
-<td>cortextOS daemon crons</td>
+<td>OGL Cortex daemon crons</td>
 <td>When the prompt fires (30-second tick; one catch-up fire after downtime)</td>
 <td>Everything after: the prompt is text a model interprets</td>
 </tr>
@@ -428,7 +437,7 @@
 </table>
 <p>Fires are not exact. A cron can run some minutes after its slot if the seat is busy. Design prompts to tolerate late fires.</p>
 <h3 id="43-the-design-pattern">4.3 The design pattern</h3>
-<figure class="diagram"><img src="img/189b0a1fed23.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/4c6ecce93bfc.svg" alt="Diagram"></figure>
 
 <p>Model judgement does the work. Deterministic guards fence its outputs: every send passes the send guard, every dispatch passes the brief guard, every write to a shared surface passes the surface guard.</p>
 <p>Not fenced deterministically:</p>
@@ -449,7 +458,7 @@
 </thead>
 <tbody>
 <tr>
-<td>cortextOS framework</td>
+<td>Framework</td>
 <td><code>npm test</code> (Vitest) in <code>$CORTEX_HOME</code></td>
 <td>The source tree. Run it before and after any framework change</td>
 </tr>
@@ -499,7 +508,7 @@
 <tr>
 <td>Chaos platform and game days</td>
 <td>No</td>
-<td>Section 2.3 rehearsals; guard oracles; hunter passes</td>
+<td>Section 2.3 rehearsals; guard oracles; adversarial passes</td>
 </tr>
 <tr>
 <td>Load and soak testing</td>

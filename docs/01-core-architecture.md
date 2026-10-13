@@ -8,7 +8,7 @@ These placeholders appear in every OGL Cortex document:
 
 | Placeholder | Meaning |
 |---|---|
-| `$CORTEX_HOME` | The framework checkout (the cortextOS repo) |
+| `$CORTEX_HOME` | The framework checkout (cloned from the upstream framework repo) |
 | `<instance>` | The runtime instance name passed to the daemon with `--instance` (default `default`) |
 | `$CTX_ROOT` | The runtime state folder, `~/.cortextos/<instance>` |
 | `<org>` | An organisation folder under `$CORTEX_HOME/orgs/` |
@@ -21,14 +21,14 @@ OGL Cortex uses neutral role names: **orchestrator**, **specialist**, **auditor*
 
 ## 1. Overview
 
-OGL Cortex runs a fleet of Claude Code sessions on one host. A background program, the **cortextOS daemon**, keeps each agent session alive, feeds it the owner's Telegram messages and its scheduled jobs, and restarts it when it exits. Each agent, called a **seat**, is a folder of text files (rules, memory, skills) plus one Claude Code terminal session.
+OGL Cortex runs a fleet of Claude Code sessions on one host. A background program, the **OGL Cortex daemon**, keeps each agent session alive, feeds it the owner's Telegram messages and its scheduled jobs, and restarts it when it exits. Each agent, called a **seat**, is a folder of text files (rules, memory, skills) plus one Claude Code terminal session.
 
 One seat is the **orchestrator**. The owner talks to it. It hands work to other seats over a file-based message bus, or to short-lived helper agents (**subagents**) inside its own session. Small scripts called **hooks** check each seat's actions before they happen, for example blocking an outgoing Telegram message that breaks the writing rules. Memory is spread across layers, from the live conversation to a vector database.
 
 OGL Cortex has two parts:
 
-- **cortextOS** (MIT, upstream `github.com/grandamenium/cortextos`): the daemon, PTY layer, bus CLI, Telegram integration, cron scheduler, dashboard and seat templates.
-- **The OGL layer**: guard hooks, the compaction kit, memory protocol, approval gates, the ship gate, sentinels and additional skills.
+- **The framework** (MIT, upstream `github.com/grandamenium/cortextos`): the daemon, PTY layer, bus CLI, Telegram integration, cron scheduler, dashboard and seat templates.
+- **The OGL layer**: guard hooks, the compaction kit, memory protocol, approval gates, the ship gate, operating tools and additional skills. Sentinel scripts are an optional pattern you add yourself.
 
 ---
 
@@ -42,14 +42,16 @@ OGL Cortex has two parts:
 - **Episodic**: a dated record of what happened.
 - **Long-term**: distilled facts and rules meant to hold for months.
 
+The command-line tool is named `cortextos`.
+
 | # | Layer | What it is | Where | Kind | Writer / reader |
 |---|---|---|---|---|---|
 | 1 | Conversation context | The live session text. Seats restart with `--continue`, so one conversation can span days | `~/.claude/projects/<project-slug>/<session-id>.jsonl` | Short-term | Claude Code / seat |
 | 2 | Auto-compaction window | Claude Code compresses the conversation when it passes a token limit | `<seat>/.claude/settings.json` key `autoCompactWindow` | Short-term | Claude Code |
-| 3 | STATE.md and compaction kit | A seat-written "where the work stands" file. A context-meter hook nudges the seat to update it as the window fills. After compaction a hook pastes it back in; another saves the compaction summary | `<seat>/STATE.md`; `<seat>/.claude/hooks/kem-compaction/` (`compaction.json`, `meter.py`, `after_compact.py`, `save_summary.py`); summaries in `<seat>/compactions/` | Short-term bridge | Seat writes / hooks re-inject |
-| 4 | Pre-compaction checkpoints | A PreCompact hook copies the last ~120 transcript lines to a checkpoint. A SessionStart hook re-injects the newest checkpoint if it is under 72 hours old, plus the tail of today's daily memory | `<seat>/.claude/hooks/precompact-checkpoint.sh`, `sessionstart-inject.sh`; `<seat>/memory/checkpoints/` | Short-term bridge | Hooks only |
+| 3 | STATE.md and compaction kit | A seat-written "where the work stands" file. A context-meter hook nudges the seat to update it as the window fills. After compaction a hook pastes it back in; another saves the compaction summary | `<seat>/STATE.md`; `<seat>/.claude/hooks/ogl/compaction/` (`compaction.json`, `meter.py`, `after_compact.py`, `save_summary.py`; source `harness/hooks/compaction/`); summaries in `<seat>/compactions/` | Short-term bridge | Seat writes / hooks re-inject |
+| 4 | Pre-compaction checkpoints (optional, not included) | A PreCompact hook copies the last transcript lines to a checkpoint. A SessionStart hook re-injects the newest checkpoint plus the tail of today's daily memory. This repository does not ship these hooks | `<seat>/memory/checkpoints/` if you add them | Short-term bridge | Hooks only |
 | 5 | Daily memory | One markdown file per day, an append-only work log | `<seat>/memory/YYYY-MM-DD.md` | Episodic | Seat / SessionStart hook injects the last 3,000 characters |
-| 6 | Session digests | At session end and before compaction, a hook filters the transcript, runs a headless Claude (`sonnet`) to write a digest, and indexes it into a local search index | `<seat>/tools/kem-memory/digest/`; output `<seat>/memory/digests/`; index `<seat>/tools/kem-memory/rag/rag.db` | Episodic | Hook / seat on demand |
+| 6 | Session digests (optional, not included) | At session end and before compaction, a hook filters the transcript, runs a headless Claude to write a digest, and indexes it into a local search index. This repository does not ship it | Your choice, for example `<seat>/memory/digests/` | Episodic | Hook / seat on demand |
 | 7 | Incidents log | Narrative record of failures and the lessons drawn from them | `<seat>/memory/topics/incidents.md` | Episodic | Orchestrator, auditor |
 | 8 | Seat MEMORY.md | Long-term rules and lessons, read at boot | `<seat>/MEMORY.md` | Long-term | Seat; the auditor may add coaching rules |
 | 9 | Claude auto-memory | Claude Code's per-project memory folder: one index file plus one file per lesson. Only the index loads, capped at 200 lines | `~/.claude/projects/<project-slug>/memory/` | Long-term | Claude Code and seat |
@@ -57,8 +59,8 @@ OGL Cortex has two parts:
 | 11 | Org knowledge.md | Shared facts for every seat in the org, read at boot | `orgs/<org>/knowledge.md` | Long-term | Any seat |
 | 12 | Knowledge base (RAG) | `cortextos bus kb-query` searches a Chroma vector database. Embedding model, dimensions and chunk size are set in the KB `config.json`; there is one collection per seat plus a shared one | `$CTX_ROOT/orgs/<org>/knowledge-base/` (`config.json`, `chromadb/`) | Long-term | `kb-ingest` crons write / any seat reads |
 | 13 | External knowledge stores (optional) | Owner tools such as a note vault or a graph database, wired in through MCP servers | Owner-defined | Long-term | Owner and agents |
-| 14 | Client memory graph (optional) | A SQLite graph of clients and people with quoted, dated facts. A UserPromptSubmit hook reads it | `<seat>/tools/ops-graph/graph.db` | Long-term | Built offline / hook reads |
-| 15 | Truth-correction ledger | When a seat is caught, or catches itself, stating something false, a guarded script logs a `truth_correction` event | `<seat>/tools/emit-truth-correction.sh` (calls `cortextos bus log-event action truth_correction`); events in `$CTX_ROOT/orgs/<org>/analytics/events/` | Episodic | Any seat / auditor scores it |
+| 14 | Client memory graph (optional, not included) | A SQLite graph of clients and people with quoted, dated facts. A UserPromptSubmit hook reads it. This repository does not ship it | Owner-defined | Long-term | Built offline / hook reads |
+| 15 | Truth-correction ledger | When a seat is caught, or catches itself, stating something false, a guarded script logs a `truth_correction` event | `harness/tools/emit-truth-correction.sh` (calls `cortextos bus log-event action truth_correction`); events in `$CTX_ROOT/orgs/<org>/analytics/events/` | Episodic | Any seat / auditor scores it |
 | 16 | Telegram logs | Every message in and out | `$CTX_ROOT/logs/<seat>/inbound-messages.jsonl`, `outbound-messages.jsonl` | Episodic | Daemon and `send-telegram` |
 | 17 | Session facts | `cortextos bus recall-facts` returns facts extracted at compaction | `src/hooks/hook-extract-facts.ts` | Episodic | Requires the extract hook to be registered in the seat's settings |
 
@@ -84,8 +86,8 @@ A **skill** is a folder with a `SKILL.md` file: written instructions for one kin
 | Built-in Claude tools | Bash, Read, Edit, Write, WebFetch, WebSearch, Agent (subagents) and others | `<seat>/.claude/settings.json` `permissions.allow`; launch flags (see 02) |
 | MCP servers, user scope | Browser automation, workspace, design, CRM and other connectors | `~/.claude.json` `mcpServers` |
 | MCP servers, project scope | Servers needed by one seat | `~/.claude.json` `projects.<path>.mcpServers` |
-| cortextOS bus CLI | `cortextos bus <cmd>`: tasks, messages, Telegram, crons, KB, approvals, heartbeats, hooks | `src/cli/bus.ts` |
-| cortextOS CLI | `cortextos <cmd>`: `start`, `stop`, `restart`, `status`, `add-agent`, `goals`, `crash-alert` and more | `src/cli/` |
+| OGL Cortex bus CLI | `cortextos bus <cmd>`: tasks, messages, Telegram, crons, KB, approvals, heartbeats, hooks | `src/cli/bus.ts` |
+| OGL Cortex CLI | `cortextos <cmd>`: `start`, `stop`, `restart`, `status`, `add-agent`, `goals`, `crash-alert` and more | `src/cli/` |
 | Seat scripts | Helper scripts the seat runs through Bash | `<seat>/tools/` |
 | Crons | Daemon-scheduled prompts | `$CTX_ROOT/.cortextOS/state/agents/<seat>/crons.json` |
 | LaunchAgents | macOS scheduled scripts (sentinels, backups) | `~/Library/LaunchAgents/*.plist` |
@@ -119,28 +121,20 @@ Mechanical rules live in the `hooks` object of `<seat>/.claude/settings.json` an
 | PermissionRequest | ExitPlanMode | `cortextos bus hook-planmode-telegram` | Sends plan approval to Telegram | Waits for reply |
 | PermissionRequest | any | `cortextos bus hook-permission-telegram` | Sends permission prompts to Telegram | Waits for reply |
 | PreToolUse | AskUserQuestion | `cortextos bus hook-ask-telegram` | Routes questions to Telegram | No |
-| PreToolUse | Bash | `~/.claude/hooks/orwell-lint.py` | **Send guard.** Lints the text of any `cortextos bus send-telegram` against Orwell's six rules and a no-em-dash rule. One pass token per seat | Yes |
-| PreToolUse | MCP send, reply, forward, draft and post tools | `~/.claude/hooks/orwell-lint.py` | Same lint on email and social sends | Yes |
-| PreToolUse | `mcp__google-workspace__.*` | `~/.claude/hooks/gws-account-guard.py` | **Account guard.** Blocks calls for accounts on a deny list, and blocks re-auth flows that could overwrite stored credentials | Yes, no pass token |
-| PreToolUse | Bash | `SURFACE_CODE_MODE=warn ~/.claude/hooks/shared-surface-guard.py` | **Shared-surface guard.** Blocks once on commands that change things every seat depends on: `uv cache` prune, global npm installs, `brew upgrade`, writes to `~/.claude*` and shared credential folders. Code-write checks run in warn mode | Yes, once |
-| PreToolUse | Bash | `<seat>/.claude/hooks/brief_guard.py` | **Brief guard.** `create-task --assignee <other seat>` must carry TASK, FILES, BAR and RETURN lines | Yes |
-| PreToolUse | Bash, Write, Edit | `<seat>/.claude/hooks/future_time_guard.py` | **Future-time guard.** Refuses an `HH:MM UTC` stamp more than 3 minutes in the future in memory files, STATE.md or sends. Fails open | Yes |
-| PreToolUse | Bash | `<seat>/.claude/hooks/attribution-lint.py` | **Attribution lint.** Blocks owner-bound sends that present an estimate as a measured number without a receipt. Tier B logs only | Tier A only |
-| PreToolUse | Bash | `ship_gate_hook.py` (user level, from the pentest-gate skill) | **Ship gate.** Blocks `git push`, `gh release` and similar unless a passing pentest report exists | Yes |
-| PostToolUse | any | `kem-compaction/meter.py` | Context meter: nudge, then warning | No |
-| PostToolUse | Bash | `tools/adversarial-trigger/fix_commit_hook.py` | After a `git commit` whose subject says fix, guard or hook, starts a background adversarial review | No |
-| UserPromptSubmit | any | `tools/ops-graph/recall_hook.py` | **Client memory graph.** Injects dated quoted facts (max 6,000 chars) when the prompt names a known client or person. Skips cron prompts | No |
-| UserPromptSubmit | any | `tools/prompt-router/router.py` | **Reply-style router.** Runs `claude --print --model haiku` to pick one of six reply styles and injects it. Logs to `decisions.jsonl` | No |
+| PreToolUse | Bash | `<seat>/.claude/hooks/ogl/orwell_lint.py` | **Send guard.** Lints the text of any `cortextos bus send-telegram` against Orwell's six rules and a no-em-dash rule. One pass token per seat | Yes |
+| PreToolUse | MCP send, reply, forward, draft and post tools | `<seat>/.claude/hooks/ogl/orwell_lint.py` | Same lint on email and social sends | Yes |
+| PreToolUse | Bash | `SURFACE_CODE_MODE=warn <seat>/.claude/hooks/ogl/shared_surface_guard.py` (with `surface.py`, `codewrites.py`) | **Shared-surface guard.** Blocks once on commands that change things every seat depends on: `uv cache` prune, global npm installs, `brew upgrade`, writes to `~/.claude*` and shared credential folders. Code-write checks run in warn mode | Yes, once |
+| PreToolUse | Bash | `<seat>/.claude/hooks/ogl/brief_guard.py` | **Brief guard.** `create-task --assignee <other seat>` must carry TASK, FILES, BAR and RETURN lines | Yes |
+| PreToolUse | Bash, Write, Edit | `<seat>/.claude/hooks/ogl/future_time_guard.py` | **Future-time guard.** Refuses an `HH:MM UTC` stamp more than 3 minutes in the future in memory files, STATE.md or sends. Fails open | Yes |
+| PreToolUse | Bash | `<seat>/.claude/hooks/ogl/ship_gate.py` | **Ship gate.** Blocks `git push`, `gh release` and similar unless a passing pentest report exists | Yes |
+| PostToolUse | any | `<seat>/.claude/hooks/ogl/compaction/meter.py` | Context meter: nudge, then warning | No |
 | Stop | any | `cortextos bus hook-idle-flag` | Writes `last_idle.flag` so the daemon knows the turn ended (drives the typing indicator) | No |
-| Stop | any | `~/.claude/skills/aa-dream/dream-hook.sh` | Starts background memory consolidation after 24 h and 5 sessions | No |
 | SessionEnd | any | `cortextos crash-alert` | Crash notice | No |
-| SessionEnd, PreCompact | any | `kem-memory/digest/session_end.py` | Session digest (layer 6) | No |
-| PreCompact | any | `cortextos bus hook-compact-telegram`, `precompact-checkpoint.sh` | Telegram notice and checkpoint (layer 4) | No |
-| SessionStart | any | `sessionstart-inject.sh` | Re-injects checkpoint and daily memory tail | No |
-| SessionStart | compact | `kem-compaction/after_compact.py` | Hands STATE.md back | No |
-| PostCompact | any | `kem-compaction/save_summary.py` | Saves the summary to `compactions/` | No |
+| PreCompact | any | `cortextos bus hook-compact-telegram` | Telegram notice | No |
+| SessionStart | compact | `<seat>/.claude/hooks/ogl/compaction/after_compact.py` | Hands STATE.md back | No |
+| PostCompact | any | `<seat>/.claude/hooks/ogl/compaction/save_summary.py` | Saves the summary to `compactions/` | No |
 
-Specialist seats carry a subset: the Telegram hooks, the send guard and the shared-surface guard. An infrastructure seat can run the shared-surface guard in strict mode by omitting `SURFACE_CODE_MODE=warn`. The cortextOS templates also ship `cortextos bus hook-loop-detector` as a PreToolUse hook (`src/hooks/hook-loop-detector.ts`).
+Specialist seats carry a subset: the Telegram hooks, the send guard and the shared-surface guard. An infrastructure seat can run the shared-surface guard in strict mode by omitting `SURFACE_CODE_MODE=warn`. The framework templates also ship `cortextos bus hook-loop-detector` as a PreToolUse hook (`src/hooks/hook-loop-detector.ts`).
 
 A hook script on disk does nothing until a settings file registers it.
 
@@ -179,11 +173,11 @@ flowchart TD
 
 | Actor | What it is | Code / location |
 |---|---|---|
-| **cortextOS daemon** | One Node process. Starts each seat's Claude session in a pseudo-terminal (PTY), polls Telegram, runs crons, restarts crashed seats | pm2 app `cortextos-daemon` runs `$CORTEX_HOME/dist/daemon.js --instance <instance>`; `src/daemon/agent-manager.ts` |
+| **OGL Cortex daemon** | One Node process. Starts each seat's Claude session in a pseudo-terminal (PTY), polls Telegram, runs crons, restarts crashed seats | pm2 app `cortextos-daemon` runs `$CORTEX_HOME/dist/daemon.js --instance <instance>`; `src/daemon/agent-manager.ts` |
 | **fast-checker** | A loop inside the daemon, one per seat, polling every 1 s. Injects queued Telegram and bus messages into the seat's terminal, watches context size, sends the typing indicator | `src/daemon/fast-checker.ts` |
 | **Heartbeat watchdog** | Part of the fast-checker. Every 50 minutes it writes an "alive, idle session" heartbeat for the seat | `src/daemon/fast-checker.ts` |
-| **Sentinels** | Bash scripts run by LaunchAgents every 10 minutes to daily: disk, heartbeat, session liveness, daemon restart storms, domain expiry, credential identity. They send bus messages to the orchestrator as `sentinel` | `<sentinel-dir>/*.sh`, `~/Library/LaunchAgents/` |
-| **Auth sentinel** | A pm2 loop that checks Claude login health | `<seat>/tools/claude-auth-sentinel-loop.sh` |
+| **Sentinels** (optional, not included) | Scheduled scripts (LaunchAgents on macOS, cron or systemd timers elsewhere) that check disk, heartbeats, session liveness, daemon restart storms, domain expiry and credential identity, and send bus messages to the orchestrator. You write these for your own install | Your scheduler |
+| **Auth sentinel** (optional, not included) | A loop that checks Claude login health | Your scheduler |
 | **Agent Office bridge** (optional) | Copies fleet state into a visual office and carries office chat lines and Approve clicks back to the orchestrator | See 14 |
 | **Owner** | The principal. Sends Telegram text, voice notes and photos; approves actions | `<seat>/USER.md`; `ALLOWED_USER` in the seat `.env` |
 | **Interactive Claude sessions** | Claude.app or Claude Code opened by the owner on the same host. Shares `~/.claude` (user hooks, skills, MCP config) with the seats; gets a seat's hooks only when opened in that seat's folder | n/a |
@@ -216,13 +210,13 @@ This trace follows a common request: the owner sends a voice note and then a tex
 | 2 | 0 to 4 s | The media handler downloads the `.ogg` into `<seat>/telegram-images/`, converts it with `ffmpeg`, and transcribes it with `whisper-cli` and the model in `~/.cortextos/models/` | `src/telegram/media.ts`, `src/telegram/transcribe.ts` |
 | 3 | ~4 s | The fast-checker formats a `=== TELEGRAM VOICE from ... ===` block with the transcript and pastes it into the seat's terminal. If the seat is mid-turn, Claude Code queues it | `src/daemon/fast-checker.ts` |
 | 4 | ~10 s | The text message arrives and becomes the next prompt; the queued voice block rides along | fast-checker, Claude Code queue |
-| 5 | ~12 s | UserPromptSubmit hooks run. The reply-style router injects `[reply style: act] ...`. The client-graph hook injects facts only if a known name appears | `tools/prompt-router/router.py`, `tools/ops-graph/recall_hook.py` |
+| 5 | ~12 s | UserPromptSubmit hooks run, if any are registered. None ship with this repository; an optional reply-style router or client-graph hook would inject its text here | `<seat>/.claude/settings.json` |
 | 6 | | Context available this turn: CLAUDE.md layers, bootstrap files read at boot, the auto-memory index, STATE.md and the SessionStart injection. The seat may also run `kb-query` | n/a |
-| 7 | ~25 s | The seat runs one Bash call: `send-telegram` plus `create-task`. Every PreToolUse Bash hook checks it first: send guard, shared-surface guard, brief guard (no `--assignee`, so not a dispatch), future-time guard, attribution lint, ship gate | `<seat>/.claude/settings.json` |
+| 7 | ~25 s | The seat runs one Bash call: `send-telegram` plus `create-task`. Every PreToolUse Bash hook checks it first: send guard, shared-surface guard, brief guard (no `--assignee`, so not a dispatch), future-time guard, ship gate | `<seat>/.claude/settings.json` |
 | 8 | ~26 s | `send-telegram` posts the acknowledgement, appends to `outbound-messages.jsonl`, overwrites `$CTX_ROOT/state/<seat>/last-telegram-<chat_id>.txt`, and logs `telegram_sent`. `create-task` writes a task record | `src/cli/bus.ts`, `src/telegram/logging.ts` |
 | 9 | ~60 s | The seat writes a shared brief and launches background subagents with the Agent tool | Claude Code Agent tool |
-| 10 | after each tool call | PostToolUse hooks: context meter, fix-commit trigger | settings.json |
-| 11 | turn end | Stop hooks: idle flag (stops the typing indicator), dream check | `src/hooks/hook-idle-flag.ts` |
+| 10 | after each tool call | PostToolUse hooks: context meter | settings.json |
+| 11 | turn end | Stop hooks: idle flag (stops the typing indicator) | `src/hooks/hook-idle-flag.ts` |
 | 12 | hourly | The auditor's audit cron scans the last 60 minutes of fleet events | auditor skill |
 | 13 | nightly | The auditor's catch-rate cron reads the full `outbound-messages.jsonl` | auditor script |
 
@@ -271,7 +265,7 @@ flowchart LR
     AO["Agent Office (optional)"]
     MB["Mobile API (tailnet)"]
   end
-  subgraph Daemon["cortextOS daemon (pm2)"]
+  subgraph Daemon["OGL Cortex daemon (pm2)"]
     POLL[Telegram poller]
     FC[fast-checker per seat]
     CRON[cron scheduler]
@@ -311,7 +305,7 @@ flowchart LR
 ## 6. Known limitations
 
 1. **Heartbeats show daemon liveness, not reasoning.** The fast-checker writes an "alive" heartbeat every 50 minutes whether or not the session is working (`src/daemon/fast-checker.ts`). Pair it with a check on recent tool activity or transcript growth. Any process that calls `cortextos bus update-heartbeat` without `CTX_AGENT_NAME` set writes under a default name.
-2. **The default transcription model is English-only.** `src/telegram/transcribe.ts` defaults to `ggml-tiny.en.bin`, which ignores the language setting. Install a multilingual whisper model for other languages. The inbound log stores voice notes with empty text; the transcript appears only in the session.
+2. **The default transcription model is English-only.** `src/telegram/transcribe.ts` defaults to `ggml-tiny.en.bin`, which ignores the language setting. Install a multilingual whisper model for other languages (the framework ships `scripts/install-whisper-model.sh`). The inbound log stores voice notes with empty text; the transcript appears only in the session.
 3. **`last-telegram-<chat_id>.txt` holds one message.** `send-telegram` overwrites it on each send (`src/telegram/logging.ts`). Audits that need every send must read `outbound-messages.jsonl`.
 4. **Seat hooks run inside subagents.** A subagent working in a seat folder inherits that seat's hooks. A hook that reads the parent transcript reports the parent's state to the subagent. Scope such hooks to the main session, or tell subagents in their brief to ignore state-file instructions.
 5. **The auto-memory index loads at most 200 lines.** Lines past the cap are dropped without error. Keep MEMORY.md files as indexes of short lines.

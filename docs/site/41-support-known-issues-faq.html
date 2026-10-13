@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,11 +33,12 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">41</div><div><p class="dg">Business and assurance</p>
-<h1>Support, known issues and FAQ</h1><p class="meta">2,443 words · <a href="../41-support-known-issues-faq.md">Markdown source</a></p></div></header>
+<h1>Support, known issues and FAQ</h1><p class="meta">2,480 words · <a href="../41-support-known-issues-faq.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#1-triage-flow">1. Triage flow</a></li><li><a href="#2-known-issues-and-failure-modes">2. Known issues and failure modes</a></li><li><a href="#3-deprecation-table">3. Deprecation table</a></li><li><a href="#4-faq">4. FAQ</a></li><li><a href="#5-enterprise-items-and-their-equivalents">5. Enterprise items and their equivalents</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>What to do when an agent acts strangely. This document has four parts: a three-tier triage flow, a registry of known issues and failure modes, a deprecation table, and an FAQ of the problems that come back.</p>
 <p>Related documents: <code>30-sre-runbooks.md</code> (step-by-step recovery), <code>31-observability-alerting.md</code> (logs and heartbeats), <code>40-finops-capacity.md</code> (quota and disk), <code>42-chaos-telemetry-determinism.md</code> (which guards are tested), <code>../TROUBLESHOOTING.md</code> (quick index). Path and role names follow <code>30-sre-runbooks.md</code>.</p>
-<p><strong>Scale.</strong> An enterprise support model assumes a help desk, a ticket queue and an on-call rota. OGL Cortex assumes one owner and a handful of seats. Tier 1 is the owner with a phone. Tier 2 is the orchestrator seat. Tier 3 is the specialist seats and the owner at the keyboard. The ticket queue is the cortextOS task list (<code>cortextos bus list-tasks</code>) plus the approvals queue (<code>cortextos bus list-approvals</code>).</p>
+<p>The command-line tool is named <code>cortextos</code>.</p>
+<p><strong>Scale.</strong> An enterprise support model assumes a help desk, a ticket queue and an on-call rota. OGL Cortex assumes one owner and a handful of seats. Tier 1 is the owner with a phone. Tier 2 is the orchestrator seat. Tier 3 is the specialist seats and the owner at the keyboard. The ticket queue is the OGL Cortex task list (<code>cortextos bus list-tasks</code>) plus the approvals queue (<code>cortextos bus list-approvals</code>).</p>
 <hr />
 <h2 id="1-triage-flow">1. Triage flow</h2>
 <figure class="diagram"><img src="img/69cdbc107dd3.svg" alt="Diagram"></figure>
@@ -130,7 +132,7 @@
 <tr>
 <td>8</td>
 <td>Guards blocking</td>
-<td><code>~/.claude/hooks/orwell-lint.log</code>, <code>surface-guard.log</code></td>
+<td><code>~/.ogl-cortex/state/orwell-lint.log</code>, <code>surface-guard.log</code> (<code>$OGL_STATE_DIR</code>)</td>
 <td>The seat retries the same blocked call in a loop</td>
 </tr>
 <tr>
@@ -372,8 +374,8 @@
 <hr />
 <h2 id="4-faq">4. FAQ</h2>
 <h3 id="41-the-seat-keeps-rewriting-the-same-message-or-my-send-was-blocked">4.1 "The seat keeps rewriting the same message" or "my send was blocked"</h3>
-<p><strong>Cause.</strong> The send guard (<code>orwell-lint.py</code>). It lints every outgoing Telegram, email and post against a fixed rule set with word lists and regex, no model, and exits 2 with the broken rules listed.</p>
-<p><strong>Fix.</strong> Rewrite and resend. For one send that must break a rule: <code>touch ~/.claude/hooks/.orwell-pass-once-$CTX_AGENT_NAME</code> (valid 10 minutes, consumed and logged).</p>
+<p><strong>Cause.</strong> The send guard (<code>orwell_lint.py</code>, installed in <code>&lt;seat&gt;/.claude/hooks/ogl/</code>). It lints every outgoing Telegram, email and post against a fixed rule set with word lists and regex, no model, and exits 2 with the broken rules listed.</p>
+<p><strong>Fix.</strong> Rewrite and resend. For one send that must break a rule: <code>touch ~/.ogl-cortex/state/.orwell-pass-once-$CTX_AGENT_NAME</code> (valid 10 minutes, consumed and logged).</p>
 <h3 id="42-a-write-was-refused-for-a-time-stamp">4.2 "A write was refused for a time stamp"</h3>
 <p><strong>Cause.</strong> <code>future_time_guard.py</code> refuses writes to <code>memory/</code>, <code>STATE.md</code> and sends that stamp a UTC time more than 3 minutes ahead of the clock. It fails open on its own errors.</p>
 <p><strong>Fix.</strong> Print <code>date -u</code> in the same command and copy the time from the output. Stamps for other days, ranges like <code>10:3x</code>, and stamps after "yesterday" are ignored by design.</p>
@@ -394,13 +396,13 @@
 <p><strong>Fix.</strong> Retry with the other account through its direct token path. Escalate only if both fail. See RB-09.</p>
 <h3 id="48-a-whole-google-accounts-mail-went-blind">4.8 "A whole Google account's mail went blind"</h3>
 <p><strong>Cause.</strong> A Workspace MCP session bound to account A was called with account B's address and wrote A's token into B's credential file.</p>
-<p><strong>Fix.</strong> Install <code>gws-account-guard.py</code>, re-authorise B with an identity-checking script, and use the MCP only for its bound account.</p>
+<p><strong>Fix.</strong> Add an account guard (optional, not included in this repository) that blocks MCP calls for any account other than the bound one, re-authorise B with an identity-checking script, and use the MCP only for its bound account.</p>
 <h3 id="49-restart-says-the-daemon-is-not-running">4.9 "Restart says the daemon is not running"</h3>
 <p><strong>Cause.</strong> <code>cortextos restart</code>, <code>stop</code>, <code>start</code> and <code>doctor</code> default to <code>--instance default</code>.</p>
 <p><strong>Fix.</strong> Pass <code>--instance &lt;instance&gt;</code>. Never run <code>cortextos start</code> on that error while pm2 shows the daemon online. See RB-03.</p>
 <h3 id="410-a-command-was-blocked-with-a-shared-surface-message">4.10 "A command was blocked with a shared-surface message"</h3>
-<p><strong>Cause.</strong> <code>shared-surface-guard.py</code> blocks changes to surfaces every seat shares: package cache prunes, global installs, <code>brew upgrade</code>, writes under <code>~/.claude*</code> outside <code>projects/</code>, credential folders, and deletes under <code>~/.claude/projects/</code>.</p>
-<p><strong>Fix.</strong> Check the consumers the block names, take a backup, then release once with <code>touch ~/.claude/hooks/.surface-pass-once-$CTX_AGENT_NAME</code> (10 minutes, one use).</p>
+<p><strong>Cause.</strong> <code>shared_surface_guard.py</code> blocks changes to surfaces every seat shares: package cache prunes, global installs, <code>brew upgrade</code>, writes under <code>~/.claude*</code> outside <code>projects/</code>, roots listed in <code>OGL_SURFACE_EXTRA_ROOTS</code>, and deletes under <code>~/.claude/projects/</code>.</p>
+<p><strong>Fix.</strong> Check the consumers the block names, take a backup, then release once with <code>mkdir -p ~/.ogl-cortex/state &amp;&amp; touch ~/.ogl-cortex/state/.surface-pass-once-$CTX_AGENT_NAME</code> (10 minutes, one use).</p>
 <h3 id="411-playwright-says-the-browser-is-missing">4.11 "Playwright says the browser is missing"</h3>
 <p><strong>Cause.</strong> The bundled browsers were deleted by a cleanup.</p>
 <p><strong>Fix.</strong> Launch with <code>channel="chrome"</code> to use the installed Chrome. Reinstall with <code>npx playwright install</code> when disk allows.</p>

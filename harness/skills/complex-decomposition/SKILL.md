@@ -6,7 +6,7 @@ triggers: ["complex task", "decompose", "break down this project", "multi-step p
 
 # Complex task decomposition
 
-Adds rigor at the front of the cortextOS task flow. cortextOS stays the spine: persistent agents, tasks, events,
+Adds rigor at the front of the OGL Cortex task flow. The framework stays the spine: persistent agents, tasks, events,
 dashboard and approval gates.
 
 Use it when a directive spans three or more execution surfaces, runs longer than two hours, is hard to undo, or reads

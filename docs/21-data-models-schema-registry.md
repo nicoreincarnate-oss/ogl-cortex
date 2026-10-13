@@ -3,7 +3,7 @@
 This document describes every data shape that moves through OGL Cortex: where it lives on disk, who writes it, its fields, an example, and how strictly it is validated. Use it when you write a tool that reads fleet state, build a dashboard, or debug a record that looks wrong.
 
 Path conventions:
-- `$CORTEX_HOME` is your cortextOS checkout (for example `~/cortextos`).
+- `$CORTEX_HOME` is your framework checkout (for example `~/cortextos`).
 - `$CTX_ROOT` is the runtime state root for one daemon instance (`~/.cortextos/<instance>`).
 - `<org>` is your org folder name. `<seat>` is one agent folder under `$CORTEX_HOME/orgs/<org>/agents/`.
 
@@ -15,7 +15,7 @@ A schema is a written rule for which fields a record must have and which values 
 
 1. **TypeScript interfaces** in `src/types/index.ts`. They describe what the framework code writes. TypeScript checks them at build time. Nothing checks files on disk against them at read time. They match the original bash version's JSON formats for backward compatibility.
 2. **Runtime validators** for enum fields: agent names, priorities, event categories, severities, approval categories and task ids (`src/utils/validate.ts`). They run when the CLI writes, not when anything reads.
-3. **Writer scripts and hooks** in the OGL layer that enforce stricter shapes than the bus. Example: the `truth_correction` event is validated by `tools/emit-truth-correction.sh`, not by the bus.
+3. **Writer scripts and hooks** in the OGL layer that enforce stricter shapes than the bus. Example: the `truth_correction` event is validated by `harness/tools/emit-truth-correction.sh`, not by the bus.
 4. **Convention only** for some shapes: event names and metadata, auto-memory frontmatter, skill frontmatter, and `goals.json`.
 
 `src/harness/schema.ts` defines an SQL store for the Cortex harness. It is a compatibility shadow store, marked not production-authoritative in its own schema, and is covered in `01-core-architecture.md`.
@@ -119,7 +119,9 @@ flowchart LR
 {"ts":"2026-01-15T09:00:00Z","event":"create","agent":"boss","to":"pending","note":"First-boot onboarding"}
 ```
 
-**OGL convention: the four-line brief.** `.claude/hooks/brief_guard.py` blocks a Bash call of the form `cortextos bus create-task ... --assignee <other seat>` unless `--desc` contains lines starting `TASK:`, `FILES:`, `BAR:` and `RETURN:`. The rule applies to the description string at the moment the seat's Bash tool runs the command. The bus itself does not enforce it, so tasks created by scripts, other seats without the hook, or the dashboard are not checked.
+The command-line tool is named `cortextos`.
+
+**OGL convention: the four-line brief.** `brief_guard.py` (`harness/hooks/brief_guard.py`, installed to `.claude/hooks/ogl/`) blocks a Bash call of the form `cortextos bus create-task ... --assignee <other seat>` unless `--desc` contains lines starting `TASK:`, `FILES:`, `BAR:` and `RETURN:`. The rule applies to the description string at the moment the seat's Bash tool runs the command. The bus itself does not enforce it, so tasks created by scripts, other seats without the hook, or the dashboard are not checked.
 
 **Validation:** TypeScript interface plus write-time enum checks. Task files are not validated when read.
 
@@ -209,7 +211,7 @@ cortextos bus log-event <category> <event> <severity> --meta '<json>'
 
 An OGL convention on top of the event shape: `category: action`, `event: truth_correction`, and a strict metadata shape. It records each time a seat said something false and someone (the seat itself, a peer, a guard, or the owner) caught it. The auditor role owns the collector and the schema.
 
-**Writer:** `tools/emit-truth-correction.sh`. It validates inputs, builds the metadata, and calls:
+**Writer:** `harness/tools/emit-truth-correction.sh`. It validates inputs, builds the metadata, and calls:
 
 ```bash
 cortextos bus log-event action truth_correction info --meta "$META"
@@ -235,7 +237,7 @@ The bus does not know this shape. A direct `log-event` call skips every check, s
 | near_miss | `true` | optional | caller |
 | candidate_set, resolve_mode | object, `propose-only` | `known_unrecordable_catch` only | script |
 
-**Dedupe rule** (from the script's wire contract): for a plain duplicate `dedupe_key`, the first row in scan order wins (sorted by seat folder, then line order), not the earliest or latest by time. An explicit amendment is the only way to supersede a row. Amendments are separate `truth_correction_amendment` events written by `tools/emit-truth-correction-amendment.sh`.
+**Dedupe rule** (a convention for readers of the ledger): for a plain duplicate `dedupe_key`, the first row in scan order wins (sorted by seat folder, then line order), not the earliest or latest by time. To supersede a row, write a separate amendment event. An amendment emitter is optional and not included in this repository.
 
 **Example:**
 
@@ -502,27 +504,25 @@ Claude Code runs a hook command at a fixed event and sends it a JSON object on s
 | Event | Typical hooks on an orchestrator seat |
 |---|---|
 | PermissionRequest | `cortextos bus hook-planmode-telegram`, `cortextos bus hook-permission-telegram` |
-| PreToolUse | `cortextos bus hook-ask-telegram`; `orwell-lint.py` (Bash sends and MCP sends); `gws-account-guard.py`; `shared-surface-guard.py`; `brief_guard.py`; `future_time_guard.py`; `attribution-lint.py`; the ship-gate hook |
-| PostToolUse | compaction meter (`kem-compaction/meter.py`); fix-commit trigger (`fix_commit_hook.py`) |
-| UserPromptSubmit | entity recall hook; prompt router (`router.py`) |
-| SessionStart | `sessionstart-inject.sh`; compaction hand-back (`kem-compaction/after_compact.py`, matcher `compact`) |
-| PreCompact | `cortextos bus hook-compact-telegram`; `precompact-checkpoint.sh`; session digest |
-| PostCompact | compaction summary saver (`kem-compaction/save_summary.py`) |
-| Stop | `cortextos bus hook-idle-flag`; dream hook |
-| SessionEnd | `cortextos crash-alert`; session digest |
+| PreToolUse | `cortextos bus hook-ask-telegram`; `orwell_lint.py` (Bash sends and MCP sends); `shared_surface_guard.py`; `brief_guard.py`; `future_time_guard.py`; `ship_gate.py` |
+| PostToolUse | compaction meter (`compaction/meter.py`) |
+| UserPromptSubmit | none shipped; optional recall or prompt-router hooks (not included) |
+| SessionStart | compaction hand-back (`compaction/after_compact.py`, matcher `compact`) |
+| PreCompact | `cortextos bus hook-compact-telegram` |
+| PostCompact | compaction summary saver (`compaction/save_summary.py`) |
+| Stop | `cortextos bus hook-idle-flag` |
+| SessionEnd | `cortextos crash-alert` |
 
-Commands that start with `cortextos` come from the framework. The rest are OGL layer scripts.
+Commands that start with `cortextos` come from the framework. The rest are OGL layer scripts from `harness/hooks/`, installed to `<seat>/.claude/hooks/ogl/`.
 
 ### 11b. Input fields OGL hooks read
 
 | Field | Read by | Meaning |
 |---|---|---|
-| tool_name | all PreToolUse guards, fix-commit trigger | Tool about to run (`Bash`, `Write`, `Edit`, `mcp__...`). |
+| tool_name | all PreToolUse guards | Tool about to run (`Bash`, `Write`, `Edit`, `mcp__...`). |
 | tool_input.command | Bash guards, ship-gate hook | Shell command text. |
 | tool_input.file_path, .content, .new_string | future-time guard | Write and Edit payloads. |
-| tool_input.user_google_email | account guard | Google account an MCP call targets. |
-| cwd | send guard, surface guard, fix-commit trigger, compaction kit | Working directory. |
-| prompt | recall hook, prompt router | Incoming prompt on UserPromptSubmit. |
+| cwd | send guard, surface guard, ship gate, compaction kit | Working directory. |
 | transcript_path | compaction meter | Session JSONL, read to estimate context size. |
 | session_id | compaction kit | Keys the meter's "already warned" marks. |
 | compact_summary | summary saver | Summary text after compaction. |
@@ -550,22 +550,22 @@ UserPromptSubmit input:
 
 | Pattern | Used by | Effect |
 |---|---|---|
-| **Block:** exit code 2, reason on stderr | send guard, account guard, surface guard, brief guard, future-time guard, attribution lint | Claude Code cancels the tool call and shows the stderr text to the model. |
+| **Block:** exit code 2, reason on stderr | send guard, surface guard, ship gate, brief guard, future-time guard | Claude Code cancels the tool call and shows the stderr text to the model. |
 | **Allow:** exit 0, no stdout | every guard on its pass path | Nothing happens. |
-| **Inject context:** exit 0, stdout `{"hookSpecificOutput":{"hookEventName":"<Event>","additionalContext":"<text>"}}` | recall hook, prompt router, `sessionstart-inject.sh`, compaction kit, fix-commit trigger | Text is added to the model's context. |
+| **Inject context:** exit 0, stdout `{"hookSpecificOutput":{"hookEventName":"<Event>","additionalContext":"<text>"}}` | compaction kit (`meter.py`, `after_compact.py`) | Text is added to the model's context. |
 | **Permission decision:** stdout `{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}` (or `"deny"` with an optional `"message"`) | framework hooks via `outputDecision()` in `src/hooks/index.ts` | Answers a permission prompt after the owner taps a Telegram button. |
 
 The framework's loop detector (`src/hooks/hook-loop-detector.ts`) writes a fifth shape, `{"decision":"block","reason":"..."}` on stdout. It is optional and not registered by default.
 
-Prompt-router output:
+Output of an optional prompt-router hook (not included):
 
 ```json
 {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "[reply style: <skin>] <style text>"}}
 ```
 
-**Fail-closed and fail-open.** The brief guard, send guard and surface guard fail closed when they crash on input inside their scope, and open otherwise. The account guard, future-time guard and attribution lint fail open on any exception. Context-injecting hooks fail silent by design: a timeout or error injects nothing.
+**Fail-closed and fail-open.** The brief guard, send guard and surface guard fail closed when they crash on input inside their scope, and open otherwise. The future-time guard fails open on any exception. Context-injecting hooks fail silent by design: a timeout or error injects nothing.
 
-**Pass-once tokens.** The send guard and the surface guard accept a one-shot override file younger than 600 seconds: `~/.claude/hooks/.orwell-pass-once-<seat>` and `~/.claude/hooks/.surface-pass-once-<seat>`. A token never overrides a crash.
+**Pass-once tokens.** The send guard and the surface guard accept a one-shot override file younger than 600 seconds: `~/.ogl-cortex/state/.orwell-pass-once-<seat>` and `~/.ogl-cortex/state/.surface-pass-once-<seat>` (the folder is `$OGL_STATE_DIR` when set). A token never overrides a crash.
 
 **PermissionRequest under bypassPermissions.** `AgentConfig.dangerously_skip_permissions` defaults to true when absent. With permissions skipped, Claude Code raises few permission prompts, so the PermissionRequest hooks rarely fire.
 
@@ -601,4 +601,4 @@ Prompt-router output:
 - `src/hooks/index.ts`
 - `src/hooks/hook-loop-detector.ts`
 - `src/harness/schema.ts`
-- OGL layer: `tools/emit-truth-correction.sh`, `tools/emit-truth-correction-amendment.sh`, `.claude/hooks/brief_guard.py`, `.claude/hooks/future_time_guard.py`, `.claude/hooks/kem-compaction/`, `~/.claude/hooks/orwell-lint.py`, `~/.claude/hooks/shared-surface-guard.py`, `~/.claude/hooks/gws-account-guard.py`
+- OGL layer: `harness/tools/emit-truth-correction.sh`, `harness/hooks/brief_guard.py`, `harness/hooks/future_time_guard.py`, `harness/hooks/compaction/`, `harness/hooks/orwell_lint.py`, `harness/hooks/shared_surface_guard.py`, `harness/hooks/ship_gate.py`

@@ -32,7 +32,7 @@ Related documents: `32-security-red-team-log.md` (third-party code risk), `40-fi
 
 | Component | Role | Licence | Notes |
 |---|---|---|---|
-| Vercel CLI | Deploys in `ship.sh` | Apache-2.0 | Hosting use is governed by Vercel's terms |
+| Vercel CLI | Deploys in `harness/tools/ship.sh` (default deploy command) | Apache-2.0 | Hosting use is governed by Vercel's terms |
 | TruffleHog | Secret scan in the pentest gate | AGPL-3.0 | Run as a separate tool. Do not vendor a modified copy into a product without reviewing AGPL duties |
 | OWASP ZAP | Web scan in the pentest gate, run in a container | Apache-2.0 (per the ZAP project; not checked against an installed copy during writing) | |
 | Playwright | Browser automation | Apache-2.0 | Bundled browsers carry their own licences |
@@ -160,6 +160,8 @@ The value in a mature install is mostly know-how: guard code, seat rules, auto-m
 ### 6.1 New agent seat
 
 Seats onboard through the `onboarding` skill. A seat without `$CTX_ROOT/state/<seat>/.onboarded` runs onboarding before normal work.
+
+The command-line tool is named `cortextos`.
 
 | Stage | Read | Do | Gate before the next stage |
 |---|---|---|---|

@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,11 +33,12 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">33</div><div><p class="dg">Operations and security</p>
-<h1>Cookbook</h1><p class="meta">3,041 words · <a href="../33-cookbook.md">Markdown source</a></p></div></header>
+<h1>Cookbook</h1><p class="meta">3,127 words · <a href="../33-cookbook.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#recipe-index">Recipe index</a></li><li><a href="#recipe-1-pull-and-explain-a-short-video">Recipe 1: Pull and explain a short video</a></li><li><a href="#recipe-2-build-a-landing-page-for-a-client-and-ship-it">Recipe 2: Build a landing page for a client and ship it</a></li><li><a href="#recipe-3-outbound-email-campaign-with-gated-auto-replies">Recipe 3: Outbound email campaign with gated auto-replies</a></li><li><a href="#recipe-4-add-a-recurring-job">Recipe 4: Add a recurring job</a></li><li><a href="#recipe-5-dispatch-to-a-specialist-and-verify-the-return">Recipe 5: Dispatch to a specialist and verify the return</a></li><li><a href="#recipe-6-a-designed-pdf-deliverable">Recipe 6: A designed PDF deliverable</a></li><li><a href="#recipe-7-add-a-dns-record-safely">Recipe 7: Add a DNS record safely</a></li><li><a href="#recipe-8-read-numbers-from-a-logged-in-web-dashboard">Recipe 8: Read numbers from a logged-in web dashboard</a></li><li><a href="#recipe-9-tell-the-owner-something-on-telegram-safely">Recipe 9: Tell the owner something on Telegram, safely</a></li><li><a href="#recipe-10-voice-notes">Recipe 10: Voice notes</a></li><li><a href="#recipe-11-use-leftover-weekly-quota-before-the-reset">Recipe 11: Use leftover weekly quota before the reset</a></li><li><a href="#checklist-for-every-recipe">Checklist for every recipe</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>Recipes for the requests an OGL Cortex fleet handles every week. Each recipe names the tools, commands and skills, the gates that apply, how to verify the result, and the traps to avoid.</p>
 <p>Related documents: <code>30-sre-runbooks.md</code> (failures), <code>31-observability-alerting.md</code> (monitors), <code>32-security-red-team-log.md</code> (gates and guards), <code>40-finops-capacity.md</code> (quota and disk). Path and role names follow <code>30-sre-runbooks.md</code>.</p>
 <h2 id="recipe-index">Recipe index</h2>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <table>
 <thead>
 <tr>
@@ -56,7 +58,7 @@
 <tr>
 <td>2</td>
 <td>"Build a landing page for a client and put it live"</td>
-<td>Design skills, pentest gate, <code>ship.sh</code></td>
+<td>Design skills, pentest gate, <code>harness/tools/ship.sh</code></td>
 <td>Owner go, pentest gate, ship wrapper, indexing check</td>
 </tr>
 <tr>
@@ -75,7 +77,7 @@
 <td>5</td>
 <td>"Get the ops seat to fix X"</td>
 <td><code>cortextos bus create-task</code> with a four-line brief</td>
-<td>Brief guard, auditor, hunter pass</td>
+<td>Brief guard, brief audit, auditor, adversarial pass</td>
 </tr>
 <tr>
 <td>6</td>
@@ -143,16 +145,16 @@
 <li><strong>Get the owner's go</strong> for the specific change. Client sites always need it.</li>
 <li><strong>Find the live source of truth before you edit.</strong> The obvious repo may be behind production, for example when the site was deployed from a CLI and the repo was not updated. Rebuild from what is live, or you will revert fixes on deploy.</li>
 <li><strong>Design pass</strong> for anything visible. Start with the design skill family and end with a taste gate that includes a horizontal-overflow check at a 390x844 viewport.</li>
-<li><strong>Security gate</strong>:
-<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="op">&lt;</span>path-to<span class="op">&gt;</span>/cortex_pentest_gate.py . <span class="at">--output</span> security <span class="at">--url</span> <span class="op">&lt;</span>candidate-or-local-url<span class="op">&gt;</span></span></code></pre></div>
-Without <code>--url</code> the web scan is skipped and the gate can still report <code>pass</code>.</li>
+<li><strong>Security gate</strong>: run your pentest gate (not included in this repository) against the source and a local or candidate URL. It must write <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code>. A gate run without a URL skips the web scan and can still report <code>pass</code>.</li>
 <li><strong>Ship through the wrapper</strong>, never raw <code>vercel --prod</code>:
-<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">bash</span> <span class="va">$SHIP</span> <span class="op">&lt;</span>abs-site-dir<span class="op">&gt;</span> <span class="op">&lt;</span>prod-url<span class="op">&gt;</span> [--deploy-cmd <span class="st">&quot;&lt;cmd&gt;&quot;</span>] [--no-index-check <span class="st">&quot;&lt;reason&gt;&quot;</span>]</span></code></pre></div>
-It deploys a candidate with production env but without the domain, gates the candidate URL, and promotes the same build only if it passes.</li>
-<li><strong>Read the exit code</strong> (full table in RB-11): 0 shipped; 3 static gate failed; 4 deploy failed; 5 live and wrong; 6 candidate failed and removed; 7 promote did not take; 8 shipped with a noindex header.</li>
+<div class="sourceCode" id="cb1"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">harness/tools/ship.sh</span> <span class="op">&lt;</span>site-dir<span class="op">&gt;</span> <span class="op">&lt;</span>prod-url<span class="op">&gt;</span> --gate-cmd <span class="st">&#39;&lt;your gate&gt; . --output security ${1:+--url &quot;$1&quot;}&#39;</span> <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--deploy-cmd</span> <span class="st">&#39;vercel deploy --prod --skip-domain --yes --format json&#39;</span> <span class="dt">\</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--promote-cmd</span> <span class="st">&#39;vercel promote --yes&#39;</span> <span class="at">--remove-cmd</span> <span class="st">&#39;vercel remove --yes&#39;</span></span></code></pre></div>
+It gates the source, deploys a candidate with production env but without the domain, gates the candidate URL, and promotes the same build only if it passes. Then it checks production answers 200 and passes the gate again.</li>
+<li><strong>Read the exit code</strong> (full table in RB-11): 0 shipped; 2 usage error; 3 static gate failed; 4 deploy failed; 5 live and wrong; 6 candidate failed (removed if <code>--remove-cmd</code> is set); 7 promote failed.</li>
 <li><strong>Verify in the rendered page</strong>, not the source. Load the live URL in a browser and check the DOM for the change.</li>
 <li><strong>Curl every referenced asset</strong> on the live URL if the bundle was trimmed.</li>
-<li><strong>Check indexing.</strong> "Launched" includes a search-console read: property, sitemap, coverage. <code>ship.sh</code> also refuses a candidate whose <code>sitemap.xml</code> or <code>robots.txt</code> is wrong or that sends noindex.</li>
+<li><strong>Check indexing.</strong> "Launched" includes a search-console read: property, sitemap, coverage. <code>ship.sh</code> has no indexing check of its own; put <code>sitemap.xml</code>, <code>robots.txt</code> and <code>noindex</code> checks in your gate command if you want the ship to refuse on them.</li>
 <li><strong>Hand off.</strong> Tell the owner with the deployment id. Update any watcher whose checks depend on the change in the same change.</li>
 </ol>
 <p><strong>Accepted risk.</strong> When the static gate fails on pre-existing findings the owner accepts, record the acceptance in a separate note under <code>security/</code>, in the owner's words. The gate report keeps its true <code>fail</code>. Never rewrite the report.</p>
@@ -202,8 +204,8 @@ python3 engine.py watchdog       # alert if no good live run within 30 minutes</
 <li>Prefer a 5-field wall-clock schedule (<code>0 8 * * *</code>) over an interval (<code>6h</code>) for anything important. Intervals count forward from a moving reference and can drift (RB-10).</li>
 <li>Remember the time zone: 5-field expressions run in the daemon host's local time; <code>list-crons</code> shows next fire in UTC.</li>
 <li>Register and list:
-<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus add-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span> <span class="st">&#39;0 8 * * *&#39;</span> <span class="st">&#39;Read the overnight queue and post a summary.&#39;</span> <span class="at">--desc</span> <span class="st">&#39;morning summary&#39;</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus list-crons <span class="op">&lt;</span>seat<span class="op">&gt;</span></span></code></pre></div></li>
+<div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus add-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> <span class="op">&lt;</span>name<span class="op">&gt;</span> <span class="st">&#39;0 8 * * *&#39;</span> <span class="st">&#39;Read the overnight queue and post a summary.&#39;</span> <span class="at">--desc</span> <span class="st">&#39;morning summary&#39;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus list-crons <span class="op">&lt;</span>seat<span class="op">&gt;</span></span></code></pre></div></li>
 <li>Confirm the first fire by its artifact (a log line, a file mtime), not by the absence of errors. Silent-on-success jobs need a positive receipt.</li>
 <li>One-shots: a 5-field expression with a fixed day and month fires once a year. End the prompt with "then remove this cron" and check it was removed: <code>cortextos bus remove-cron &lt;seat&gt; &lt;name&gt;</code>.</li>
 </ol>
@@ -221,22 +223,22 @@ python3 engine.py watchdog       # alert if no good live run within 30 minutes</
 <p><strong>Steps</strong></p>
 <ol type="1">
 <li>Create a task assigned to the worker with a four-line brief:
-<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus create-task <span class="st">&quot;&lt;title&gt;&quot;</span> <span class="at">--assignee</span> <span class="op">&lt;</span>seat<span class="op">&gt;</span> --desc <span class="st">&#39;TASK: &lt;what to change&gt;</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="st">FILES: &lt;live target and the working folder&gt;</span></span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="st">BAR: &lt;tests that fail now and pass after; allowed cases still allowed; mutants red&gt;</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="st">RETURN: &lt;hash, test counts, auditor verdict id, install time, backup path&gt;&#39;</span></span></code></pre></div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus create-task <span class="st">&quot;&lt;title&gt;&quot;</span> <span class="at">--assignee</span> <span class="op">&lt;</span>seat<span class="op">&gt;</span> --desc <span class="st">&#39;TASK: &lt;what to change&gt;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="st">FILES: &lt;live target and the working folder&gt;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="st">BAR: &lt;tests that fail now and pass after; allowed cases still allowed; mutants red&gt;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="st">RETURN: &lt;hash, test counts, auditor verdict id, install time, backup path&gt;&#39;</span></span></code></pre></div>
 A message alone is not a dispatch. It is invisible on the dashboard.</li>
 <li>The brief guard enforces this. <code>brief_guard.py</code> (PreToolUse on Bash) blocks any <code>create-task</code> with an <code>--assignee</code> other than the current seat unless the description has <code>TASK:</code>, <code>FILES:</code>, <code>BAR:</code> and <code>RETURN:</code> lines. It also checks the wrapper script form and treats unexpanded <code>$VARS</code> as empty.</li>
 <li>When the worker reports done, treat it as a claim. Open the named files and run the BAR yourself.</li>
-<li>Run a scope audit over the worker's writes in the task window: label each write IN or OUT of the FILES line. OUT is a question for the worker, not a verdict.</li>
-<li>For a second opinion, use a read-only <code>auditor</code> subagent that returns <code>VERDICT / EVIDENCE / MISSED / NOT CHECKED / NEXT</code>.</li>
-<li>For guards, hooks and fixes, add one hunter pass (<code>32-security-red-team-log.md</code>, section 4.3).</li>
+<li>Run a scope audit over the worker's writes in the task window: <code>python3 harness/tools/brief_audit.py &lt;task_id&gt;</code> labels each write IN, tmp or OUT of the FILES line. OUT is a question for the worker, not a verdict.</li>
+<li>For a second opinion, use a read-only <code>auditor</code> subagent (a <code>.claude/agents/</code> definition you write; not included) that returns <code>VERDICT / EVIDENCE / MISSED / NOT CHECKED / NEXT</code>.</li>
+<li>For guards, hooks and fixes, add one adversarial pass with <code>harness/tools/adversarial-pass.sh</code> (<code>32-security-red-team-log.md</code>, section 4.3).</li>
 <li>Workers that edit code get their own worktree or branch. Merge one at a time. Only main ships.</li>
 </ol>
 <p><strong>Example brief: a delete guard extension</strong></p>
 <ul>
 <li>TASK: treat <code>find -delete</code> and <code>find -exec rm</code> as deletes on every protected root.</li>
-<li>FILES: candidate copies of <code>shared-surface-guard.py</code> and <code>surface.py</code>, plus <code>deliverables/surface-guard-find-&lt;date&gt;/</code>.</li>
+<li>FILES: candidate copies of <code>shared_surface_guard.py</code> and <code>surface.py</code>, plus <code>deliverables/surface-guard-find-&lt;date&gt;/</code>.</li>
 <li>BAR: tests fail on live and pass on the candidate for named commands; allowed cases stay allowed; a mutant that drops the rule goes red; auditor PASS before install; backup and rollback line.</li>
 <li>RETURN: manifest hash, test counts, auditor verdict id, install time and backup path.</li>
 </ul>
@@ -248,8 +250,8 @@ A message alone is not a dispatch. It is invisible on the dashboard.</li>
 <ol type="1">
 <li>Design it like an editorial piece: brand palette, real type hierarchy, exhibits instead of grey boxed tables.</li>
 <li>Write HTML, then render with headless Chrome:
-<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;/Applications/Google Chrome.app/Contents/MacOS/Google Chrome&quot;</span> <span class="at">--headless</span> <span class="at">--no-pdf-header-footer</span> <span class="dt">\</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--print-to-pdf</span><span class="op">=&lt;</span>out<span class="op">&gt;</span>.pdf file://<span class="op">&lt;</span>in<span class="op">&gt;</span>.html</span></code></pre></div></li>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="st">&quot;/Applications/Google Chrome.app/Contents/MacOS/Google Chrome&quot;</span> <span class="at">--headless</span> <span class="at">--no-pdf-header-footer</span> <span class="dt">\</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--print-to-pdf</span><span class="op">=&lt;</span>out<span class="op">&gt;</span>.pdf file://<span class="op">&lt;</span>in<span class="op">&gt;</span>.html</span></code></pre></div></li>
 <li>Measure each page's height with a headless DOM probe before printing. Overflowing sections add pages silently.</li>
 <li>Use flat borders. Soft shadows ghost in Chrome PDF output.</li>
 <li>Read the PDF back page by page before sending.</li>
@@ -265,8 +267,8 @@ A message alone is not a dispatch. It is invisible on the dashboard.</li>
 <ol type="1">
 <li>Find the right credential. Some CLIs use a default profile that sees no zones for a given account. If the CLI shows nothing, try the API token for that account before you conclude the zone lives elsewhere.</li>
 <li><strong>Back up the zone</strong> as JSON before every write:
-<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-s</span> <span class="at">-H</span> <span class="st">&quot;Authorization: Bearer </span><span class="va">$(</span><span class="fu">cat</span> <span class="op">&lt;</span>token-file<span class="op">&gt;</span><span class="va">)</span><span class="st">&quot;</span> <span class="dt">\</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;https://api.cloudflare.com/client/v4/zones/&lt;zone-id&gt;/dns_records?per_page=500&quot;</span> <span class="op">&gt;</span> evidence/dns-before-<span class="va">$(</span><span class="fu">date</span> <span class="at">-u</span> +%Y%m%dT%H%M%SZ<span class="va">)</span>.json</span></code></pre></div></li>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-s</span> <span class="at">-H</span> <span class="st">&quot;Authorization: Bearer </span><span class="va">$(</span><span class="fu">cat</span> <span class="op">&lt;</span>token-file<span class="op">&gt;</span><span class="va">)</span><span class="st">&quot;</span> <span class="dt">\</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;https://api.cloudflare.com/client/v4/zones/&lt;zone-id&gt;/dns_records?per_page=500&quot;</span> <span class="op">&gt;</span> evidence/dns-before-<span class="va">$(</span><span class="fu">date</span> <span class="at">-u</span> +%Y%m%dT%H%M%SZ<span class="va">)</span>.json</span></code></pre></div></li>
 <li>Add the record with a <code>POST</code> to the zone's <code>dns_records</code> endpoint (Cloudflare API v4; adapt for your provider).</li>
 <li>Record the new record ids. Rollback is a <code>DELETE</code> of those ids.</li>
 <li>Verify with a public resolver: <code>dig +short &lt;name&gt; &lt;type&gt; @1.1.1.1</code>.</li>
@@ -304,12 +306,12 @@ A message alone is not a dispatch. It is invisible on the dashboard.</li>
 <li>Keep it short: three to five sentences, then cut. Own errors in one plain line, then act.</li>
 <li>Put any text with <code>$</code> in single quotes or a quoted heredoc. In double quotes, <code>"$0.042"</code> becomes the shell's <code>$0</code> followed by <code>.042</code>, and the send still exits 0.</li>
 <li>Send:
-<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus send-telegram <span class="op">&lt;</span>chat-id<span class="op">&gt;</span> <span class="st">&#39;Deployed. Live URL checked at 14:05 UTC.&#39;</span></span></code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus send-telegram <span class="op">&lt;</span>chat-id<span class="op">&gt;</span> <span class="st">&#39;Deployed. Live URL checked at 14:05 UTC.&#39;</span></span></code></pre></div>
 Add <code>--plain-text</code> when the text has stray <code>_</code>, <code>*</code>, backticks or <code>[</code>. Use <code>--image &lt;path&gt;</code> or <code>--file &lt;path&gt;</code> for attachments.</li>
 <li>Quote times from tool output. Print <code>date -u</code> in the same command.</li>
 <li>Before you say "I told the owner", find the line in <code>$CTX_ROOT/logs/&lt;seat&gt;/outbound-messages.jsonl</code> and cite its <code>message_id</code>.</li>
 </ol>
-<p><strong>Guards on the send path.</strong> The send guard lints the text. The future-time guard refuses UTC stamps more than 3 minutes ahead. An attribution lint can check that numbers and quotes carry a source.</p>
+<p><strong>Guards on the send path.</strong> The send guard lints the text. The future-time guard refuses UTC stamps more than 3 minutes ahead. An attribution lint (optional, not included) can check that numbers and quotes carry a source.</p>
 <p><strong>Trap.</strong> Quoting the owner without their hedge words ("I think") turns a belief into a ruling.</p>
 <hr />
 <h2 id="recipe-10-voice-notes">Recipe 10: Voice notes</h2>

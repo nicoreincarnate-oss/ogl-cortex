@@ -14,7 +14,7 @@ Report security problems privately. Do not open a public issue, and do not post 
 
 You get an acknowledgement, then a fix or a documented decision. Fixes to a guard land with a test that fails without the fix.
 
-Problems in cortextOS itself belong upstream at [grandamenium/cortextos](https://github.com/grandamenium/cortextos). Problems in Claude Code belong with Anthropic.
+Problems in the upstream framework itself belong upstream at [grandamenium/cortextos](https://github.com/grandamenium/cortextos). Problems in Claude Code belong with Anthropic.
 
 ## What the guards cover
 
@@ -27,6 +27,8 @@ The harness hooks run before tool calls. A hook blocks a call only when it exits
 | `orwell_lint.py` | outgoing human-facing text that breaks the writing rules | closed when the input looks like a send, open otherwise |
 | `brief_guard.py` | dispatching work to another seat without a TASK, FILES, BAR, RETURN brief | closed when the input looks like a dispatch |
 | `future_time_guard.py` | memory, `STATE.md` or sends stamped with a time that has not happened yet | open |
+
+The command-line tool is named `cortextos`.
 
 Approval gates (`cortextos bus create-approval`) hold external and irreversible actions for a human. They are a rule the seat follows, backed by its `CLAUDE.md` and skills, not a hook.
 

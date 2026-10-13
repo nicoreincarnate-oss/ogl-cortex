@@ -5,7 +5,7 @@ This document lists every place in OGL Cortex where text reaches a seat's model 
 Related documents: architecture in `01-core-architecture.md`, the cron and settings registry in `03-configuration-registry.md`, data shapes (cron entry, hook input and output JSON) in `21-data-models-schema-registry.md`, the tests that check some of these prompts in `23-evals-and-benchmarks.md`, and which model reads them in `24-model-lifecycle.md`.
 
 Path conventions used below:
-- `$CORTEX_HOME` is your cortextOS checkout (for example `~/cortextos`).
+- `$CORTEX_HOME` is your framework checkout (for example `~/cortextos`).
 - `$CTX_ROOT` is the runtime state root for one daemon instance (for example `~/.cortextos/<instance>`).
 - `<org>` is your org folder name under `$CORTEX_HOME/orgs/`.
 - `<seat>` is one agent folder under `$CORTEX_HOME/orgs/<org>/agents/`.
@@ -17,7 +17,7 @@ A prompt surface is any text that reaches a seat's model as instructions without
 1. **CLAUDE.md layers.** Claude Code loads these at session start. It reads the user-level file in `~/.claude/` and every `CLAUDE.md` in the working directory and its parent directories.
 2. **Auto-memory index.** `~/.claude/projects/<project>/memory/MEMORY.md`. Claude Code loads its first 200 lines into every session for that project.
 3. **Seat bootstrap files.** IDENTITY.md, SOUL.md, GUARDRAILS.md and the rest. Claude Code does not auto-load them. The daemon's boot prompt tells the model to read them.
-4. **Daemon-typed prompts.** The boot prompt, the continue prompt, the cron-fire line and the Telegram and agent-message wrappers. The cortextOS daemon types these into each seat's terminal.
+4. **Daemon-typed prompts.** The boot prompt, the continue prompt, the cron-fire line and the Telegram and agent-message wrappers. The OGL Cortex daemon types these into each seat's terminal.
 5. **Cron prompts.** The `prompt` field of each entry in a seat's `crons.json`. The daemon types it in on schedule.
 6. **Skill prompts.** `SKILL.md` files. Name and description sit in context; the body loads when invoked.
 7. **Hook-injected text.** Small programs that Claude Code runs on events (session start, each prompt, after each tool call, compaction). Some print text that joins the model's context. Guard hooks that block an action also send their reason text to the model.
@@ -39,6 +39,8 @@ flowchart TD
 
 ## 1. Seats in scope
 
+The command-line tool is named `cortextos`.
+
 A seat is one long-running Claude Code session the daemon manages. `cortextos bus list-agents` lists every seat with `enabled` and `running` flags. A fleet can keep any number of seats on disk and enable only some. This document uses neutral role names:
 
 | Role | Template | Job |
@@ -59,7 +61,7 @@ A disabled seat boots with whatever its files said when it was provisioned. Refr
 |---|---|---|---|
 | Global (user) | `~/.claude/CLAUDE.md` | the owner | every Claude Code session on the machine |
 | Home | `~/CLAUDE.md` (optional) | the owner | any session under `~` |
-| Framework | `$CORTEX_HOME/CLAUDE.md` | cortextOS upstream | every seat, because every seat lives under `$CORTEX_HOME` |
+| Framework | `$CORTEX_HOME/CLAUDE.md` | Framework upstream | every seat, because every seat lives under `$CORTEX_HOME` |
 | Org | `$CORTEX_HOME/orgs/<org>/CLAUDE.md` (optional, not created by default) | the owner | every seat in the org |
 | Seat | `$CORTEX_HOME/orgs/<org>/agents/<seat>/CLAUDE.md` | the seat, under owner rulings | that seat |
 
@@ -177,7 +179,7 @@ cortextos bus remove-cron <seat> <name>
 | any | kb-ingest-daily | `45 16 * * *` | Daily KB ingest |
 | analyst | nightly-metrics | `17 22 * * *` | collect daily metrics |
 | analyst | auto-commit | `3 22 * * *` | commit seat files with a PII scan |
-| analyst | check-upstream | `5 22 * * *` | compare with upstream cortextOS |
+| analyst | check-upstream | `5 22 * * *` | compare with the upstream framework |
 | analyst | theta-wave | `11 23 * * *` | system improvement cycle |
 | auditor | audit-pass | 1h | review recent returns |
 | auditor | false-claim-catch-rate | `10 22 * * *` | score the truth-correction ledger |
@@ -206,17 +208,16 @@ A common layout: the orchestrator carries the context-injecting hooks, and other
 
 | Hook | Event | Text injected |
 |---|---|---|
-| Checkpoint re-inject | SessionStart (all) | a `[MECHANICAL CHECKPOINT INJECTION]` header, the last 4,000 chars of `memory/checkpoints/latest.md` if under 72 hours old, the last 3,000 chars of the current or previous day's daily memory, and short reminders |
-| STATE.md hand-back | SessionStart, matcher `compact` | "The conversation was just compacted. This is STATE.md, your own record of where the work stands. Trust it over the summary where they differ" plus the full STATE.md |
-| Context meter | PostToolUse (all) | at a first threshold: "Context meter: Nk of your limit. Keep working..."; at a second: "Compaction is close. Your next action is to rewrite STATE.md in full". Thresholds live in a small `compaction.json` |
-| Reply style router | UserPromptSubmit | `[reply style: <skin>] <text>`, chosen by a cheap model call from a fixed list of skins. Only for the owner's own words; any failure injects nothing |
-| Client memory recall | UserPromptSubmit | a short header plus up to about 6,000 chars of recalled facts when a prompt names a known entity; skips cron turns |
-| Hunter notice | PostToolUse on Bash | a one-line notice that a fix commit started a background adversarial pass |
+| Checkpoint re-inject (optional, not included) | SessionStart (all) | a header, the last 4,000 chars of `memory/checkpoints/latest.md` if under 72 hours old, the last 3,000 chars of the current or previous day's daily memory, and short reminders |
+| STATE.md hand-back (`compaction/after_compact.py`) | SessionStart, matcher `compact` | "The conversation was just compacted. This is STATE.md, your own record of where the work stands. Trust it over the summary where they differ" plus the full STATE.md |
+| Context meter (`compaction/meter.py`) | PostToolUse (all) | at a first threshold: "Context meter: Nk of your limit. Keep working..."; at a second: "Compaction is close. Your next action is to rewrite STATE.md in full". Thresholds live in a small `compaction.json` |
+| Reply style router (optional, not included) | UserPromptSubmit | `[reply style: <skin>] <text>`, chosen by a cheap model call from a fixed list of skins. Only for the owner's own words; any failure injects nothing |
+| Client memory recall (optional, not included) | UserPromptSubmit | a short header plus up to about 6,000 chars of recalled facts when a prompt names a known entity; skips cron turns |
+| Adversarial-pass notice (optional, not included) | PostToolUse on Bash | a one-line notice that a fix commit started a background run of `harness/tools/adversarial-pass.sh` |
 
 Non-injecting hooks that support these:
-- `precompact-checkpoint.sh` writes the checkpoint the SessionStart hook later reads.
-- A `save_summary` hook stores each compaction summary in `compactions/`.
-- A Stop hook may start background memory consolidation and print one line.
+- `compaction/save_summary.py` stores each compaction summary in `compactions/`.
+- Optional, not included: a PreCompact hook that writes the checkpoint a SessionStart hook later reads, and a Stop hook that starts background memory consolidation.
 
 Design guidance:
 - **Wire hooks from a stable path.** A hook wired from a build or deliverables folder disappears when someone cleans that folder, and a hook that exits 0 on any error disappears without a trace. Keep hooks under `.claude/hooks/` or `tools/`.
@@ -229,13 +230,11 @@ When a PreToolUse hook exits with code 2, Claude Code shows its stderr to the mo
 
 | Guard | Scope | Model-facing text (shape) |
 |---|---|---|
-| Orwell send-guard | user level, outgoing human-facing text | "ORWELL SEND-GUARD BLOCKED this message. Rewrite and resend. Reasons: ..." with a one-time pass instruction for the "break any rule" case |
-| Attribution send-guard | orchestrator, sends to the owner | "ATTRIBUTION SEND-GUARD BLOCKED this message..." when a number has no source; fail-closed error text |
-| Brief guard | orchestrator, task dispatch | "BRIEF GUARD BLOCKED this dispatch..." when a task lacks TASK, FILES, BAR, RETURN lines; fail-closed |
-| Future-time guard | orchestrator | blocks claims about times that have not happened yet |
-| Shared-surface guard | user level, Bash | blocks destructive or config-writing commands on shared paths; supports a warn mode |
-| Account guard | user level, a workspace MCP | blocks calls bound to the wrong account |
-| Ship gate | user level, Bash | blocks deploy and publish commands without a passing security report |
+| Orwell send-lint (`orwell_lint.py`) | seat or user level, outgoing human-facing text | "ORWELL SEND-LINT BLOCKED this message. Rewrite and resend. Reasons: ..." with a one-time pass instruction for the "break any rule" case |
+| Brief guard (`brief_guard.py`) | orchestrator, task dispatch | "BRIEF GUARD BLOCKED this dispatch..." when a task lacks TASK, FILES, BAR, RETURN lines; fail-closed |
+| Future-time guard (`future_time_guard.py`) | orchestrator | blocks claims about times that have not happened yet |
+| Shared-surface guard (`shared_surface_guard.py`) | seat or user level, Bash | blocks destructive or config-writing commands on shared paths; supports a warn mode |
+| Ship gate (`ship_gate.py`) | seat or user level, Bash | blocks deploy and publish commands without a passing security report |
 
 Guard logic is in `04-failsafe-boundary-log.md`.
 
@@ -312,7 +311,7 @@ Write the output to a file in your prompt repo and commit it nightly. The file t
 When a hook passes its gate, freeze a read-only copy named with the first 8 hex digits of its own sha256:
 
 ```bash
-f=~/.claude/hooks/shared-surface-guard.py
+f=<seat>/.claude/hooks/ogl/shared_surface_guard.py
 s=$(shasum -a 256 "$f" | cut -c1-8)
 cp "$f" "$f.gated-$s" && chmod 400 "$f.gated-$s"
 ```

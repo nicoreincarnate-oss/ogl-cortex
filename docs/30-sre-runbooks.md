@@ -13,15 +13,17 @@ Related documents:
 
 ### Paths
 
+The command-line tool is named `cortextos`.
+
 | Name | Meaning | Default |
 |---|---|---|
-| `$CORTEX_HOME` | The cortextOS framework checkout | wherever you cloned it |
+| `$CORTEX_HOME` | The framework checkout | wherever you cloned it |
 | `<instance>` | Daemon instance id. Set by `CTX_INSTANCE_ID` | `default` unless you chose another at install |
 | `$CTX_ROOT` | Runtime state for one instance | `~/.cortextos/<instance>` |
 | `<org>`, `<seat>` | Organisation name and agent (seat) name | set by `cortextos init` and `cortextos add-agent` |
 | `$SEAT_DIR` | A seat's working directory | `$CORTEX_HOME/orgs/<org>/agents/<seat>` |
-| `$SENTINEL_DIR` | Directory that holds the launchd sentinel scripts, with `logs/` and `state/` below it | chosen at install |
-| `$SHIP` | The `ship.sh` deploy wrapper | chosen at install |
+| `$SENTINEL_DIR` | Directory that holds your sentinel scripts (optional, not included), with `logs/` and `state/` below it | chosen at install |
+| `$SHIP` | The deploy wrapper `harness/tools/ship.sh` | your repo checkout, or a copy on `PATH` |
 
 Inside a seat, the shell already exports `CTX_INSTANCE_ID`, `CTX_ROOT` and `CTX_AGENT_NAME`. In your own terminal they are usually unset. Several lifecycle commands then fall back to the instance called `default` (see RB-03).
 
@@ -74,7 +76,7 @@ OGL Cortex runs a small fleet of long-lived Claude Code sessions called seats. T
 ```bash
 cortextos bus check-usage-api --json            # five_hour and seven_day utilisation plus resets_at
 tail -3 $SENTINEL_DIR/state/quota-ledger.jsonl    # ledger history and pace, if the quota ledger is installed
-tail -5 $CTX_ROOT/logs/auth-sentinel.log          # OK / ALERT kind=cap|auth|probe
+tail -5 $CTX_ROOT/logs/auth-sentinel.log          # if you run an auth sentinel (optional, not included)
 ```
 Read the alert kind:
 - `kind=cap`: usage cap. There is nothing to run. Wait for `resets_at`.
@@ -139,7 +141,7 @@ cat $CTX_ROOT/state/<seat>/heartbeat.json
 
 ## RB-03 Daemon down, or a seat needs a restart
 
-**What it is.** One process, the cortextOS daemon, runs every seat. It runs under pm2 as `cortextos-daemon`. State lives under `$CTX_ROOT`.
+**What it is.** One process, the OGL Cortex daemon, runs every seat. It runs under pm2 as `cortextos-daemon`. State lives under `$CTX_ROOT`.
 
 **The instance trap.** `cortextos restart`, `stop`, `start` and `doctor` take `--instance <id>` with a default of `default`. Run from a shell without `CTX_INSTANCE_ID`, they read the wrong state tree and print "Daemon is not running" while the daemon is fine.
 
@@ -192,7 +194,7 @@ tail -3 $CTX_ROOT/logs/<seat>/inbound-messages.jsonl
 grep -c "fetch failed" ~/.pm2/logs/cortextos-daemon-out.log
 grep -iE "telegram|409" ~/.pm2/logs/cortextos-daemon-error.log | tail -5
 grep -n "ALLOWED_USER" $SEAT_DIR/.env | sed 's/=.*/=<set>/'   # present? value hidden
-tail -5 ~/.claude/hooks/orwell-lint.log                      # did the send guard refuse it?
+tail -5 ~/.ogl-cortex/state/orwell-lint.log                  # did the send guard refuse it?
 ```
 
 **Known causes, most common first**
@@ -219,7 +221,7 @@ tail -5 ~/.claude/hooks/orwell-lint.log                      # did the send guar
 
 **What it is.** A host running several Claude sessions, a browser, containers and local models fills disk and swap fast. On macOS, swap lives as 1 GB files on the data volume, so each new swap file takes disk. When free disk falls, swap cannot grow and the whole fleet stalls.
 
-**Default thresholds (reference sentinels)**
+**Example thresholds (sentinels are optional and not included in this repository)**
 
 | Sentinel | Pages at | Behaviour |
 |---|---|---|
@@ -361,14 +363,13 @@ A billing hold can hide resources from the API while the dashboard still shows t
 **Check**
 ```bash
 ls ~/.google_workspace_mcp/credentials/                    # one file per account
-tail -20 ~/.claude/hooks/gws-account-guard.log              # blocked calls
 python3 -c "import json;print(json.dumps(json.load(open('$SENTINEL_DIR/state/cred-identity.json')),indent=1)[:1500])"
 ```
 Do not run a credential identity check by hand just to look. It can refresh tokens and page. Its scheduled run already does this.
 
 **Fix**
 1. Use the MCP only for the account its session is bound to. For other accounts, use a direct token path that reads that account's credential file.
-2. Install the Google Workspace account guard (`gws-account-guard.py`, PreToolUse). It blocks MCP calls for any account you list and any `start_google_auth` call.
+2. Add a Google Workspace account guard (optional, not included in this repository): a PreToolUse hook that blocks MCP calls for any account you list and any `start_google_auth` call.
 3. If a credential file holds the wrong account, re-authorise that account with a script that checks the token's real identity before saving. The owner taps the consent screen.
 4. On any access failure, retry with the other account before calling it a login problem.
 5. Never start an OAuth flow unattended. Whoever is at the screen can finish it with the wrong account.
@@ -424,20 +425,19 @@ Never use in-session `/loop` or `CronCreate` for anything that must survive a re
 
 ## RB-11 Bad deploy
 
-**What it is.** Every website deploy goes through `$SHIP`: gate the static files, deploy a candidate with production env but without the domain, gate the candidate URL, then promote that exact build. A raw `vercel --prod` skips both gates.
+**What it is.** Every website deploy goes through `$SHIP` (`harness/tools/ship.sh`): gate the static files, deploy a candidate with production env but without the domain, gate the candidate URL, then promote that exact build (preview-then-promote mode, `--promote-cmd`). A raw `vercel --prod` skips both gates.
 
 **`ship.sh` exit codes**
 
 | Exit | Meaning | Prod affected? | Action |
 |---|---|---|---|
-| 0 | Promoted, both gates passed, prod answers 200 | Yes, correctly | Verify live, then report |
+| 0 | Shipped: both gates passed, prod answers 200 | Yes, correctly | Verify live, then report |
 | 2 | Usage error | No | Fix the command |
 | 3 | Aborted before any deploy (static gate failed) | No | Read the gate report |
-| 4 | Candidate deploy failed or gave no URL | No | Fix the build |
-| 5 | **Live and wrong**: prod is on an ungated build, or not 200 | **Yes** | Roll back now |
-| 6 | Candidate not 200, or its gate or indexing check failed; candidate removed | No | Fix; run the restore command it prints for any dangling alias |
-| 7 | Promote did not take; prod still on the old build | No | Safe to retry |
-| 8 | Shipped, but prod sends `X-Robots-Tag: noindex` | Yes | Find and fix the header |
+| 4 | Deploy failed, or no candidate URL | No | Fix the build |
+| 5 | **Live and wrong**: deployed, but prod is not 200 or the live gate failed | **Yes** | Roll back now |
+| 6 | Candidate not 200, or its gate failed; candidate removed if `--remove-cmd` is set | No | Fix and ship again |
+| 7 | Promote failed; prod still on the old build | No | Safe to retry |
 
 An interrupted ship counts as not shipped. A scan report or a "Ready" deployment is evidence, not a verdict.
 
@@ -460,7 +460,7 @@ Run `vercel` from the site directory in the same command. It acts on whatever di
 
 **Rollback of the rollback.** `vercel promote <bad-id>`. You should not need it.
 
-**Owner.** Ops owns `ship.sh`. The seat that shipped runs the rollback and tells the orchestrator.
+**Owner.** Ops owns `harness/tools/ship.sh` and its gate command. The seat that shipped runs the rollback and tells the orchestrator.
 
 ---
 

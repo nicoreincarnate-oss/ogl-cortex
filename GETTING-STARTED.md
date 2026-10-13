@@ -4,7 +4,7 @@ This guide takes you from an empty machine to a running fleet: an orchestrator s
 
 OGL Cortex has two layers:
 
-1. **cortextOS**, the MIT-licensed framework (upstream: `github.com/grandamenium/cortextos`). It runs each seat as a persistent Claude Code session under a Node.js daemon, supervised by PM2, with a file bus for messages, tasks, approvals and crons.
+1. **The OGL Cortex framework**, MIT-licensed (upstream: `github.com/grandamenium/cortextos`). It runs each seat as a persistent Claude Code session under a Node.js daemon, supervised by PM2, with a file bus for messages, tasks, approvals and crons.
 2. **The OGL Cortex harness**, from this repo's `harness/` folder: guard hooks, skills, seat templates and a doctor script.
 
 You install the framework first, prove one seat works end to end, then add the harness.
@@ -58,7 +58,7 @@ Use a Node install you own (Homebrew or nvm). With a system Node, `npm install -
 
 | Placeholder | Meaning | Example |
 |---|---|---|
-| `$CORTEX_HOME` | Your cortextOS checkout | `~/cortextos` |
+| `$CORTEX_HOME` | Your framework checkout | `~/cortextos` |
 | `<instance>` | Instance id. Picks the state dir `~/.cortextos/<instance>/` | `default` |
 | `<org>` | Organization name, lowercase `[a-z0-9_-]` | `myorg` |
 | `boss` | Example orchestrator seat | any lowercase name |
@@ -122,7 +122,9 @@ Check: Node prints `v20` or higher and `claude auth status` says you are logged 
 claude auth login
 ```
 
-### Step 2. Install cortextOS
+### Step 2. Install the OGL Cortex framework
+
+The command-line tool is named `cortextos`.
 
 ```bash
 export CORTEX_HOME="$HOME/cortextos"
@@ -370,19 +372,21 @@ CTX_AGENT_NAME=me cortextos bus send-message builder normal 'ping from the opera
 
 ### Step 12. Install the OGL Cortex harness layer
 
-The harness adds the guard hooks, skills and seat templates from this repo's `harness/` folder on top of the plain cortextOS seats. Read `harness/README.md` first. It lists every hook, what it blocks, and which settings file each one goes into.
+The harness adds the guard hooks, skills and seat templates from this repo's `harness/` folder on top of the plain framework seats. Read `harness/README.md` first. It lists every hook, what it blocks, and which settings file each one goes into.
 
 ```bash
 cd /path/to/ogl-cortex
-bash harness/install.sh --help      # read the options first
+bash harness/install.sh --help                                        # read the options first
+bash harness/install.sh "$CORTEX_HOME/orgs/<org>/agents/boss"          # dry run: prints what it would write
+bash harness/install.sh "$CORTEX_HOME/orgs/<org>/agents/boss" --apply  # install into the seat
 ```
 
 What the installer touches:
 
-- **Seat level**: `$CORTEX_HOME/orgs/<org>/agents/<seat>/.claude/settings.json` and `.claude/hooks/`, `.claude/skills/`.
-- **User level** (optional): `~/.claude/settings.json` and `~/.claude/hooks/`. These apply to every Claude Code session on the machine, not only your seats. Install them only if you want that.
+- **Seat level**: hook scripts in `<seat>/.claude/hooks/ogl/` (including `compaction/`), hook entries merged into `<seat>/.claude/settings.json`, skills in `<seat>/.claude/skills/`, and `CLAUDE.md` and `STATE.md` only if they are missing (otherwise the template goes to `CLAUDE.ogl-template.md`).
+- **User level** (optional, `--user-level`): the ship gate, shared-surface guard and Orwell send-lint go to `~/.claude/hooks/ogl/` and are wired in `~/.claude/settings.json` instead of the seat. These apply to every Claude Code session on the machine, not only your seats. Install them only if you want that.
 
-Back up each `settings.json` before the installer edits it. Restart a seat after its hooks change, so the new session loads them:
+The installer copies every file it changes to `<file>.bak-<UTC timestamp>` first. The command-line tools in `harness/tools/` (`ship.sh`, `adversarial-pass.sh`, `brief_audit.py`, `emit-truth-correction.sh`) are not installed; run them from the checkout or copy them onto your `PATH`. Restart a seat after its hooks change, so the new session loads them:
 
 ```bash
 cortextos restart boss --instance "$CTX_INSTANCE_ID"
@@ -390,7 +394,7 @@ cortextos restart boss --instance "$CTX_INSTANCE_ID"
 
 A Claude Code hook blocks a tool call only when it exits with code 2. Any other non-zero exit is reported and the call goes ahead. After installing, prove each guard fires by feeding it a case it must block (see `harness/README.md`).
 
-> `harness/install.sh` and `harness/README.md` are part of this repo's harness layer. Their exact flags are documented there. Not verified by this guide.
+> Full flags, the files `--apply` writes, and removal steps are in `harness/README.md`. Run `python3 harness/tests/run_all.py` to check the hooks and tools on your machine.
 
 ### Step 13. Verify everything with the doctor
 
@@ -534,7 +538,7 @@ Run the doctor after every update and every harness change.
 | `config.json` | Runtime, model, session length, crash budget, timezone, seed crons |
 | `.env` | `BOT_TOKEN`, `CHAT_ID`, `ALLOWED_USER`. Mode `600`. Never commit it |
 | `goals.json`, `GOALS.md`, `MEMORY.md`, `memory/` | Goals and memory |
-| `.claude/settings.json`, `.claude/hooks/`, `.claude/skills/` | Hooks and skills for this seat |
+| `.claude/settings.json`, `.claude/hooks/ogl/`, `.claude/skills/` | Hooks and skills for this seat |
 
 **Runtime state** (what the seat is doing), under `$CTX_ROOT` = `~/.cortextos/<instance>/`:
 

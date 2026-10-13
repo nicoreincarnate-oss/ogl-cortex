@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,19 +33,19 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">24</div><div><p class="dg">Design, data and AI quality</p>
-<h1>Model lifecycle</h1><p class="meta">2,358 words · <a href="../24-model-lifecycle.md">Markdown source</a></p></div></header>
+<h1>Model lifecycle</h1><p class="meta">2,365 words · <a href="../24-model-lifecycle.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#1-where-models-are-set">1. Where models are set</a></li><li><a href="#2-how-a-swap-happens">2. How a swap happens</a></li><li><a href="#3-failure-modes">3. Failure modes</a></li><li><a href="#4-quota-aware-scheduling">4. Quota-aware scheduling</a></li><li><a href="#5-runtimes-other-than-claude-code">5. Runtimes other than Claude Code</a></li><li><a href="#6-enterprise-practices-scaled-down">6. Enterprise practices, scaled down</a></li><li><a href="#7-swap-checklist">7. Swap checklist</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document covers the language models behind an OGL Cortex fleet. It answers four questions. Where is each seat's model set? What else in the system calls a model? How does a model swap work? What should a swap checklist look like for a one-owner fleet?</p>
 <p>Related documents: <code>01-core-architecture.md</code> (how the daemon spawns seats), <code>02-execution-engine.md</code> (PTY and cron engine), <code>03-configuration-registry.md</code> (config file catalogue), <code>04-failsafe-boundary-log.md</code> (fail-safes), <code>13-vendor-risk.md</code>, <code>22-prompt-registry.md</code>, <code>23-evals-and-benchmarks.md</code>.</p>
 <p>Terms:</p>
 <ul>
-<li><strong>Seat</strong>: one long-running agent session managed by the cortextOS daemon.</li>
+<li><strong>Seat</strong>: one long-running agent session managed by the OGL Cortex daemon.</li>
 <li><strong>Runtime</strong>: which CLI the daemon launches for a seat. <code>claude-code</code> is Anthropic's Claude Code CLI. <code>codex-app-server</code> is OpenAI's Codex CLI. <code>opencode</code> is the OpenCode CLI.</li>
 <li><strong>Model id</strong>: the string passed to the CLI with <code>--model</code>, for example <code>claude-opus-4-8[1m]</code>. A <code>[1m]</code> suffix selects the 1 million token context variant where the model offers one.</li>
 <li><strong>Alias</strong>: a short model name the CLI resolves itself, such as <code>sonnet</code>, <code>opus</code> or <code>haiku</code>.</li>
 <li><strong>Weekly cap</strong>: the 7-day usage limit on a Claude subscription. When a seat hits it, the process stays alive but every turn returns a limit message.</li>
 </ul>
-<p>Path conventions: <code>$CORTEX_HOME</code> is your cortextOS checkout, <code>&lt;org&gt;</code> and <code>&lt;seat&gt;</code> are your folder names, <code>&lt;instance&gt;</code> is the daemon instance id.</p>
+<p>Path conventions: <code>$CORTEX_HOME</code> is your framework checkout, <code>&lt;org&gt;</code> and <code>&lt;seat&gt;</code> are your folder names, <code>&lt;instance&gt;</code> is the daemon instance id.</p>
 <h2 id="1-where-models-are-set">1. Where models are set</h2>
 <h3 id="11-seats">1.1 Seats</h3>
 <p>Each seat's model lives in one field of <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/config.json</code>:</p>
@@ -60,6 +61,7 @@
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="ex">python3</span> <span class="at">-c</span> <span class="st">&quot;import json,sys; c=json.load(open(&#39;</span><span class="va">$f</span><span class="st">&#39;)); print(&#39;</span><span class="va">$f</span><span class="st">&#39;.split(&#39;/&#39;)[0], c.get(&#39;runtime&#39;), c.get(&#39;model&#39;), c.get(&#39;enabled&#39;))&quot;</span></span>
 <span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="cf">done</span></span></code></pre></div>
 <p>To confirm what a running seat uses, trust the process, not the file:</p>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <div class="sourceCode" id="cb3"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> status <span class="at">--instance</span> <span class="op">&lt;</span>instance<span class="op">&gt;</span></span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ps</span> <span class="at">-axo</span> pid,command <span class="kw">|</span> <span class="fu">grep</span> <span class="at">--</span> <span class="st">&#39;--model&#39;</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="ex">lsof</span> <span class="at">-a</span> <span class="at">-p</span> <span class="op">&lt;</span>pid<span class="op">&gt;</span> -d cwd <span class="at">-Fn</span>     <span class="co"># maps a PID to its seat folder</span></span></code></pre></div>

@@ -6,7 +6,7 @@
 
 [![Licence: to be decided](https://img.shields.io/badge/licence-to%20be%20decided-0A0A0A?style=for-the-badge)](#licence)
 [![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-FF4F00?style=for-the-badge&labelColor=0A0A0A)](https://docs.anthropic.com/en/docs/claude-code)
-[![Runs on cortextOS](https://img.shields.io/badge/runs%20on-cortextOS-0B5FFF?style=for-the-badge&labelColor=0A0A0A)](https://github.com/grandamenium/cortextos)
+[![Framework: MIT](https://img.shields.io/badge/framework-MIT-0B5FFF?style=for-the-badge&labelColor=0A0A0A)](https://github.com/grandamenium/cortextos)
 [![macOS and Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-F2EFE9?style=for-the-badge&labelColor=0A0A0A)](GETTING-STARTED.md#prerequisites)
 
 <sub>The animation is a GIF so it plays on GitHub. <a href="docs/assets/readme/hero.mp4">Watch the MP4</a> (12 s, 1920 x 960) or see the <a href="docs/assets/readme/hero.png">still</a>.</sub>
@@ -33,9 +33,9 @@ Then, inside Claude Code:
 /cortex-setup
 ```
 
-**Path 2: set it up by hand.** Follow [Path B in GETTING-STARTED.md](GETTING-STARTED.md#path-b-do-it-yourself). It covers the same steps in order: install cortextOS, create an org, add an orchestrator seat, connect Telegram, start the daemon, add crons and a specialist, install the harness layer, then check everything with `bash scripts/doctor.sh --instance <instance>`.
+**Path 2: set it up by hand.** Follow [Path B in GETTING-STARTED.md](GETTING-STARTED.md#path-b-do-it-yourself). It covers the same steps in order: install the framework, create an org, add an orchestrator seat, connect Telegram, start the daemon, add crons and a specialist, install the harness layer, then check everything with `bash scripts/doctor.sh --instance <instance>`.
 
-[How it works](#how-it-works) · [How a message flows](#how-a-message-flows) · [Docs map](#docs-map) · [Troubleshooting](#troubleshooting)
+[How it works](#architecture) · [How a message flows](#how-a-message-flows) · [Docs map](#docs-map) · [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -43,12 +43,14 @@ Then, inside Claude Code:
 
 ## Agent = Model + Harness
 
-The model writes code, reads files and makes decisions. The harness decides what it sees, what it may touch, what it remembers, and who has to say yes. **OGL Cortex is the harness.** It runs on [cortextOS](https://github.com/grandamenium/cortextos) (MIT), which keeps Claude Code sessions alive around the clock, and adds the layer that makes a fleet safe to leave running:
+The model writes code, reads files and makes decisions. The harness decides what it sees, what it may touch, what it remembers, and who has to say yes. **OGL Cortex is the harness.** Its framework keeps Claude Code sessions alive around the clock, and its harness adds the layer that makes a fleet safe to leave running:
+
+The command-line tool is named `cortextos`.
 
 | Layer | What it is | Where it lives |
 |---|---|---|
 | **Seats** | Long-running Claude Code sessions, one per role: an orchestrator you talk to, specialists that do the work, an auditor that checks it, a sentinel that watches the fleet. | `$CORTEX_HOME/orgs/<org>/agents/<seat>/` |
-| **Daemon** | The cortextOS daemon under PM2. It polls Telegram, feeds each seat its messages and crons, watches heartbeats, and restarts a seat that dies. | `pm2 status` · `cortextos status` |
+| **Daemon** | The OGL Cortex daemon under PM2. It polls Telegram, feeds each seat its messages and crons, watches heartbeats, and restarts a seat that dies. | `pm2 status` · `cortextos status` |
 | **Bus** | Tasks, inbox messages, approvals, events and heartbeats, stored as files and driven by `cortextos bus <command>`. | `~/.cortextos/<instance>/` |
 | **Hooks** | Small scripts that Claude Code runs at fixed points (before a tool call, after a tool call, at session start, after compaction). A PreToolUse hook that exits `2` blocks the call and tells the model why. | [`harness/hooks/`](harness/hooks/), installed to `<seat>/.claude/hooks/ogl/` |
 | **Memory protocol** | Rules for what a seat writes down and when: daily memory, long-term `MEMORY.md`, a `STATE.md` checkpoint that survives compaction, plus a searchable knowledge base. | `<seat>/memory/`, `<seat>/MEMORY.md`, `<seat>/STATE.md` |
@@ -77,6 +79,8 @@ The model writes code, reads files and makes decisions. The harness decides what
 | `future_time_guard.py` | a memory write, `STATE.md` write or send stamped with a UTC time ahead of the real clock |
 | `compaction/` | nothing; it meters context use, hands `STATE.md` back after compaction and saves each summary |
 
+The harness also ships four command-line tools in [`harness/tools/`](harness/tools/): `ship.sh` (gate, deploy, live re-check), `adversarial-pass.sh` (a fenced read-only attack on one claim), `brief_audit.py` (did a worker stay inside its brief) and `emit-truth-correction.sh` (the false-claim ledger).
+
 <img src="docs/assets/readme/icons/approval.svg" width="26" height="26" alt=""> **Approval gates.** External actions (sending email, deploying, deleting, spending) go through `cortextos bus create-approval` and wait for a human. `list-approvals` shows what is pending; the orchestrator surfaces it instead of letting it queue.
 
 <img src="docs/assets/readme/icons/memory.svg" width="26" height="26" alt=""> **A memory protocol.** Seats write a daily log, keep a long-term index, and rewrite `STATE.md` at every checkpoint so a compaction or restart does not lose the thread. `cortextos bus kb-query` searches the org knowledge base.
@@ -93,7 +97,7 @@ The model writes code, reads files and makes decisions. The harness decides what
 flowchart LR
   you(["You on Telegram"])
 
-  subgraph daemon["cortextOS daemon (PM2)"]
+  subgraph daemon["OGL Cortex daemon (PM2)"]
     poll["Telegram poller<br/>allow-list check"]
     fc["fast-checker<br/>one per seat"]
     cron["cron scheduler"]
@@ -231,10 +235,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). In short: work on a branch, run `python3
 
 ## Credits
 
-OGL Cortex runs on [cortextOS](https://github.com/grandamenium/cortextos) (MIT). The README layout takes its cue from [ruflo](https://github.com/ruvnet/ruflo).
+OGL Cortex is built on [cortextOS](https://github.com/grandamenium/cortextos) (MIT, Cortext LLC). The README layout takes its cue from [ruflo](https://github.com/ruvnet/ruflo).
 
 <a id="licence"></a>
 
 ## Licence
 
-Licence: to be decided. Until a licence file is added, all rights are reserved. cortextOS keeps its own MIT licence.
+Licence: to be decided. Until a licence file is added, all rights are reserved. The upstream framework keeps its own MIT licence.

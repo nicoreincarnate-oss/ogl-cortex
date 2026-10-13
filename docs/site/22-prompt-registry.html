@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,13 +33,13 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">22</div><div><p class="dg">Design, data and AI quality</p>
-<h1>Prompt registry</h1><p class="meta">4,159 words · <a href="../22-prompt-registry.md">Markdown source</a></p></div></header>
+<h1>Prompt registry</h1><p class="meta">4,147 words · <a href="../22-prompt-registry.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#what-prompt-surface-means">What "prompt surface" means</a></li><li><a href="#1-seats-in-scope">1. Seats in scope</a></li><li><a href="#2-claudemd-layers">2. CLAUDE.md layers</a></li><li><a href="#3-auto-memory-index">3. Auto-memory index</a></li><li><a href="#4-seat-bootstrap-files">4. Seat bootstrap files</a></li><li><a href="#5-daemon-typed-prompts-framework-code">5. Daemon-typed prompts (framework code)</a></li><li><a href="#6-cron-prompts">6. Cron prompts</a></li><li><a href="#7-hook-injected-text">7. Hook-injected text</a></li><li><a href="#8-skills">8. Skills</a></li><li><a href="#9-versioning">9. Versioning</a></li><li><a href="#10-registry-checklist">10. Registry checklist</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document lists every place in OGL Cortex where text reaches a seat's model as instructions. It explains who writes each surface, when it loads, how big it tends to get, and how to version it. It ends with a versioning design you can adopt on day one.</p>
 <p>Related documents: architecture in <code>01-core-architecture.md</code>, the cron and settings registry in <code>03-configuration-registry.md</code>, data shapes (cron entry, hook input and output JSON) in <code>21-data-models-schema-registry.md</code>, the tests that check some of these prompts in <code>23-evals-and-benchmarks.md</code>, and which model reads them in <code>24-model-lifecycle.md</code>.</p>
 <p>Path conventions used below:</p>
 <ul>
-<li><code>$CORTEX_HOME</code> is your cortextOS checkout (for example <code>~/cortextos</code>).</li>
+<li><code>$CORTEX_HOME</code> is your framework checkout (for example <code>~/cortextos</code>).</li>
 <li><code>$CTX_ROOT</code> is the runtime state root for one daemon instance (for example <code>~/.cortextos/&lt;instance&gt;</code>).</li>
 <li><code>&lt;org&gt;</code> is your org folder name under <code>$CORTEX_HOME/orgs/</code>.</li>
 <li><code>&lt;seat&gt;</code> is one agent folder under <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/</code>.</li>
@@ -49,7 +50,7 @@
 <li><strong>CLAUDE.md layers.</strong> Claude Code loads these at session start. It reads the user-level file in <code>~/.claude/</code> and every <code>CLAUDE.md</code> in the working directory and its parent directories.</li>
 <li><strong>Auto-memory index.</strong> <code>~/.claude/projects/&lt;project&gt;/memory/MEMORY.md</code>. Claude Code loads its first 200 lines into every session for that project.</li>
 <li><strong>Seat bootstrap files.</strong> IDENTITY.md, SOUL.md, GUARDRAILS.md and the rest. Claude Code does not auto-load them. The daemon's boot prompt tells the model to read them.</li>
-<li><strong>Daemon-typed prompts.</strong> The boot prompt, the continue prompt, the cron-fire line and the Telegram and agent-message wrappers. The cortextOS daemon types these into each seat's terminal.</li>
+<li><strong>Daemon-typed prompts.</strong> The boot prompt, the continue prompt, the cron-fire line and the Telegram and agent-message wrappers. The OGL Cortex daemon types these into each seat's terminal.</li>
 <li><strong>Cron prompts.</strong> The <code>prompt</code> field of each entry in a seat's <code>crons.json</code>. The daemon types it in on schedule.</li>
 <li><strong>Skill prompts.</strong> <code>SKILL.md</code> files. Name and description sit in context; the body loads when invoked.</li>
 <li><strong>Hook-injected text.</strong> Small programs that Claude Code runs on events (session start, each prompt, after each tool call, compaction). Some print text that joins the model's context. Guard hooks that block an action also send their reason text to the model.</li>
@@ -57,6 +58,7 @@
 <figure class="diagram"><img src="img/2084bce98380.svg" alt="Diagram"></figure>
 
 <h2 id="1-seats-in-scope">1. Seats in scope</h2>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <p>A seat is one long-running Claude Code session the daemon manages. <code>cortextos bus list-agents</code> lists every seat with <code>enabled</code> and <code>running</code> flags. A fleet can keep any number of seats on disk and enable only some. This document uses neutral role names:</p>
 <table>
 <thead>
@@ -122,7 +124,7 @@
 <tr>
 <td>Framework</td>
 <td><code>$CORTEX_HOME/CLAUDE.md</code></td>
-<td>cortextOS upstream</td>
+<td>Framework upstream</td>
 <td>every seat, because every seat lives under <code>$CORTEX_HOME</code></td>
 </tr>
 <tr>
@@ -421,7 +423,7 @@
 <td>analyst</td>
 <td>check-upstream</td>
 <td><code>5 22 * * *</code></td>
-<td>compare with upstream cortextOS</td>
+<td>compare with the upstream framework</td>
 </tr>
 <tr>
 <td>analyst</td>
@@ -479,42 +481,41 @@
 </thead>
 <tbody>
 <tr>
-<td>Checkpoint re-inject</td>
+<td>Checkpoint re-inject (optional, not included)</td>
 <td>SessionStart (all)</td>
-<td>a <code>[MECHANICAL CHECKPOINT INJECTION]</code> header, the last 4,000 chars of <code>memory/checkpoints/latest.md</code> if under 72 hours old, the last 3,000 chars of the current or previous day's daily memory, and short reminders</td>
+<td>a header, the last 4,000 chars of <code>memory/checkpoints/latest.md</code> if under 72 hours old, the last 3,000 chars of the current or previous day's daily memory, and short reminders</td>
 </tr>
 <tr>
-<td>STATE.md hand-back</td>
+<td>STATE.md hand-back (<code>compaction/after_compact.py</code>)</td>
 <td>SessionStart, matcher <code>compact</code></td>
 <td>"The conversation was just compacted. This is STATE.md, your own record of where the work stands. Trust it over the summary where they differ" plus the full STATE.md</td>
 </tr>
 <tr>
-<td>Context meter</td>
+<td>Context meter (<code>compaction/meter.py</code>)</td>
 <td>PostToolUse (all)</td>
 <td>at a first threshold: "Context meter: Nk of your limit. Keep working..."; at a second: "Compaction is close. Your next action is to rewrite STATE.md in full". Thresholds live in a small <code>compaction.json</code></td>
 </tr>
 <tr>
-<td>Reply style router</td>
+<td>Reply style router (optional, not included)</td>
 <td>UserPromptSubmit</td>
 <td><code>[reply style: &lt;skin&gt;] &lt;text&gt;</code>, chosen by a cheap model call from a fixed list of skins. Only for the owner's own words; any failure injects nothing</td>
 </tr>
 <tr>
-<td>Client memory recall</td>
+<td>Client memory recall (optional, not included)</td>
 <td>UserPromptSubmit</td>
 <td>a short header plus up to about 6,000 chars of recalled facts when a prompt names a known entity; skips cron turns</td>
 </tr>
 <tr>
-<td>Hunter notice</td>
+<td>Adversarial-pass notice (optional, not included)</td>
 <td>PostToolUse on Bash</td>
-<td>a one-line notice that a fix commit started a background adversarial pass</td>
+<td>a one-line notice that a fix commit started a background run of <code>harness/tools/adversarial-pass.sh</code></td>
 </tr>
 </tbody>
 </table>
 <p>Non-injecting hooks that support these:</p>
 <ul>
-<li><code>precompact-checkpoint.sh</code> writes the checkpoint the SessionStart hook later reads.</li>
-<li>A <code>save_summary</code> hook stores each compaction summary in <code>compactions/</code>.</li>
-<li>A Stop hook may start background memory consolidation and print one line.</li>
+<li><code>compaction/save_summary.py</code> stores each compaction summary in <code>compactions/</code>.</li>
+<li>Optional, not included: a PreCompact hook that writes the checkpoint a SessionStart hook later reads, and a Stop hook that starts background memory consolidation.</li>
 </ul>
 <p>Design guidance:</p>
 <ul>
@@ -534,38 +535,28 @@
 </thead>
 <tbody>
 <tr>
-<td>Orwell send-guard</td>
-<td>user level, outgoing human-facing text</td>
-<td>"ORWELL SEND-GUARD BLOCKED this message. Rewrite and resend. Reasons: ..." with a one-time pass instruction for the "break any rule" case</td>
+<td>Orwell send-lint (<code>orwell_lint.py</code>)</td>
+<td>seat or user level, outgoing human-facing text</td>
+<td>"ORWELL SEND-LINT BLOCKED this message. Rewrite and resend. Reasons: ..." with a one-time pass instruction for the "break any rule" case</td>
 </tr>
 <tr>
-<td>Attribution send-guard</td>
-<td>orchestrator, sends to the owner</td>
-<td>"ATTRIBUTION SEND-GUARD BLOCKED this message..." when a number has no source; fail-closed error text</td>
-</tr>
-<tr>
-<td>Brief guard</td>
+<td>Brief guard (<code>brief_guard.py</code>)</td>
 <td>orchestrator, task dispatch</td>
 <td>"BRIEF GUARD BLOCKED this dispatch..." when a task lacks TASK, FILES, BAR, RETURN lines; fail-closed</td>
 </tr>
 <tr>
-<td>Future-time guard</td>
+<td>Future-time guard (<code>future_time_guard.py</code>)</td>
 <td>orchestrator</td>
 <td>blocks claims about times that have not happened yet</td>
 </tr>
 <tr>
-<td>Shared-surface guard</td>
-<td>user level, Bash</td>
+<td>Shared-surface guard (<code>shared_surface_guard.py</code>)</td>
+<td>seat or user level, Bash</td>
 <td>blocks destructive or config-writing commands on shared paths; supports a warn mode</td>
 </tr>
 <tr>
-<td>Account guard</td>
-<td>user level, a workspace MCP</td>
-<td>blocks calls bound to the wrong account</td>
-</tr>
-<tr>
-<td>Ship gate</td>
-<td>user level, Bash</td>
+<td>Ship gate (<code>ship_gate.py</code>)</td>
+<td>seat or user level, Bash</td>
 <td>blocks deploy and publish commands without a passing security report</td>
 </tr>
 </tbody>
@@ -689,7 +680,7 @@
 <p>Write the output to a file in your prompt repo and commit it nightly. The file then changes only when a prompt or schedule changes. Check the envelope shape against <code>21-data-models-schema-registry.md</code> before relying on the key names.</p>
 <h3 id="93-the-gated-sha8-convention">9.3 The <code>.gated-&lt;sha8&gt;</code> convention</h3>
 <p>When a hook passes its gate, freeze a read-only copy named with the first 8 hex digits of its own sha256:</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="va">f</span><span class="op">=</span>~/.claude/hooks/shared-surface-guard.py</span>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="va">f</span><span class="op">=&lt;</span>seat<span class="op">&gt;</span>/.claude/hooks/ogl/shared_surface_guard.py</span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="va">s</span><span class="op">=</span><span class="va">$(</span><span class="ex">shasum</span> <span class="at">-a</span> 256 <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="kw">|</span> <span class="fu">cut</span> <span class="at">-c1-8</span><span class="va">)</span></span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> <span class="st">&quot;</span><span class="va">$f</span><span class="st">&quot;</span> <span class="st">&quot;</span><span class="va">$f</span><span class="st">.gated-</span><span class="va">$s</span><span class="st">&quot;</span> <span class="kw">&amp;&amp;</span> <span class="fu">chmod</span> 400 <span class="st">&quot;</span><span class="va">$f</span><span class="st">.gated-</span><span class="va">$s</span><span class="st">&quot;</span></span></code></pre></div>
 <p>To check whether the live file is still the gated version:</p>

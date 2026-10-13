@@ -9,7 +9,7 @@ Placeholders (`$CORTEX_HOME`, `$CTX_ROOT`, `<instance>`, `<org>`, `<seat>`, `<pr
 Three different readers consume configuration:
 
 - **Claude Code** reads settings, CLAUDE.md files, hooks, skills, MCP config and auto-memory.
-- **The cortextOS daemon** reads seat `config.json`, `.env` files, org `context.json`, `crons.json` and `enabled-agents.json`.
+- **The OGL Cortex daemon** reads seat `config.json`, `.env` files, org `context.json`, `crons.json` and `enabled-agents.json`.
 - **The model** reads bootstrap files because a prompt tells it to.
 
 When one fact lives in two files, the copies drift, and a seat acts on whichever copy it reads first. This registry names one owner file for each kind of setting.
@@ -58,7 +58,7 @@ flowchart LR
     TK["orgs/org/tasks/*.json"]
     IB["inbox/ processed/"]
   end
-  Daemon((cortextOS daemon)) --> CJ & EN & OS & OC & CR & EA
+  Daemon((OGL Cortex daemon)) --> CJ & EN & OS & OC & CR & EA
   Claude((Claude Code session)) --> US & SS & UC & SC & UH & UJ & UA & SK
   Daemon -->|"startup prompt + cron text"| Claude
 ```
@@ -67,16 +67,18 @@ flowchart LR
 
 Guard names used below:
 
-- **Surface guard**: `~/.claude/hooks/shared-surface-guard.py`, a PreToolUse hook that blocks Bash writes to shared roots. Default roots: `~/.claude`, `~/.claude.json`, shared credential folders, `~/.cache/uv`; `~/.claude/projects/` is exempt (root list in `~/.claude/hooks/surface.py`). Seat folders are not in the default list.
-- **Hash watch**: an infrastructure-seat cron (`cred-identity-check`, hourly) that hashes every watched settings, hook, skill, CLAUDE.md and MCP file and pages the orchestrator once per change.
+- **Surface guard**: `shared_surface_guard.py` (source `harness/hooks/shared_surface_guard.py`, installed to `<seat>/.claude/hooks/ogl/`, or `~/.claude/hooks/ogl/` with `--user-level`), a PreToolUse hook that blocks Bash writes to shared roots. Default roots: `~/.claude`, `~/.claude.json`, the shared uv cache, global npm and `brew upgrade`, plus any root in `OGL_SURFACE_EXTRA_ROOTS`; writes under `~/.claude/projects/` are exempt (rules in `surface.py`). Seat folders are not in the default list.
+- **Hash watch** (optional, not included): an infrastructure-seat cron that hashes every watched settings, hook, skill, CLAUDE.md and MCP file and pages the orchestrator once per change.
 - **Auditor gate**: auditor review before a change goes live, with a `.gated-<sha>` copy kept.
+
+The command-line tool is named `cortextos`.
 
 | # | Path | Owner | Controls | Who edits | Change guard | Version control |
 |---|---|---|---|---|---|---|
 | 1 | `~/.claude/settings.json` | Owner | User-level hooks (for example the ship gate), enabled plugins, marketplaces, env such as `DISABLE_AUTOUPDATER=1`, TUI options | Owner; seats only with a surface-guard pass token | Surface guard, hash watch | Recommended: a private local git repo for `~/.claude` config and hooks |
 | 2 | `~/.claude/CLAUDE.md` | Owner | Global instructions for every Claude session on the host: memory read order, ship gate, coding guidelines, file naming | Owner. Memory tools may rewrite a generated block inside it | Surface guard, hash watch | As above |
 | 3 | `~/.claude.json` | Claude Code and owner | MCP servers: `mcpServers` at user scope and `projects.<path>.mcpServers` per project. Claude Code also writes session state here constantly | Claude Code; owner for MCP edits | Surface guard; hash watch on the `mcpServers` subtree only | Not suitable for git (volatile); back up `mcpServers` separately |
-| 4 | `~/.claude/hooks/` | OGL layer authors; consumed by all seats | Shared hook scripts: `orwell-lint.py`, `gws-account-guard.py`, `shared-surface-guard.py` (imports `surface.py`, `codewrites.py`) | Orchestrator under auditor gate | Surface guard (pass token only), hash watch, `.gated-<sha>` copies | Git |
+| 4 | `~/.claude/hooks/ogl/` (only with `install.sh --user-level`) | OGL layer authors; consumed by all seats | Machine-wide guards: `ship_gate.py`, `shared_surface_guard.py` (imports `surface.py`, `codewrites.py`), `orwell_lint.py` | Orchestrator under auditor gate | Surface guard (pass token only), hash watch, `.gated-<sha>` copies | Git |
 | 5 | `<seat>/.claude/settings.json` | Seat owner; orchestrator writes most | Hooks, `statusLine`, permissions, `autoCompactWindow` | Orchestrator, the seat | Hash watch | Seat git repo |
 | 6 | `<seat>/config.json` | Framework schema | Runtime, model, profile, timezone, day/night window, approval rules, context thresholds, session length. May hold a legacy `crons` array | Orchestrator, owner, dashboard | Daemon re-reads `ctx_*` thresholds on mtime change (`src/daemon/fast-checker.ts`) | Seat git repo |
 | 7 | `<seat>/goals.json` and `GOALS.md` | Orchestrator writes every seat's goals | Daily focus, goals, bottleneck. `GOALS.md` is generated: do not edit | Orchestrator via the goal-management skill; `cortextos goals generate-md` | None | Seat git repo |
@@ -90,9 +92,9 @@ Guard names used below:
 | 15 | `$CTX_ROOT/config/enabled-agents.json` | Daemon | Which registered seats start | `cortextos start <seat>`, `cortextos stop <seat>` | Daemon writes | Back up on change |
 | 16 | `$CORTEX_HOME/templates/` | Framework upstream | Starting shape for new seats: `agent`, `orchestrator`, `analyst`, `agent-codex`, `agent-opencode`, `hermes`, `m2c1-worker`, `org` | Upstream; the analyst's drift check watches it | Framework git | Framework repo |
 | 17 | `<seat>/ENTITIES.md` | Orchestrator | Canonical noun index: people, places, prices | Orchestrator, behind a written write gate | Prose gate | Seat git repo |
-| 18 | `<seat>/MEMORY.md`, auto-memory | Seat and dream hook | Long-term memory (4.1) | Seat, background dream job | Hash watch on bootstrap names | Seat git repo (auto-memory lives under `~/.claude/projects/`) |
+| 18 | `<seat>/MEMORY.md`, auto-memory | Seat | Long-term memory (4.1) | Seat, or an optional background consolidation job (not included) | Hash watch on bootstrap names | Seat git repo (auto-memory lives under `~/.claude/projects/`) |
 | 19 | `<seat>/STATE.md` | Seat | Where the work stands; re-injected after compaction | Seat | None | Seat git repo |
-| 20 | `<seat>/.claude/hooks/` | Seat owner | Seat-only hooks and the compaction kit (`kem-compaction/`: `meter.py`, `after_compact.py`, `save_summary.py`, `common.py`, `compaction.json`) | Orchestrator under auditor gate | Hash watch, `.gated-<sha>` | Seat git repo |
+| 20 | `<seat>/.claude/hooks/ogl/` | Seat owner | Hooks installed by `harness/install.sh`: the guards and the compaction kit (`compaction/`: `meter.py`, `after_compact.py`, `save_summary.py`, `common.py`, `compaction.json`) | Orchestrator under auditor gate | Hash watch, `.gated-<sha>` | Seat git repo |
 | 21 | `<seat>/.claude/skills/`, `~/.claude/skills/` | Template and seat; owner for user skills | Skill text loaded on demand | Orchestrator | Hash watch | Seat repo; user skills in the `~/.claude` repo |
 | 22 | `<seat>/.claude/agents/*.md`, `~/.claude/agents/` | Seat, plugins | Subagent definitions | Orchestrator | Hash watch | Seat repo |
 
@@ -100,14 +102,14 @@ Guard names used below:
 
 | Role | Typical hook commands | Notes |
 |---|---|---|
-| Orchestrator | ~24 | The only role with brief guard, future-time guard, attribution lint, compaction kit, prompt router, client-graph recall and fix-commit trigger |
-| Analyst, auditor, specialist | 9 to 10 | Telegram hooks, send guard, surface guard (warn mode), dream, idle flag |
-| Infrastructure specialist | 4 | Send guard, surface guard in strict mode, account guard; no Telegram permission hooks |
+| Orchestrator | template hooks plus all of `harness/settings.example.json` | Ship gate, surface guard, send guard, brief guard, future-time guard and the compaction kit |
+| Analyst, auditor, specialist | template hooks plus a subset | Send guard, surface guard (warn mode), ship gate; add the compaction kit for long sessions |
+| Infrastructure specialist | a small set | Send guard and surface guard in strict mode (omit `SURFACE_CODE_MODE=warn`); no Telegram permission hooks |
 | Template default | 6 to 7 | `hook-planmode-telegram`, `hook-permission-telegram`, `hook-loop-detector`, `hook-ask-telegram`, `crash-alert`, `hook-compact-telegram`, plus `hook-idle-flag` on analyst and agent |
 
 Every template ships `cortextos bus hook-loop-detector` as a PreToolUse hook (`templates/orchestrator/.claude/settings.json`). Keep it unless you replace it with an equivalent.
 
-Keep hook scripts in `<seat>/.claude/hooks/` or `<seat>/tools/`. A hook registered from a deliverables or scratch folder disappears silently when someone cleans that folder.
+Keep hook scripts in `<seat>/.claude/hooks/` (the installer uses `<seat>/.claude/hooks/ogl/`) or `<seat>/tools/`. A hook registered from a deliverables or scratch folder disappears silently when someone cleans that folder.
 
 ### 1.4 Backups and frozen copies
 
@@ -210,12 +212,12 @@ Five-field expressions run on the daemon's local clock (02, section 6.2). The le
       {
         "matcher": "Bash",
         "hooks": [{"type": "command",
-                   "command": "python3 $CORTEX_HOME/orgs/<org>/agents/<seat>/.claude/hooks/brief_guard.py"}]
+                   "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/brief_guard.py"}]
       },
       {
         "matcher": "Bash|Write|Edit",
         "hooks": [{"type": "command",
-                   "command": "python3 $CORTEX_HOME/orgs/<org>/agents/<seat>/.claude/hooks/future_time_guard.py",
+                   "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/future_time_guard.py",
                    "timeout": 5}]
       }
     ]
@@ -225,7 +227,7 @@ Five-field expressions run on the daemon's local clock (02, section 6.2). The le
 }
 ```
 
-Write absolute paths in the real file; Claude Code does not expand `$CORTEX_HOME` inside settings unless your shell does. The `statusLine` command writes `context_status.json`, which the daemon reads for context handoff.
+Claude Code sets `$CLAUDE_PROJECT_DIR` to the seat directory when it runs a hook command. The full block the installer merges is `harness/settings.example.json`. The `statusLine` command writes `context_status.json`, which the daemon reads for context handoff.
 
 ### 2.5 Skill frontmatter
 
@@ -291,7 +293,7 @@ The four `TASK/FILES/BAR/RETURN` lines are enforced by `brief_guard.py` on dispa
 
 ### 2.9 `truth_correction` event
 
-Written by `tools/emit-truth-correction.sh`, one shared script symlinked into every seat. Events land in `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/<date>.jsonl`:
+Written by `harness/tools/emit-truth-correction.sh`. Keep one copy on `PATH` or call it from the repo checkout. Events land in `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/<date>.jsonl`:
 
 ```json
 {
@@ -334,7 +336,7 @@ Create a seat with `cortextos add-agent <name> --template <template>`. Fill `IDE
 
 ```mermaid
 sequenceDiagram
-  participant D as cortextOS daemon
+  participant D as OGL Cortex daemon
   participant C as Claude Code
   participant H as Hooks
   participant A as Agent (model)
@@ -386,12 +388,9 @@ Cron prompts can carry real logic, for example a liveness canary procedure insid
 
 | When | Hook | Injects |
 |---|---|---|
-| SessionStart (any) | `.claude/hooks/sessionstart-inject.sh` | Last 4,000 chars of `memory/checkpoints/latest.md` if under 72 h old; last 3,000 chars of today's or yesterday's daily memory; an ENTITIES.md reminder |
-| SessionStart (`compact`) | `kem-compaction/after_compact.py` | Full STATE.md, "Trust it over the summary" |
-| PostToolUse | `kem-compaction/meter.py` | Context meter nudge and warning at the token counts in `compaction.json` |
-| UserPromptSubmit | `tools/prompt-router/router.py` | `[reply style: <style>]` chosen by a Haiku call from `skins.json`; silent for crons and agent messages |
-| UserPromptSubmit | `tools/ops-graph/recall_hook.py` | `[client memory graph: ...]` quoted facts when a prompt names a client |
-| PreCompact | `precompact-checkpoint.sh` | Writes `memory/checkpoints/latest.md` |
+| SessionStart (`compact`) | `<seat>/.claude/hooks/ogl/compaction/after_compact.py` | Full STATE.md, "Trust it over the summary" |
+| PostToolUse | `<seat>/.claude/hooks/ogl/compaction/meter.py` | Context meter nudge and warning at the token counts in `compaction.json` |
+| SessionStart, UserPromptSubmit, PreCompact | Optional, not included in this repository | A checkpoint-inject hook, a reply-style router or a client-graph recall hook can add context at these points |
 
 ### 3.6 Goals cascade
 

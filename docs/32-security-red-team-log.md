@@ -11,7 +11,7 @@ Related documents: `30-sre-runbooks.md` (RB-06 key rotation), `31-observability-
 - **Prompt injection**: outside text (a web page, an email, a transcript) written to look like an instruction, so an agent reading it might obey it.
 - **Hook**: a script Claude Code runs before or after a tool call. A PreToolUse hook blocks the call by exiting with code 2. Any other non-zero exit does not block.
 - **Pass token**: a file a seat touches to let one blocked command through. It is self-issued, so it is a speed bump with an explanation, not an authority gate.
-- **Hunter**: a fresh, read-only Claude session told to break exactly one claim about a guard or fix.
+- **Adversarial pass**: a fresh, read-only Claude session told to break exactly one claim about a guard or fix (`harness/tools/adversarial-pass.sh`).
 - **Gate**: the auditor seat re-runs a guard packet's tests and adds its own probes before ops may install it. `HOLD` means fix first. `PASS` means install.
 - **Mutant**: a deliberately broken copy of the code. A good test suite fails on it ("killed").
 - **Oracle**: an independent source of truth used to grade a guard, for example the real shell's behaviour.
@@ -101,6 +101,8 @@ Secrets also leak into places that are not "secret files": build caches (`.next/
 
 ### 2.7 Shared bot tokens
 
+The command-line tool is named `cortextos`.
+
 If a human's desktop Claude session sends Telegram with a seat's bot token by direct `curl`, those sends bypass the outbound log and the send guard. It also creates a second, unlogged holder of the key. Give each sender its own bot or route all sends through `cortextos bus send-telegram`.
 
 ### 2.8 MCP servers
@@ -133,28 +135,28 @@ Secrets go to the keychain or a password manager. If one lands in chat, rotate i
 
 ### 3.5 Pentest gate, ship wrapper and ship hook (mechanical)
 
-- **Pentest gate** (`cortex_pentest_gate.py <root> --output security [--url <url>] [--requires-authz --authz-evidence <file>] [--skip-zap]`): secret scan (TruffleHog), dependency audit, OWASP ZAP web scan when `--url` is given, header checks, and API authorisation evidence when `--requires-authz` is set. The verdict is `fail` only on a blocker. Raw secret-scan output is never written to disk; hits are stored redacted as short hashes, and an unverified hit with no recorded disposition is a blocker.
-- **Ship wrapper** (`ship.sh`): preview, gate the candidate URL, then promote the same build. Exit codes in RB-11.
-- **Ship gate hook** (`ship_gate_hook.py`, user-level PreToolUse): blocks recognised ship commands unless a passing `security/pentest-gate-report.json` exists in the current directory or an ancestor.
+- **Pentest gate** (your own scanner; not included in this repository): writes `security/pentest-gate-report.json` with `"status": "pass"` or `"fail"`. A good gate runs a secret scan (for example TruffleHog), a dependency audit, a web scan (for example OWASP ZAP) when given a URL, header checks, and an API authorisation evidence check for apps with accounts. Never write raw secret-scan output to disk; store hits redacted, and treat an unverified hit with no recorded disposition as a blocker.
+- **Ship wrapper** (`harness/tools/ship.sh`): gate, deploy a candidate, gate the candidate URL, then promote the same build. Exit codes in RB-11.
+- **Ship gate hook** (`harness/hooks/ship_gate.py`, PreToolUse at seat or user level): blocks recognised ship commands unless a passing `security/pentest-gate-report.json` exists in the current directory or an ancestor.
 - **Risk acceptance** lives in a separate acceptance note under `security/`, written in the owner's words. The gate report always keeps its true verdict. A wrapper that rewrites the report to `pass` is a forged pass.
 
 ### 3.6 Shared-surface guard (mechanical)
 
-`~/.claude/hooks/shared-surface-guard.py` with its parser `surface.py` and `codewrites.py`. It blocks, with exit 2, any command that changes a surface other seats depend on:
+`harness/hooks/shared_surface_guard.py` (installed to `<seat>/.claude/hooks/ogl/`) with its parser `surface.py` and code reader `codewrites.py`. It blocks, with exit 2, any command that changes a surface other seats depend on:
 - package cache prunes (`uv cache prune`, `uv cache clean`), global `npm`/`pnpm` installs, `brew upgrade`;
-- writes and deletes under `~/.claude*` (outside `projects/`), OAuth credential folders, and shared secret config folders;
+- writes and deletes under `~/.claude*` (outside `projects/`), and any credential or config folder you list in `OGL_SURFACE_EXTRA_ROOTS`;
 - deletes under `~/.claude/projects/` (seat transcripts and auto-memory);
 - every delete spelling it can parse: `rm` with brace expansion, `trash`, Finder delete through `osascript`, `find -delete`, `find -exec` running any write verb on a protected root.
 
-The block message names live consumers and asks for a backup and a post-check. A per-seat pass token releases one command: `touch ~/.claude/hooks/.surface-pass-once-$CTX_AGENT_NAME` (valid 10 minutes, consumed once, logged). With `SURFACE_CODE_MODE=warn`, the code-analysis rule only warns; redirects, `cp`, `rm` and direct writes still block. The guard fails closed when the raw command names a guarded root and the guard itself errors.
+The block message names live consumers and asks for a backup and a post-check. A per-seat pass token releases one command: `touch ~/.ogl-cortex/state/.surface-pass-once-$CTX_AGENT_NAME` (valid 10 minutes, consumed once, logged). With `SURFACE_CODE_MODE=warn`, the code-analysis rule only warns; redirects, `cp`, `rm` and direct writes still block. The guard fails closed when the raw command names a guarded root and the guard itself errors.
 
-### 3.7 Google Workspace account guard (mechanical)
+### 3.7 Google Workspace account guard (optional, not included)
 
-`~/.claude/hooks/gws-account-guard.py` blocks Google Workspace MCP calls for accounts you list, any account in an open credential-mismatch episode, and any `start_google_auth` call. No pass token. See RB-09.
+An account guard is a PreToolUse hook on the Google Workspace MCP that blocks calls for accounts you list, any account in an open credential-mismatch episode, and any `start_google_auth` call, with no pass token. This repository does not ship one. See RB-09.
 
 ### 3.8 Send guard (writing guard, security-adjacent)
 
-`orwell-lint.py` lints outgoing Telegram and MCP sends against a fixed rule set with word lists and regex, no model. It fails closed in scope. It matters for security because sends that bypass the bus also bypass it. Escape for one send: `touch ~/.claude/hooks/.orwell-pass-once-$CTX_AGENT_NAME`.
+`harness/hooks/orwell_lint.py` lints outgoing Telegram and MCP sends against a fixed rule set with word lists and regex, no model. It fails closed in scope. It matters for security because sends that bypass the bus also bypass it. Escape for one send: `touch ~/.ogl-cortex/state/.orwell-pass-once-$CTX_AGENT_NAME`.
 
 ### 3.9 Credential identity and settings watch (detector)
 
@@ -197,12 +199,12 @@ The bar before install:
 
 The strongest test grades the guard against what the shell does, not what the author believes. For each probe shape, run the command for real in each shell (`bash`, `zsh`, `sh`) inside `sandbox-exec` with a must-find control first. If the control misses, the run is void. Compare the guard's verdict to the sandbox's observed write or delete. Report `MISS` (dangerous, allowed) and `over-flag` (safe, blocked) separately.
 
-### 4.3 Hunter passes
+### 4.3 Adversarial passes
 
 Run one fenced pass on every guard, hook or fix before you call it done:
 
 ```bash
-hunter.sh --claim "<one rule the guard must hold>" --cd <dir> <files...>
+harness/tools/adversarial-pass.sh --claim "<one rule the guard must hold>" --cd <dir> [--budget 10] <files...>
 ```
 
 The fence:
@@ -210,9 +212,9 @@ The fence:
 - evidence as `file:line` plus a reproduction;
 - one round and a time budget.
 
-Judge each finding with one question: can a real user or operator action reach it? Drop invented inputs, even true ones. Every fix lands with a test that fails without it. Prove fixes with tests, never by re-running the hunter. Stop when findings turn into edge cases nobody can reach.
+Judge each finding with one question: can a real user or operator action reach it? Drop invented inputs, even true ones. Every fix lands with a test that fails without it. Prove fixes with tests, never by re-running the pass. Stop when findings turn into edge cases nobody can reach.
 
-A void run (for example, the engine failed to authenticate) can read like a clean report. Check the run header before you trust an empty findings list.
+A void run (for example, the engine failed to authenticate) can read like a clean report. `adversarial-pass.sh` exits 3 when the engine failed or timed out. Check the exit code and the run header before you trust an empty findings list.
 
 ### 4.4 Positive controls in production
 
@@ -224,10 +226,10 @@ A guard that never fires looks the same as a guard that works. Give each guard a
 
 | Enterprise item | Fit for a one-owner fleet | Closest equivalent |
 |---|---|---|
-| External pentest firm | Rarely | Pentest gate on every ship; auditor gates; hunter passes |
+| External pentest firm | Rarely | Pentest gate on every ship; auditor gates; adversarial passes |
 | Bug bounty | No | None. Keep public surfaces small and gated with `--url` |
 | SOC or SIEM | No | Sentinels plus the event log |
-| Threat model sign-off | Light | Section 2 of this document plus hunter claims |
+| Threat model sign-off | Light | Section 2 of this document plus adversarial-pass claims |
 | Secrets manager with rotation policy | Partly | Keychain or password manager plus mode-600 files; rotation is manual and owner-gated |
 | Separate prod and dev accounts | Partly | One browser profile per business account |
 | Least-privilege service account per agent | No | All seats run as one OS user. Per-seat pass tokens and per-seat hook registration are the only separation |
@@ -260,7 +262,7 @@ Work through this list after setup and again after any major change.
 - [ ] A failed ZAP run never reads an old report as current. Remove or rename old reports before each run.
 
 **Guards**
-- [ ] The shared-surface guard, send guard and account guard are registered on every seat that needs them, and in any desktop Claude session that touches shared surfaces.
+- [ ] The shared-surface guard and send guard (and an account guard, if you add one) are registered on every seat that needs them, and in any desktop Claude session that touches shared surfaces.
 - [ ] The settings watch covers hook script contents, not only settings files.
 - [ ] Each guard has a scheduled positive control (section 4.4).
 - [ ] Code-analysis rules move from warn to block only after a measured quiet period with organic hits, not zero hits.

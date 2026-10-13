@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,12 +33,12 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">21</div><div><p class="dg">Design, data and AI quality</p>
-<h1>Data Models and Schema Registry</h1><p class="meta">4,388 words · <a href="../21-data-models-schema-registry.md">Markdown source</a></p></div></header>
+<h1>Data Models and Schema Registry</h1><p class="meta">4,365 words · <a href="../21-data-models-schema-registry.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#how-schemas-work-in-ogl-cortex">How schemas work in OGL Cortex</a></li><li><a href="#where-the-data-lives">Where the data lives</a></li><li><a href="#1-task">1. Task</a></li><li><a href="#2-inbox-message-agent-to-agent-bus">2. Inbox message (agent-to-agent bus)</a></li><li><a href="#3-event">3. Event</a></li><li><a href="#4-truth_correction-event-the-false-claim-ledger">4. truth_correction event (the false-claim ledger)</a></li><li><a href="#5-heartbeat">5. Heartbeat</a></li><li><a href="#6-cron-records">6. Cron records</a></li><li><a href="#7-goalsjson">7. goals.json</a></li><li><a href="#8-approval">8. Approval</a></li><li><a href="#9-auto-memory-note-claude-code-memory">9. Auto-memory note (Claude Code memory)</a></li><li><a href="#10-skill-frontmatter">10. Skill frontmatter</a></li><li><a href="#11-hook-input-and-output-json">11. Hook input and output JSON</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document describes every data shape that moves through OGL Cortex: where it lives on disk, who writes it, its fields, an example, and how strictly it is validated. Use it when you write a tool that reads fleet state, build a dashboard, or debug a record that looks wrong.</p>
 <p>Path conventions:</p>
 <ul>
-<li><code>$CORTEX_HOME</code> is your cortextOS checkout (for example <code>~/cortextos</code>).</li>
+<li><code>$CORTEX_HOME</code> is your framework checkout (for example <code>~/cortextos</code>).</li>
 <li><code>$CTX_ROOT</code> is the runtime state root for one daemon instance (<code>~/.cortextos/&lt;instance&gt;</code>).</li>
 <li><code>&lt;org&gt;</code> is your org folder name. <code>&lt;seat&gt;</code> is one agent folder under <code>$CORTEX_HOME/orgs/&lt;org&gt;/agents/</code>.</li>
 </ul>
@@ -47,7 +48,7 @@
 <ol type="1">
 <li><strong>TypeScript interfaces</strong> in <code>src/types/index.ts</code>. They describe what the framework code writes. TypeScript checks them at build time. Nothing checks files on disk against them at read time. They match the original bash version's JSON formats for backward compatibility.</li>
 <li><strong>Runtime validators</strong> for enum fields: agent names, priorities, event categories, severities, approval categories and task ids (<code>src/utils/validate.ts</code>). They run when the CLI writes, not when anything reads.</li>
-<li><strong>Writer scripts and hooks</strong> in the OGL layer that enforce stricter shapes than the bus. Example: the <code>truth_correction</code> event is validated by <code>tools/emit-truth-correction.sh</code>, not by the bus.</li>
+<li><strong>Writer scripts and hooks</strong> in the OGL layer that enforce stricter shapes than the bus. Example: the <code>truth_correction</code> event is validated by <code>harness/tools/emit-truth-correction.sh</code>, not by the bus.</li>
 <li><strong>Convention only</strong> for some shapes: event names and metadata, auto-memory frontmatter, skill frontmatter, and <code>goals.json</code>.</li>
 </ol>
 <p><code>src/harness/schema.ts</code> defines an SQL store for the Cortex harness. It is a compatibility shadow store, marked not production-authoritative in its own schema, and is covered in <code>01-core-architecture.md</code>.</p>
@@ -272,7 +273,8 @@
 <span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
 <p><strong>Task audit log.</strong> Every transition appends one line to <code>tasks/audit/&lt;task_id&gt;.jsonl</code>. Shape <code>TaskAuditEntry</code> in <code>src/bus/task.ts</code>: <code>ts</code>, <code>event</code> (<code>create</code>, <code>claim</code>, <code>update</code>, <code>complete</code>), <code>agent</code>, and optional <code>from</code>, <code>to</code>, <code>note</code>. The audit log is an observability aid, not the source of truth. A failed audit write never blocks the task write.</p>
 <div class="sourceCode" id="cb2"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;ts&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T09:00:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;event&quot;</span><span class="fu">:</span><span class="st">&quot;create&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;boss&quot;</span><span class="fu">,</span><span class="dt">&quot;to&quot;</span><span class="fu">:</span><span class="st">&quot;pending&quot;</span><span class="fu">,</span><span class="dt">&quot;note&quot;</span><span class="fu">:</span><span class="st">&quot;First-boot onboarding&quot;</span><span class="fu">}</span></span></code></pre></div>
-<p><strong>OGL convention: the four-line brief.</strong> <code>.claude/hooks/brief_guard.py</code> blocks a Bash call of the form <code>cortextos bus create-task ... --assignee &lt;other seat&gt;</code> unless <code>--desc</code> contains lines starting <code>TASK:</code>, <code>FILES:</code>, <code>BAR:</code> and <code>RETURN:</code>. The rule applies to the description string at the moment the seat's Bash tool runs the command. The bus itself does not enforce it, so tasks created by scripts, other seats without the hook, or the dashboard are not checked.</p>
+<p>The command-line tool is named <code>cortextos</code>.</p>
+<p><strong>OGL convention: the four-line brief.</strong> <code>brief_guard.py</code> (<code>harness/hooks/brief_guard.py</code>, installed to <code>.claude/hooks/ogl/</code>) blocks a Bash call of the form <code>cortextos bus create-task ... --assignee &lt;other seat&gt;</code> unless <code>--desc</code> contains lines starting <code>TASK:</code>, <code>FILES:</code>, <code>BAR:</code> and <code>RETURN:</code>. The rule applies to the description string at the moment the seat's Bash tool runs the command. The bus itself does not enforce it, so tasks created by scripts, other seats without the hook, or the dashboard are not checked.</p>
 <p><strong>Validation:</strong> TypeScript interface plus write-time enum checks. Task files are not validated when read.</p>
 <h2 id="2-inbox-message-agent-to-agent-bus">2. Inbox message (agent-to-agent bus)</h2>
 <p><strong>Type:</strong> <code>interface InboxMessage</code> in <code>src/types/index.ts</code>. Written by <code>sendMessage()</code> in <code>src/bus/message.ts</code>.</p>
@@ -419,7 +421,7 @@
 <p><strong>Validation:</strong> envelope only (8 fields, 2 enums). Event names and metadata have no schema.</p>
 <h2 id="4-truth_correction-event-the-false-claim-ledger">4. truth_correction event (the false-claim ledger)</h2>
 <p>An OGL convention on top of the event shape: <code>category: action</code>, <code>event: truth_correction</code>, and a strict metadata shape. It records each time a seat said something false and someone (the seat itself, a peer, a guard, or the owner) caught it. The auditor role owns the collector and the schema.</p>
-<p><strong>Writer:</strong> <code>tools/emit-truth-correction.sh</code>. It validates inputs, builds the metadata, and calls:</p>
+<p><strong>Writer:</strong> <code>harness/tools/emit-truth-correction.sh</code>. It validates inputs, builds the metadata, and calls:</p>
 <div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus log-event action truth_correction info <span class="at">--meta</span> <span class="st">&quot;</span><span class="va">$META</span><span class="st">&quot;</span></span></code></pre></div>
 <p>The bus does not know this shape. A direct <code>log-event</code> call skips every check, so seats must use the script.</p>
 <p><strong>Allowed <code>kind</code> values:</strong> <code>self_correction</code>, <code>peer_catch</code>, <code>enforcer_catch</code>, <code>principal_catch</code>, <code>verify_cleared</code>, <code>artifact_catch</code>, <code>known_unrecordable_catch</code>.</p>
@@ -513,7 +515,7 @@
 </tr>
 </tbody>
 </table>
-<p><strong>Dedupe rule</strong> (from the script's wire contract): for a plain duplicate <code>dedupe_key</code>, the first row in scan order wins (sorted by seat folder, then line order), not the earliest or latest by time. An explicit amendment is the only way to supersede a row. Amendments are separate <code>truth_correction_amendment</code> events written by <code>tools/emit-truth-correction-amendment.sh</code>.</p>
+<p><strong>Dedupe rule</strong> (a convention for readers of the ledger): for a plain duplicate <code>dedupe_key</code>, the first row in scan order wins (sorted by seat folder, then line order), not the earliest or latest by time. To supersede a row, write a separate amendment event. An amendment emitter is optional and not included in this repository.</p>
 <p><strong>Example:</strong></p>
 <div class="sourceCode" id="cb7"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span><span class="st">&quot;1790000400-builder-k3m9q&quot;</span><span class="fu">,</span><span class="dt">&quot;agent&quot;</span><span class="fu">:</span><span class="st">&quot;builder&quot;</span><span class="fu">,</span><span class="dt">&quot;org&quot;</span><span class="fu">:</span><span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span><span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T09:06:40Z&quot;</span><span class="fu">,</span><span class="dt">&quot;category&quot;</span><span class="fu">:</span><span class="st">&quot;action&quot;</span><span class="fu">,</span><span class="dt">&quot;event&quot;</span><span class="fu">:</span><span class="st">&quot;truth_correction&quot;</span><span class="fu">,</span><span class="dt">&quot;severity&quot;</span><span class="fu">:</span><span class="st">&quot;info&quot;</span><span class="fu">,</span></span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a> <span class="dt">&quot;metadata&quot;</span><span class="fu">:{</span><span class="dt">&quot;kind&quot;</span><span class="fu">:</span><span class="st">&quot;self_correction&quot;</span><span class="fu">,</span><span class="dt">&quot;caught_agent&quot;</span><span class="fu">:</span><span class="st">&quot;builder&quot;</span><span class="fu">,</span><span class="dt">&quot;caught_by&quot;</span><span class="fu">:</span><span class="st">&quot;builder&quot;</span><span class="fu">,</span><span class="dt">&quot;catcher_type&quot;</span><span class="fu">:</span><span class="st">&quot;party&quot;</span><span class="fu">,</span><span class="dt">&quot;triggering_msg&quot;</span><span class="fu">:</span><span class="kw">null</span><span class="fu">,</span><span class="dt">&quot;occurred_at&quot;</span><span class="fu">:</span><span class="st">&quot;2026-01-15T09:06:00Z&quot;</span><span class="fu">,</span><span class="dt">&quot;dedupe_key&quot;</span><span class="fu">:</span><span class="st">&quot;builder.backup-schedule-tz.20260115T090600Z&quot;</span><span class="fu">,</span><span class="dt">&quot;claim&quot;</span><span class="fu">:</span><span class="st">&quot;Daily backup runs at 09:00 UTC&quot;</span><span class="fu">,</span><span class="dt">&quot;correction&quot;</span><span class="fu">:</span><span class="st">&quot;launchd schedules use local time; the backup runs at 09:00 local&quot;</span><span class="fu">,</span><span class="dt">&quot;evidence&quot;</span><span class="fu">:</span><span class="st">&quot;launchctl print output&quot;</span><span class="fu">}}</span></span></code></pre></div>
@@ -986,39 +988,39 @@
 </tr>
 <tr>
 <td>PreToolUse</td>
-<td><code>cortextos bus hook-ask-telegram</code>; <code>orwell-lint.py</code> (Bash sends and MCP sends); <code>gws-account-guard.py</code>; <code>shared-surface-guard.py</code>; <code>brief_guard.py</code>; <code>future_time_guard.py</code>; <code>attribution-lint.py</code>; the ship-gate hook</td>
+<td><code>cortextos bus hook-ask-telegram</code>; <code>orwell_lint.py</code> (Bash sends and MCP sends); <code>shared_surface_guard.py</code>; <code>brief_guard.py</code>; <code>future_time_guard.py</code>; <code>ship_gate.py</code></td>
 </tr>
 <tr>
 <td>PostToolUse</td>
-<td>compaction meter (<code>kem-compaction/meter.py</code>); fix-commit trigger (<code>fix_commit_hook.py</code>)</td>
+<td>compaction meter (<code>compaction/meter.py</code>)</td>
 </tr>
 <tr>
 <td>UserPromptSubmit</td>
-<td>entity recall hook; prompt router (<code>router.py</code>)</td>
+<td>none shipped; optional recall or prompt-router hooks (not included)</td>
 </tr>
 <tr>
 <td>SessionStart</td>
-<td><code>sessionstart-inject.sh</code>; compaction hand-back (<code>kem-compaction/after_compact.py</code>, matcher <code>compact</code>)</td>
+<td>compaction hand-back (<code>compaction/after_compact.py</code>, matcher <code>compact</code>)</td>
 </tr>
 <tr>
 <td>PreCompact</td>
-<td><code>cortextos bus hook-compact-telegram</code>; <code>precompact-checkpoint.sh</code>; session digest</td>
+<td><code>cortextos bus hook-compact-telegram</code></td>
 </tr>
 <tr>
 <td>PostCompact</td>
-<td>compaction summary saver (<code>kem-compaction/save_summary.py</code>)</td>
+<td>compaction summary saver (<code>compaction/save_summary.py</code>)</td>
 </tr>
 <tr>
 <td>Stop</td>
-<td><code>cortextos bus hook-idle-flag</code>; dream hook</td>
+<td><code>cortextos bus hook-idle-flag</code></td>
 </tr>
 <tr>
 <td>SessionEnd</td>
-<td><code>cortextos crash-alert</code>; session digest</td>
+<td><code>cortextos crash-alert</code></td>
 </tr>
 </tbody>
 </table>
-<p>Commands that start with <code>cortextos</code> come from the framework. The rest are OGL layer scripts.</p>
+<p>Commands that start with <code>cortextos</code> come from the framework. The rest are OGL layer scripts from <code>harness/hooks/</code>, installed to <code>&lt;seat&gt;/.claude/hooks/ogl/</code>.</p>
 <h3 id="11b-input-fields-ogl-hooks-read">11b. Input fields OGL hooks read</h3>
 <table>
 <thead>
@@ -1031,7 +1033,7 @@
 <tbody>
 <tr>
 <td>tool_name</td>
-<td>all PreToolUse guards, fix-commit trigger</td>
+<td>all PreToolUse guards</td>
 <td>Tool about to run (<code>Bash</code>, <code>Write</code>, <code>Edit</code>, <code>mcp__...</code>).</td>
 </tr>
 <tr>
@@ -1045,19 +1047,9 @@
 <td>Write and Edit payloads.</td>
 </tr>
 <tr>
-<td>tool_input.user_google_email</td>
-<td>account guard</td>
-<td>Google account an MCP call targets.</td>
-</tr>
-<tr>
 <td>cwd</td>
-<td>send guard, surface guard, fix-commit trigger, compaction kit</td>
+<td>send guard, surface guard, ship gate, compaction kit</td>
 <td>Working directory.</td>
-</tr>
-<tr>
-<td>prompt</td>
-<td>recall hook, prompt router</td>
-<td>Incoming prompt on UserPromptSubmit.</td>
 </tr>
 <tr>
 <td>transcript_path</td>
@@ -1099,7 +1091,7 @@
 <tbody>
 <tr>
 <td><strong>Block:</strong> exit code 2, reason on stderr</td>
-<td>send guard, account guard, surface guard, brief guard, future-time guard, attribution lint</td>
+<td>send guard, surface guard, ship gate, brief guard, future-time guard</td>
 <td>Claude Code cancels the tool call and shows the stderr text to the model.</td>
 </tr>
 <tr>
@@ -1109,7 +1101,7 @@
 </tr>
 <tr>
 <td><strong>Inject context:</strong> exit 0, stdout <code>{"hookSpecificOutput":{"hookEventName":"&lt;Event&gt;","additionalContext":"&lt;text&gt;"}}</code></td>
-<td>recall hook, prompt router, <code>sessionstart-inject.sh</code>, compaction kit, fix-commit trigger</td>
+<td>compaction kit (<code>meter.py</code>, <code>after_compact.py</code>)</td>
 <td>Text is added to the model's context.</td>
 </tr>
 <tr>
@@ -1120,10 +1112,10 @@
 </tbody>
 </table>
 <p>The framework's loop detector (<code>src/hooks/hook-loop-detector.ts</code>) writes a fifth shape, <code>{"decision":"block","reason":"..."}</code> on stdout. It is optional and not registered by default.</p>
-<p>Prompt-router output:</p>
+<p>Output of an optional prompt-router hook (not included):</p>
 <div class="sourceCode" id="cb18"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span><span class="dt">&quot;hookSpecificOutput&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;hookEventName&quot;</span><span class="fu">:</span> <span class="st">&quot;UserPromptSubmit&quot;</span><span class="fu">,</span> <span class="dt">&quot;additionalContext&quot;</span><span class="fu">:</span> <span class="st">&quot;[reply style: &lt;skin&gt;] &lt;style text&gt;&quot;</span><span class="fu">}}</span></span></code></pre></div>
-<p><strong>Fail-closed and fail-open.</strong> The brief guard, send guard and surface guard fail closed when they crash on input inside their scope, and open otherwise. The account guard, future-time guard and attribution lint fail open on any exception. Context-injecting hooks fail silent by design: a timeout or error injects nothing.</p>
-<p><strong>Pass-once tokens.</strong> The send guard and the surface guard accept a one-shot override file younger than 600 seconds: <code>~/.claude/hooks/.orwell-pass-once-&lt;seat&gt;</code> and <code>~/.claude/hooks/.surface-pass-once-&lt;seat&gt;</code>. A token never overrides a crash.</p>
+<p><strong>Fail-closed and fail-open.</strong> The brief guard, send guard and surface guard fail closed when they crash on input inside their scope, and open otherwise. The future-time guard fails open on any exception. Context-injecting hooks fail silent by design: a timeout or error injects nothing.</p>
+<p><strong>Pass-once tokens.</strong> The send guard and the surface guard accept a one-shot override file younger than 600 seconds: <code>~/.ogl-cortex/state/.orwell-pass-once-&lt;seat&gt;</code> and <code>~/.ogl-cortex/state/.surface-pass-once-&lt;seat&gt;</code> (the folder is <code>$OGL_STATE_DIR</code> when set). A token never overrides a crash.</p>
 <p><strong>PermissionRequest under bypassPermissions.</strong> <code>AgentConfig.dangerously_skip_permissions</code> defaults to true when absent. With permissions skipped, Claude Code raises few permission prompts, so the PermissionRequest hooks rarely fire.</p>
 <h2 id="known-limitations">Known limitations</h2>
 <ol type="1">
@@ -1157,6 +1149,6 @@
 <li><code>src/hooks/index.ts</code></li>
 <li><code>src/hooks/hook-loop-detector.ts</code></li>
 <li><code>src/harness/schema.ts</code></li>
-<li>OGL layer: <code>tools/emit-truth-correction.sh</code>, <code>tools/emit-truth-correction-amendment.sh</code>, <code>.claude/hooks/brief_guard.py</code>, <code>.claude/hooks/future_time_guard.py</code>, <code>.claude/hooks/kem-compaction/</code>, <code>~/.claude/hooks/orwell-lint.py</code>, <code>~/.claude/hooks/shared-surface-guard.py</code>, <code>~/.claude/hooks/gws-account-guard.py</code></li>
+<li>OGL layer: <code>harness/tools/emit-truth-correction.sh</code>, <code>harness/hooks/brief_guard.py</code>, <code>harness/hooks/future_time_guard.py</code>, <code>harness/hooks/compaction/</code>, <code>harness/hooks/orwell_lint.py</code>, <code>harness/hooks/shared_surface_guard.py</code>, <code>harness/hooks/ship_gate.py</code></li>
 </ul>
 </article><nav class="pager"><a class="prev" href="20-architecture-decision-records.html"><small>Previous</small>20 Architecture Decision Records</a><a class="next" href="22-prompt-registry.html"><small>Next</small>22 Prompt registry</a></nav></main></div></body></html>

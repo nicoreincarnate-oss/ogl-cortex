@@ -4,7 +4,7 @@ This document explains how OGL Cortex tests itself: which kinds of checks exist,
 
 Related documents: `01-core-architecture.md` (seats, bus, daemon), `02-execution-engine.md` (turns and tool calls), `03-configuration-registry.md` (where hooks are wired), `04-failsafe-boundary-log.md` (guard logic), `21-data-models-schema-registry.md` (event shapes), `22-prompt-registry.md`, `24-model-lifecycle.md`.
 
-Path conventions: `$CORTEX_HOME` is your cortextOS checkout, `$CTX_ROOT` is the runtime root for one daemon instance (`~/.cortextos/<instance>`), `<org>` and `<seat>` are your org and seat folder names.
+Path conventions: `$CORTEX_HOME` is your framework checkout, `$CTX_ROOT` is the runtime root for one daemon instance (`~/.cortextos/<instance>`), `<org>` and `<seat>` are your org and seat folder names.
 
 ## 0. Scale
 
@@ -23,17 +23,17 @@ Terms:
 
 | # | Check | Kind | Proves | Cost | Where |
 |---|---|---|---|---|---|
-| 1 | cortextOS framework tests | test suite | bus, daemon, CLI, hooks, PTY, dashboard behave | free | `$CORTEX_HOME/tests`, `npm test` |
+| 1 | Framework tests | test suite | bus, daemon, CLI, hooks, PTY, dashboard behave | free | `$CORTEX_HOME/tests`, `npm test` |
 | 2 | Guard test family | tests + mutants + oracle + sandbox + replay | a guard blocks what it must and only that | free | one folder per guard change |
 | 3 | Hook self-tests | self-test | the hook still works on its author's fixed cases | free | `<hook> --selftest` |
 | 4 | Liveness canary and tally | canary | each seat's guard is alive in production | a few tool calls per heartbeat | heartbeat cron prompt plus a tally script |
-| 5 | Production lint logs | live measurement | first-draft failure rate of outgoing text | free | `~/.claude/hooks/*.log` |
+| 5 | Production lint logs | live measurement | first-draft failure rate of outgoing text | free | `$OGL_STATE_DIR/*.log` (default `~/.ogl-cortex/state/`) |
 | 6 | Classifier model eval | model eval | misfire rate of a model-driven decision | cents per run | `run_eval.py` beside the classifier |
 | 7 | Step evals | model eval | cost and quality before and after a skill change | cents to dollars | one report per change |
 | 8 | Known-answer recall evals | memory eval | memory recall returns the right fact with a source | free | `evals.py` beside the memory tool |
-| 9 | Adversarial pass ("hunter") | adversarial | a fresh model cannot break one stated claim | one model session | `hunter.sh` |
-| 10 | Brief audit | audit | a worker wrote only inside its brief's FILES | free | `audit.py <task_id>` |
-| 11 | Pentest gate | security gate | secrets, dependencies, authz evidence, ZAP | free to minutes | `cortex_pentest_gate.py` |
+| 9 | Adversarial pass | adversarial | a fresh model cannot break one stated claim | one model session | `harness/tools/adversarial-pass.sh` |
+| 10 | Brief audit | audit | a worker wrote only inside its brief's FILES | free | `harness/tools/brief_audit.py <task_id>` |
+| 11 | Pentest gate | security gate | secrets, dependencies, authz evidence, ZAP | free to minutes | your gate command (not included) |
 | 12 | Truth-correction ledger | error ledger | every recorded wrong claim and who caught it | free | bus `truth_correction` events |
 
 ```mermaid
@@ -55,7 +55,7 @@ flowchart LR
 
 ## 2. Each check in detail
 
-### 2.1 cortextOS framework tests
+### 2.1 Framework tests
 
 `$CORTEX_HOME/package.json` defines the scripts:
 
@@ -71,7 +71,7 @@ Tests live in `tests/unit/` (bus, daemon, cli, pty, utils, telegram, harness, ho
 
 ### 2.2 Guard test family
 
-Every change to a PreToolUse guard (for example the shared-surface guard in `~/.claude/hooks/`) ships as one folder with this structure:
+Every change to a PreToolUse guard (for example `harness/hooks/shared_surface_guard.py`) ships as one folder with this structure:
 
 ```
 guard-change-<name>-<date>/
@@ -123,14 +123,14 @@ Replay gives a false-positive rate on real traffic:
 
 ### 2.5 Hook self-tests
 
-OGL hooks ship a built-in self-test with fixed cases:
+Four OGL hooks ship a built-in self-test with fixed cases. The full suite is `python3 harness/tests/run_all.py` (section 2.2 and `harness/README.md`).
 
 ```bash
 cd /tmp
-python3 ~/.claude/hooks/orwell-lint.py --selftest
-python3 ~/.claude/hooks/shared-surface-guard.py --selftest
-python3 <seat>/.claude/hooks/attribution-lint.py --selftest
-python3 <seat>/.claude/hooks/future_time_guard.py --selftest
+python3 <seat>/.claude/hooks/ogl/orwell_lint.py --selftest
+python3 <seat>/.claude/hooks/ogl/shared_surface_guard.py --selftest
+python3 <seat>/.claude/hooks/ogl/ship_gate.py --selftest
+python3 <seat>/.claude/hooks/ogl/future_time_guard.py --selftest
 ```
 
 Each prints a PASS line or the failing case. Self-tests write to temp logs and emit no bus events, so they are safe on a live machine. Run them from `/tmp` and confirm the production log line count does not change.
@@ -163,12 +163,12 @@ Pick a READY bar before you start, for example 48 live-proven hours and 200 Bash
 Send-guards write one line per decision. Count verdicts:
 
 ```bash
-awk '{print $2}' ~/.claude/hooks/orwell-lint.log | sort | uniq -c
+awk '{print $2}' ~/.ogl-cortex/state/orwell-lint.log | sort | uniq -c
 ```
 
-Verdicts are `PASS`, `BLOCK`, `SHADOW-RESOLVE` and `EXCEPTION`. BLOCK / (PASS + BLOCK) is the first-draft failure rate. It is not an escape rate: every block is followed by a rewrite. Feed the 24-hour block count into the morning review.
+Verdicts are `PASS`, `BLOCK`, `EXCEPTION` (a rule 6 pass token was used) and `GUARD-ERROR`. BLOCK / (PASS + BLOCK) is the first-draft failure rate. It is not an escape rate: every block is followed by a rewrite. Feed the 24-hour block count into the morning review.
 
-The attribution lint has two tiers. Tier A blocks a number with no source in a send to the owner. Tier B logs only (shadow mode). Read the Tier B log before you promote a pattern to Tier A, and replay any new block rule over the whole log for its false-positive count first.
+If you add a guard of your own with a log-only (shadow) tier, read that log before you promote a pattern to blocking, and replay any new block rule over the whole log for its false-positive count first.
 
 ### 2.8 Classifier model eval
 
@@ -220,53 +220,49 @@ For any memory or recall tool, write the questions and expected answers from the
 
 ### 2.11 Adversarial pass
 
-`hunter.sh` starts a fresh, read-only model session whose only job is to break one stated claim about named files. The fence:
+`harness/tools/adversarial-pass.sh` starts a fresh, read-only model session whose only job is to break one stated claim about named files. The fence:
 
 - one claim;
 - fresh eyes (never the author);
 - read-only tools;
 - evidence as `file:line` plus a reproduction;
-- one round and a token budget.
+- one round and a time budget (`--budget`, minutes).
 
 ```bash
-hunter.sh --claim "<one rule>" --cd <dir> <files...>
+harness/tools/adversarial-pass.sh --claim "<one rule>" --cd <dir> [--budget 10] [--engine opus] <files...>
 ```
 
-Findings are numbered `### F1`, `### F2`. Judge each with one question: can a real user or operator action reach it? Every accepted fix lands with a test that fails without it. Prove fixes by tests, not by re-running the hunter.
+Findings are numbered `### F1`, `### F2`. Judge each with one question: can a real user or operator action reach it? Every accepted fix lands with a test that fails without it. Prove fixes by tests, not by re-running the pass. The report path is printed on stdout. Exit 0: report written; 2: usage error; 3: report written but the engine failed or timed out.
 
-An optional PostToolUse hook can start a hunter in the background when a `git commit` subject contains `fix`, `guard`, `hook`, `bug`, `block` or `gate`.
+An optional PostToolUse hook (not included) can start an adversarial pass in the background when a `git commit` subject contains `fix`, `guard`, `hook`, `bug`, `block` or `gate`.
 
 ### 2.12 Brief audit
 
-`audit.py <task_id>` reads a task, takes the paths from its FILES line, reads the worker's transcripts for the task window, and lists every write as IN or OUT. It calls only `cortextos bus list-tasks` and reads files. Run it before you accept a return, and save its output next to the task result so the audit is itself a record.
+The command-line tool is named `cortextos`.
+
+`python3 harness/tools/brief_audit.py <task_id>` reads a task, takes the paths from its FILES line, reads the worker's transcripts for the task window, and lists every write as IN, tmp or OUT. It calls only `cortextos bus list-tasks` and reads files. Exit 0: no OUT; 3: at least one OUT; 2: usage error or task not found. Run it before you accept a return, and save its output next to the task result so the audit is itself a record.
 
 ### 2.13 Pentest gate
 
-```bash
-python3 ~/.claude/skills/cortex-pentest-gate/scripts/cortex_pentest_gate.py . --output security
-python3 .../cortex_pentest_gate.py . --output security --url http://localhost:3000
-python3 .../cortex_pentest_gate.py . --output security --requires-authz --authz-evidence security/authz.md
-```
+The pentest gate is not included in this repository. Bring any scanner that writes `security/pentest-gate-report.json` with `"status": "pass"` or `"fail"`; the ship gate hook and `harness/tools/ship.sh` read only that file. A useful gate runs secret scanning, dependency audits, an API authorization evidence check, HTTP header checks and a dynamic scan such as OWASP ZAP.
 
-Flags: `--url`, `--output`, `--requires-authz`, `--authz-evidence`, `--skip-zap`. It runs secret scanning, dependency audits, an API authorization evidence check, HTTP header checks and OWASP ZAP, then writes `security/pentest-gate-report.json` with `"status": "pass"` or `"fail"`.
-
-Always pass `--url` for anything web-facing. Without `--url`, ZAP is skipped and the report can still say `pass`. Read `scans.zap` in the report before you trust a pass. The gate ships its own tests (`test_secret_redaction.py`) that prove it never prints a raw secret and that an undispositioned hit blocks.
+Scan the live URL for anything web-facing. A gate that runs without a URL skips the web scan and can still report `pass`. Record each scan's own return code in the report and read it before you trust a pass. Give the gate tests that prove it never prints a raw secret and that an undispositioned hit blocks.
 
 ### 2.14 Truth-correction ledger
 
-Each seat records a caught false claim with a guarded emitter that calls:
+Each seat records a caught false claim with `harness/tools/emit-truth-correction.sh`, which validates the input and calls:
 
 ```bash
-cortextos bus log-event action truth_correction info --meta '{"kind":"peer_catch","caught_agent":"<seat>","catcher_type":"auditor","dedupe_key":"<key>"}'
+cortextos bus log-event action truth_correction info --meta '{"kind":"peer_catch","caught_agent":"<seat>","caught_by":"<catcher>","catcher_type":"party","dedupe_key":"<key>", ...}'
 ```
 
-Kinds: `self_correction`, `peer_catch`, `principal_catch` (the owner caught it), `verify_cleared`, `enforcer_catch`. The ledger counts caught errors, not errors. It rises when seats get more honest. `principal_catch` per week is the cleanest single signal that an error reached the owner. Schema in `21-data-models-schema-registry.md`.
+Kinds: `self_correction`, `peer_catch`, `enforcer_catch`, `artifact_catch`, `principal_catch` (the owner caught it), `verify_cleared`, `known_unrecordable_catch`. The ledger counts caught errors, not errors. It rises when seats get more honest. `principal_catch` per week is the cleanest single signal that an error reached the owner. Schema in `21-data-models-schema-registry.md`.
 
 ## 3. What these checks do not measure
 
 | Gap | Why it matters | Closest check |
 |---|---|---|
-| Hallucination rate in what seats tell the owner | a confident false statement is the main harm in a one-owner fleet | `principal_catch` count; attribution lint Tier B |
+| Hallucination rate in what seats tell the owner | a confident false statement is the main harm in a one-owner fleet | `principal_catch` count |
 | Tool-call accuracy | wrong command, wrong path, wrong account | replay shows the guard did not change verdicts; it does not score the command |
 | Task outcome quality | workers mark their own tasks complete | brief audit plus auditor verdicts, if stored as data |
 | Drift over time | same prompt and model, different answer next week | the golden set (section 4) |

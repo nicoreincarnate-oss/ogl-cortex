@@ -6,9 +6,11 @@ Related documents: `30-sre-runbooks.md` (what to do when an alert fires), `32-se
 
 ## 1. Three kinds of signal
 
-1. **Self-reports.** Seats write heartbeats, events and message logs about themselves through the cortextOS bus.
+1. **Self-reports.** Seats write heartbeats, events and message logs about themselves through the OGL Cortex bus.
 2. **Sentinels.** Shell or Python scripts run by launchd (or pm2) outside any model. They check the machine, the quota, credentials and websites. They keep working when every seat is down or capped.
 3. **Agent crons.** The daemon injects a prompt into a seat on a schedule. The seat runs a check and decides whether to speak. These need a live seat with quota.
+
+The command-line tool is named `cortextos`.
 
 A **page** means a `cortextos bus send-message <seat> high '<text>'` call. It lands in that seat's inbox. Most pages go to the orchestrator, which decides whether the owner hears about it. A short list of producers reaches the owner's Telegram directly (section 5), so that a capped or busy orchestrator cannot swallow them.
 
@@ -113,7 +115,7 @@ The thresholds below are the defaults in the reference sentinel scripts and fram
 
 | Signal | Producer | Threshold | Who hears | How |
 |---|---|---|---|---|
-| Guard verdicts | PreToolUse guards: shared-surface guard, send guard, attribution lint, Google account guard, brief guard, future-time guard | Per guard (see `32-security-red-team-log.md`) | The acting seat | Exit 2 blocks the call; the reason goes to the model |
+| Guard verdicts | PreToolUse guards in `<seat>/.claude/hooks/ogl/`: ship gate, shared-surface guard, send guard, brief guard, future-time guard | Per guard (see `32-security-red-team-log.md`) | The acting seat | Exit 2 blocks the call; the reason goes to the model |
 | Guard liveness canary | Each seat's heartbeat cron attempts one write the shared-surface guard must block | A `BLOCK` line each window per seat. A landed file means the guard is dead | Orchestrator and auditor | Seat-run check |
 
 ### 4.5 Business and housekeeping

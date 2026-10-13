@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li class="on"><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">03</div><div><p class="dg">Core system</p>
-<h1>Configuration Registry</h1><p class="meta">3,708 words · <a href="../03-configuration-registry.md">Markdown source</a></p></div></header>
+<h1>Configuration Registry</h1><p class="meta">3,721 words · <a href="../03-configuration-registry.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#why-a-registry">Why a registry</a></li><li><a href="#1-the-registry">1. The registry</a></li><li><a href="#2-record-shapes">2. Record shapes</a></li><li><a href="#3-prompt-assembly">3. Prompt assembly</a></li><li><a href="#4-keeping-configuration-consistent">4. Keeping configuration consistent</a></li><li><a href="#5-one-owner-file-per-setting">5. One owner file per setting</a></li><li><a href="#6-known-limitations">6. Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>Every file that shapes how OGL Cortex behaves, the real shape of each record type, how a turn's context is assembled, and which file owns each kind of setting.</p>
 <p>Placeholders (<code>$CORTEX_HOME</code>, <code>$CTX_ROOT</code>, <code>&lt;instance&gt;</code>, <code>&lt;org&gt;</code>, <code>&lt;seat&gt;</code>, <code>&lt;project-slug&gt;</code>) are defined in 01.</p>
@@ -40,7 +41,7 @@
 <p>Three different readers consume configuration:</p>
 <ul>
 <li><strong>Claude Code</strong> reads settings, CLAUDE.md files, hooks, skills, MCP config and auto-memory.</li>
-<li><strong>The cortextOS daemon</strong> reads seat <code>config.json</code>, <code>.env</code> files, org <code>context.json</code>, <code>crons.json</code> and <code>enabled-agents.json</code>.</li>
+<li><strong>The OGL Cortex daemon</strong> reads seat <code>config.json</code>, <code>.env</code> files, org <code>context.json</code>, <code>crons.json</code> and <code>enabled-agents.json</code>.</li>
 <li><strong>The model</strong> reads bootstrap files because a prompt tells it to.</li>
 </ul>
 <p>When one fact lives in two files, the copies drift, and a seat acts on whichever copy it reads first. This registry names one owner file for each kind of setting.</p>
@@ -56,15 +57,16 @@
 <hr />
 <h2 id="1-the-registry">1. The registry</h2>
 <h3 id="11-who-reads-what">1.1 Who reads what</h3>
-<figure class="diagram"><img src="img/99a9596c31c5.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/75d19af82583.svg" alt="Diagram"></figure>
 
 <h3 id="12-registry-table">1.2 Registry table</h3>
 <p>Guard names used below:</p>
 <ul>
-<li><strong>Surface guard</strong>: <code>~/.claude/hooks/shared-surface-guard.py</code>, a PreToolUse hook that blocks Bash writes to shared roots. Default roots: <code>~/.claude</code>, <code>~/.claude.json</code>, shared credential folders, <code>~/.cache/uv</code>; <code>~/.claude/projects/</code> is exempt (root list in <code>~/.claude/hooks/surface.py</code>). Seat folders are not in the default list.</li>
-<li><strong>Hash watch</strong>: an infrastructure-seat cron (<code>cred-identity-check</code>, hourly) that hashes every watched settings, hook, skill, CLAUDE.md and MCP file and pages the orchestrator once per change.</li>
+<li><strong>Surface guard</strong>: <code>shared_surface_guard.py</code> (source <code>harness/hooks/shared_surface_guard.py</code>, installed to <code>&lt;seat&gt;/.claude/hooks/ogl/</code>, or <code>~/.claude/hooks/ogl/</code> with <code>--user-level</code>), a PreToolUse hook that blocks Bash writes to shared roots. Default roots: <code>~/.claude</code>, <code>~/.claude.json</code>, the shared uv cache, global npm and <code>brew upgrade</code>, plus any root in <code>OGL_SURFACE_EXTRA_ROOTS</code>; writes under <code>~/.claude/projects/</code> are exempt (rules in <code>surface.py</code>). Seat folders are not in the default list.</li>
+<li><strong>Hash watch</strong> (optional, not included): an infrastructure-seat cron that hashes every watched settings, hook, skill, CLAUDE.md and MCP file and pages the orchestrator once per change.</li>
 <li><strong>Auditor gate</strong>: auditor review before a change goes live, with a <code>.gated-&lt;sha&gt;</code> copy kept.</li>
 </ul>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <table>
 <thead>
 <tr>
@@ -107,9 +109,9 @@
 </tr>
 <tr>
 <td>4</td>
-<td><code>~/.claude/hooks/</code></td>
+<td><code>~/.claude/hooks/ogl/</code> (only with <code>install.sh --user-level</code>)</td>
 <td>OGL layer authors; consumed by all seats</td>
-<td>Shared hook scripts: <code>orwell-lint.py</code>, <code>gws-account-guard.py</code>, <code>shared-surface-guard.py</code> (imports <code>surface.py</code>, <code>codewrites.py</code>)</td>
+<td>Machine-wide guards: <code>ship_gate.py</code>, <code>shared_surface_guard.py</code> (imports <code>surface.py</code>, <code>codewrites.py</code>), <code>orwell_lint.py</code></td>
 <td>Orchestrator under auditor gate</td>
 <td>Surface guard (pass token only), hash watch, <code>.gated-&lt;sha&gt;</code> copies</td>
 <td>Git</td>
@@ -234,9 +236,9 @@
 <tr>
 <td>18</td>
 <td><code>&lt;seat&gt;/MEMORY.md</code>, auto-memory</td>
-<td>Seat and dream hook</td>
+<td>Seat</td>
 <td>Long-term memory (4.1)</td>
-<td>Seat, background dream job</td>
+<td>Seat, or an optional background consolidation job (not included)</td>
 <td>Hash watch on bootstrap names</td>
 <td>Seat git repo (auto-memory lives under <code>~/.claude/projects/</code>)</td>
 </tr>
@@ -251,9 +253,9 @@
 </tr>
 <tr>
 <td>20</td>
-<td><code>&lt;seat&gt;/.claude/hooks/</code></td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/</code></td>
 <td>Seat owner</td>
-<td>Seat-only hooks and the compaction kit (<code>kem-compaction/</code>: <code>meter.py</code>, <code>after_compact.py</code>, <code>save_summary.py</code>, <code>common.py</code>, <code>compaction.json</code>)</td>
+<td>Hooks installed by <code>harness/install.sh</code>: the guards and the compaction kit (<code>compaction/</code>: <code>meter.py</code>, <code>after_compact.py</code>, <code>save_summary.py</code>, <code>common.py</code>, <code>compaction.json</code>)</td>
 <td>Orchestrator under auditor gate</td>
 <td>Hash watch, <code>.gated-&lt;sha&gt;</code></td>
 <td>Seat git repo</td>
@@ -290,18 +292,18 @@
 <tbody>
 <tr>
 <td>Orchestrator</td>
-<td>~24</td>
-<td>The only role with brief guard, future-time guard, attribution lint, compaction kit, prompt router, client-graph recall and fix-commit trigger</td>
+<td>template hooks plus all of <code>harness/settings.example.json</code></td>
+<td>Ship gate, surface guard, send guard, brief guard, future-time guard and the compaction kit</td>
 </tr>
 <tr>
 <td>Analyst, auditor, specialist</td>
-<td>9 to 10</td>
-<td>Telegram hooks, send guard, surface guard (warn mode), dream, idle flag</td>
+<td>template hooks plus a subset</td>
+<td>Send guard, surface guard (warn mode), ship gate; add the compaction kit for long sessions</td>
 </tr>
 <tr>
 <td>Infrastructure specialist</td>
-<td>4</td>
-<td>Send guard, surface guard in strict mode, account guard; no Telegram permission hooks</td>
+<td>a small set</td>
+<td>Send guard and surface guard in strict mode (omit <code>SURFACE_CODE_MODE=warn</code>); no Telegram permission hooks</td>
 </tr>
 <tr>
 <td>Template default</td>
@@ -311,7 +313,7 @@
 </tbody>
 </table>
 <p>Every template ships <code>cortextos bus hook-loop-detector</code> as a PreToolUse hook (<code>templates/orchestrator/.claude/settings.json</code>). Keep it unless you replace it with an equivalent.</p>
-<p>Keep hook scripts in <code>&lt;seat&gt;/.claude/hooks/</code> or <code>&lt;seat&gt;/tools/</code>. A hook registered from a deliverables or scratch folder disappears silently when someone cleans that folder.</p>
+<p>Keep hook scripts in <code>&lt;seat&gt;/.claude/hooks/</code> (the installer uses <code>&lt;seat&gt;/.claude/hooks/ogl/</code>) or <code>&lt;seat&gt;/tools/</code>. A hook registered from a deliverables or scratch folder disappears silently when someone cleans that folder.</p>
 <h3 id="14-backups-and-frozen-copies">1.4 Backups and frozen copies</h3>
 <ul>
 <li>Take a <code>.bak-&lt;UTC timestamp&gt;-&lt;reason&gt;</code> copy before editing any settings or hook file by hand.</li>
@@ -388,12 +390,12 @@
 <span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>      <span class="fu">{</span></span>
 <span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;matcher&quot;</span><span class="fu">:</span> <span class="st">&quot;Bash&quot;</span><span class="fu">,</span></span>
 <span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;hooks&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;command&quot;</span><span class="fu">,</span></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;python3 $CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/hooks/brief_guard.py&quot;</span><span class="fu">}</span><span class="ot">]</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;python3 </span><span class="ch">\&quot;</span><span class="st">$CLAUDE_PROJECT_DIR</span><span class="ch">\&quot;</span><span class="st">/.claude/hooks/ogl/brief_guard.py&quot;</span><span class="fu">}</span><span class="ot">]</span></span>
 <span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span><span class="ot">,</span></span>
 <span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>      <span class="fu">{</span></span>
 <span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;matcher&quot;</span><span class="fu">:</span> <span class="st">&quot;Bash|Write|Edit&quot;</span><span class="fu">,</span></span>
 <span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;hooks&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;command&quot;</span><span class="fu">,</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;python3 $CORTEX_HOME/orgs/&lt;org&gt;/agents/&lt;seat&gt;/.claude/hooks/future_time_guard.py&quot;</span><span class="fu">,</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;python3 </span><span class="ch">\&quot;</span><span class="st">$CLAUDE_PROJECT_DIR</span><span class="ch">\&quot;</span><span class="st">/.claude/hooks/ogl/future_time_guard.py&quot;</span><span class="fu">,</span></span>
 <span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>                   <span class="dt">&quot;timeout&quot;</span><span class="fu">:</span> <span class="dv">5</span><span class="fu">}</span><span class="ot">]</span></span>
 <span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span></span>
 <span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="ot">]</span></span>
@@ -401,7 +403,7 @@
 <span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;statusLine&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;command&quot;</span><span class="fu">,</span> <span class="dt">&quot;command&quot;</span><span class="fu">:</span> <span class="st">&quot;cortextos bus hook-context-status&quot;</span><span class="fu">,</span> <span class="dt">&quot;refreshInterval&quot;</span><span class="fu">:</span> <span class="dv">5</span><span class="fu">},</span></span>
 <span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;autoCompactWindow&quot;</span><span class="fu">:</span> <span class="dv">430000</span></span>
 <span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
-<p>Write absolute paths in the real file; Claude Code does not expand <code>$CORTEX_HOME</code> inside settings unless your shell does. The <code>statusLine</code> command writes <code>context_status.json</code>, which the daemon reads for context handoff.</p>
+<p>Claude Code sets <code>$CLAUDE_PROJECT_DIR</code> to the seat directory when it runs a hook command. The full block the installer merges is <code>harness/settings.example.json</code>. The <code>statusLine</code> command writes <code>context_status.json</code>, which the daemon reads for context handoff.</p>
 <h3 id="25-skill-frontmatter">2.5 Skill frontmatter</h3>
 <div class="sourceCode" id="cb6"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">name</span><span class="kw">:</span><span class="at"> goal-management</span></span>
@@ -444,7 +446,7 @@
 <span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;sig&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;HMAC-SHA256, keyed by $CTX_ROOT/config/bus-signing-key&gt;&quot;</span></span>
 <span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
 <h3 id="29-truth_correction-event">2.9 <code>truth_correction</code> event</h3>
-<p>Written by <code>tools/emit-truth-correction.sh</code>, one shared script symlinked into every seat. Events land in <code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/&lt;date&gt;.jsonl</code>:</p>
+<p>Written by <code>harness/tools/emit-truth-correction.sh</code>. Keep one copy on <code>PATH</code> or call it from the repo checkout. Events land in <code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/&lt;date&gt;.jsonl</code>:</p>
 <div class="sourceCode" id="cb10"><pre class="sourceCode json"><code class="sourceCode json"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;epoch&gt;-&lt;seat&gt;-&lt;rand&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;agent&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;seat&gt;&quot;</span><span class="fu">,</span> <span class="dt">&quot;org&quot;</span><span class="fu">:</span> <span class="st">&quot;&lt;org&gt;&quot;</span><span class="fu">,</span></span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;timestamp&quot;</span><span class="fu">:</span> <span class="st">&quot;2026-01-01T21:58:29Z&quot;</span><span class="fu">,</span> <span class="dt">&quot;category&quot;</span><span class="fu">:</span> <span class="st">&quot;action&quot;</span><span class="fu">,</span></span>
@@ -527,7 +529,7 @@
 <hr />
 <h2 id="3-prompt-assembly">3. Prompt assembly</h2>
 <h3 id="31-layers-in-order">3.1 Layers in order</h3>
-<figure class="diagram"><img src="img/9d1ca4db2550.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/bfc0717ded1f.svg" alt="Diagram"></figure>
 
 <h3 id="32-environment-variables">3.2 Environment variables</h3>
 <p>The daemon sets these in every seat terminal (<code>src/pty/agent-pty.ts</code>):</p>
@@ -614,34 +616,19 @@
 </thead>
 <tbody>
 <tr>
-<td>SessionStart (any)</td>
-<td><code>.claude/hooks/sessionstart-inject.sh</code></td>
-<td>Last 4,000 chars of <code>memory/checkpoints/latest.md</code> if under 72 h old; last 3,000 chars of today's or yesterday's daily memory; an ENTITIES.md reminder</td>
-</tr>
-<tr>
 <td>SessionStart (<code>compact</code>)</td>
-<td><code>kem-compaction/after_compact.py</code></td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/compaction/after_compact.py</code></td>
 <td>Full STATE.md, "Trust it over the summary"</td>
 </tr>
 <tr>
 <td>PostToolUse</td>
-<td><code>kem-compaction/meter.py</code></td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/compaction/meter.py</code></td>
 <td>Context meter nudge and warning at the token counts in <code>compaction.json</code></td>
 </tr>
 <tr>
-<td>UserPromptSubmit</td>
-<td><code>tools/prompt-router/router.py</code></td>
-<td><code>[reply style: &lt;style&gt;]</code> chosen by a Haiku call from <code>skins.json</code>; silent for crons and agent messages</td>
-</tr>
-<tr>
-<td>UserPromptSubmit</td>
-<td><code>tools/ops-graph/recall_hook.py</code></td>
-<td><code>[client memory graph: ...]</code> quoted facts when a prompt names a client</td>
-</tr>
-<tr>
-<td>PreCompact</td>
-<td><code>precompact-checkpoint.sh</code></td>
-<td>Writes <code>memory/checkpoints/latest.md</code></td>
+<td>SessionStart, UserPromptSubmit, PreCompact</td>
+<td>Optional, not included in this repository</td>
+<td>A checkpoint-inject hook, a reply-style router or a client-graph recall hook can add context at these points</td>
 </tr>
 </tbody>
 </table>

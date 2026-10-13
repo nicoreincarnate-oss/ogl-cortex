@@ -8,6 +8,7 @@
 <li><a href="02-execution-engine.html"><span>02</span>Execution Engine Spec</a></li>
 <li><a href="03-configuration-registry.html"><span>03</span>Configuration Registry</a></li>
 <li><a href="04-failsafe-boundary-log.html"><span>04</span>Fail-Safes and Boundaries</a></li>
+<li><a href="05-memory-architecture.html"><span>05</span>Memory Architecture</a></li>
 <li class="g">Strategy and governance</li>
 <li><a href="10-prd.html"><span>10</span>Product Requirements (PRD)</a></li>
 <li class="on"><a href="11-ai-safety-governance.html"><span>11</span>AI Safety and Governance</a></li>
@@ -32,11 +33,12 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">11</div><div><p class="dg">Strategy and governance</p>
-<h1>AI Safety and Governance</h1><p class="meta">2,948 words · <a href="../11-ai-safety-governance.md">Markdown source</a></p></div></header>
+<h1>AI Safety and Governance</h1><p class="meta">2,970 words · <a href="../11-ai-safety-governance.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#how-governance-maps-to-a-single-owner-fleet">How governance maps to a single-owner fleet</a></li><li><a href="#1-authority">1. Authority</a></li><li><a href="#2-actions-that-need-the-owners-yes">2. Actions that need the owner's yes</a></li><li><a href="#3-honesty-with-clients">3. Honesty with clients</a></li><li><a href="#4-honesty-with-the-owner">4. Honesty with the owner</a></li><li><a href="#5-regulatory-and-platform-considerations">5. Regulatory and platform considerations</a></li><li><a href="#6-copyright-and-licensing">6. Copyright and licensing</a></li><li><a href="#7-secrets">7. Secrets</a></li><li><a href="#8-mechanical-enforcement-summary">8. Mechanical enforcement summary</a></li><li><a href="#9-model-and-prompt-injection-risk">9. Model and prompt-injection risk</a></li><li><a href="#10-enterprise-items-that-do-not-apply-by-default">10. Enterprise items that do not apply by default</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document defines the rules that govern what OGL Cortex agents may do to the outside world, how honest they must be with the owner and with clients, how they treat copyright, and how they handle secrets. It says where each rule lives and which layer enforces it. The hook machinery is described in <code>04-failsafe-boundary-log.md</code>; the configuration that loads it is in <code>03-configuration-registry.md</code>.</p>
 <h2 id="how-governance-maps-to-a-single-owner-fleet">How governance maps to a single-owner fleet</h2>
 <p>Enterprise AI governance means an ethics board, model cards, a responsible-AI policy, red-team programmes and audit committees. OGL Cortex runs one owner and a fleet of Claude Code seats. The equivalents are:</p>
+<p>The command-line tool is named <code>cortextos</code>.</p>
 <table>
 <thead>
 <tr>
@@ -63,12 +65,12 @@
 </tr>
 <tr>
 <td>Red-team programme</td>
-<td>Fenced adversarial passes with <code>hunter.sh</code>: one claim, a fresh read-only session, one round</td>
+<td>Fenced adversarial passes with <code>harness/tools/adversarial-pass.sh</code>: one claim, a fresh read-only session, one round</td>
 <td>seat <code>CLAUDE.md</code> "Adversarial passes"</td>
 </tr>
 <tr>
 <td>Pre-release security review</td>
-<td>The Cortex pentest gate and <code>ship.sh</code></td>
+<td>Your pentest gate command, the ship gate hook and <code>harness/tools/ship.sh</code></td>
 <td><code>~/.claude/CLAUDE.md</code>; <code>GUARDRAILS.md</code></td>
 </tr>
 <tr>
@@ -154,11 +156,11 @@
 </tr>
 <tr>
 <td>Pentest gate before anything ships</td>
-<td>Run the <code>cortex-pentest-gate</code> skill first. Required artifact: <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code>, or an explicit owner risk acceptance in <code>security/pentest-risk-acceptance.md</code></td>
-<td>Mechanical: user-level PreToolUse hook <code>ship_gate_hook.py</code> blocks <code>git push</code>, <code>vercel deploy</code>, <code>npm publish</code>, <code>wrangler deploy</code>, <code>scp</code>, <code>rsync</code> over ssh and similar without a passing report</td>
+<td>Run your pentest gate first (any scanner that writes the report; not included in this repository). Required artifact: <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code>, or an explicit owner risk acceptance in <code>security/pentest-risk-acceptance.md</code></td>
+<td>Mechanical: PreToolUse hook <code>ship_gate.py</code> (seat or user level) blocks <code>git push</code>, <code>vercel deploy</code>, <code>npm publish</code>, <code>wrangler deploy</code>, <code>scp</code>, <code>rsync</code> over ssh and similar without a passing report</td>
 </tr>
 <tr>
-<td>Every site deploy goes through <code>ship.sh</code></td>
+<td>Every site deploy goes through <code>harness/tools/ship.sh</code></td>
 <td>Never type a production deploy command directly for a site</td>
 <td>Wrapper script</td>
 </tr>
@@ -297,7 +299,7 @@
 </tr>
 </tbody>
 </table>
-<p>The rules form a correction loop. The truth ledger records each catch; the auditor scores the catch rate nightly. They reduce repeat errors. They do not prevent a first error, which is why the narrow mechanical checks (attribution lint, future-time guard) exist.</p>
+<p>The rules form a correction loop. The truth ledger records each catch; the auditor scores the catch rate nightly. They reduce repeat errors. They do not prevent a first error, which is why narrow mechanical checks such as the future-time guard exist.</p>
 <h2 id="5-regulatory-and-platform-considerations">5. Regulatory and platform considerations</h2>
 <p>These are flags the fleet raises from its own reading. They are not legal advice. Get counsel for any campaign that touches them.</p>
 <table>
@@ -386,7 +388,7 @@
 </tr>
 </tbody>
 </table>
-<p>A licence check step (fonts, images, third-party code) is a good addition to <code>ship.sh</code> and the truth audit for any fleet that builds client sites.</p>
+<p>A licence check step (fonts, images, third-party code) is a good addition to the gate command <code>harness/tools/ship.sh</code> runs and to the truth audit for any fleet that builds client sites.</p>
 <h2 id="7-secrets">7. Secrets</h2>
 <h3 id="71-rules">7.1 Rules</h3>
 <table>
@@ -517,28 +519,23 @@
 </thead>
 <tbody>
 <tr>
-<td><code>ship_gate_hook.py</code></td>
+<td><code>ship_gate.py</code></td>
 <td>Pentest gate before outward-facing commands</td>
-<td><code>~/.claude/settings.json</code> PreToolUse (user level)</td>
+<td>seat <code>.claude/settings.json</code>, or <code>~/.claude/settings.json</code> with <code>install.sh --user-level</code></td>
 </tr>
 <tr>
-<td><code>orwell-lint.py</code></td>
+<td><code>orwell_lint.py</code></td>
 <td>Plain-English lint on outgoing sends</td>
-<td>seat <code>.claude/settings.json</code></td>
+<td>seat <code>.claude/settings.json</code>, or user level</td>
 </tr>
 <tr>
-<td><code>gws-account-guard.py</code></td>
-<td>Blocks Google Workspace MCP calls for accounts on the always-block list</td>
-<td>seat <code>.claude/settings.json</code></td>
+<td><code>shared_surface_guard.py</code></td>
+<td>Blocks changes to surfaces other seats depend on (uv cache, global npm, <code>brew upgrade</code>, <code>~/.claude*</code>, roots in <code>OGL_SURFACE_EXTRA_ROOTS</code>)</td>
+<td>every seat <code>.claude/settings.json</code>, or user level</td>
 </tr>
 <tr>
-<td><code>shared-surface-guard.py</code></td>
-<td>Blocks changes to surfaces other seats depend on (uv cache, global npm, <code>~/.claude*</code>, Google credentials)</td>
-<td>every seat <code>.claude/settings.json</code></td>
-</tr>
-<tr>
-<td><code>attribution-lint.py</code>, <code>brief_guard.py</code>, <code>future_time_guard.py</code></td>
-<td>Attribution on owner sends; dispatch briefs carry TASK, FILES, BAR, RETURN; no future timestamps</td>
+<td><code>brief_guard.py</code>, <code>future_time_guard.py</code></td>
+<td>Dispatch briefs carry TASK, FILES, BAR, RETURN; no future timestamps</td>
 <td>orchestrator <code>.claude/settings.json</code></td>
 </tr>
 <tr>
@@ -596,7 +593,7 @@
 <h2 id="design-notes">Design notes</h2>
 <ul>
 <li>Decide whether website deploys should be blocked mechanically unless they cite an approval id, the same way they are blocked without a pentest pass.</li>
-<li>Decide whether a licence check belongs in <code>ship.sh</code> for client sites.</li>
+<li>Decide whether a licence check belongs in the gate command <code>ship.sh</code> runs for client sites.</li>
 <li>Decide whether customer-facing bots must state that they are AI.</li>
 </ul>
 <h2 id="source-files">Source files</h2>
@@ -607,6 +604,6 @@
 <li><code>src/hooks/hook-planmode-telegram.ts</code></li>
 <li><code>src/cli/bus.ts</code> (<code>create-approval</code>, <code>update-approval</code>, <code>log-event</code>)</li>
 <li><code>templates/</code> (seat <code>GUARDRAILS.md</code>, <code>USER.md</code>, <code>TOOLS.md</code>)</li>
-<li>OGL layer: <code>hooks/orwell-lint.py</code>, <code>hooks/gws-account-guard.py</code>, <code>hooks/shared-surface-guard.py</code>, <code>cortex-pentest-gate/scripts/ship_gate_hook.py</code></li>
+<li>OGL layer: <code>harness/hooks/orwell_lint.py</code>, <code>harness/hooks/shared_surface_guard.py</code>, <code>harness/hooks/ship_gate.py</code>, <code>harness/tools/ship.sh</code></li>
 </ul>
 </article><nav class="pager"><a class="prev" href="10-prd.html"><small>Previous</small>10 Product Requirements (PRD)</a><a class="next" href="12-data-privacy-compliance.html"><small>Next</small>12 Data Privacy and Compliance</a></nav></main></div></body></html>

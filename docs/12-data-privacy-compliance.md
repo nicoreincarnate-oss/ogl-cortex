@@ -18,7 +18,7 @@ OGL Cortex runs on one host under one OS user account. Every seat runs as that u
 
 ```mermaid
 flowchart LR
-  N["Owner phone: Telegram text, voice, photos, files"] -->|Telegram cloud| D[cortextOS daemon]
+  N["Owner phone: Telegram text, voice, photos, files"] -->|Telegram cloud| D[OGL Cortex daemon]
   D -->|"voice .ogg"| W[whisper.cpp local transcription]
   D --> L[("logs: inbound and outbound jsonl")]
   D --> TI[("telegram-images/")]
@@ -77,7 +77,7 @@ Retention and evidence pull in opposite directions. Approval receipts often cite
 | claude.ai connectors | Mail, calendar, drive, design and ad tools attached to the Claude account | Any seat signed in to that account |
 | Shared folders | Client upload folders | Seats |
 
-Keep each account's token readable only by the code that needs it. The account guard and identity check (`04-failsafe-boundary-log.md`) stop one account's token from being written into another account's file.
+Keep each account's token readable only by the code that needs it. An account guard and an identity check (optional, not included; see `04-failsafe-boundary-log.md`) stop one account's token from being written into another account's file.
 
 ### 2.4 Client and lead data
 
@@ -130,6 +130,8 @@ Check which plan and terms cover each provider. Consumer and subscription terms 
 
 ## 4. Retention controls
 
+The command-line tool is named `cortextos`.
+
 | Data | Built-in control |
 |---|---|
 | Completed tasks | `cortextos bus archive-tasks` moves completed tasks older than 7 days to the archive (archive, not delete) |
@@ -138,7 +140,7 @@ Check which plan and terms cover each provider. Consumer and subscription terms 
 | Telegram media | None. Add a scheduled job |
 | Telegram message logs | None. Add a rotation job |
 | Lead lists, transcripts, client folders | None. Set per client contract |
-| Memory and knowledge base | Grows. Dream consolidation passes compact memory but do not delete source data |
+| Memory and knowledge base | Grows. Memory consolidation passes, if you run them, compact memory but do not delete source data |
 
 Suggested starting values: 30 days for media, 90 days for message logs, and lead lists deleted at the end of the campaign plus the opt-out retention your email law requires.
 
@@ -168,7 +170,7 @@ This is not legal advice. It lists which frameworks can apply to an OGL Cortex o
 | **PCI DSS** (card data) | Only if card numbers are stored | The fleet stores no card numbers; payments run in hosted checkouts | Keep it that way |
 | **SOC 2** | If a customer asks for a security report | Informal controls: pentest gate before ship, approval log, event log, backups | Written security policy, access reviews, encryption at rest, a SOC 2 audit |
 
-Client sites built by the fleet need their own privacy and terms pages. Add a `/privacy` check to the launch checklist in `ship.sh`.
+Client sites built by the fleet need their own privacy and terms pages. Add a `/privacy` check to the gate command that `harness/tools/ship.sh` runs.
 
 ## 7. Recommended controls
 
@@ -197,4 +199,4 @@ In order of impact for an install that handles client data:
 - `src/daemon/agent-manager.ts`
 - `src/cli/bus.ts` (`archive-tasks`, `prune-reminders`, `kb-ingest`, `kb-query`)
 - `knowledge-base/scripts/mmrag.py`
-- OGL layer: `hooks/gws-account-guard.py`, `hooks/shared-surface-guard.py`
+- OGL layer: `harness/hooks/shared_surface_guard.py`

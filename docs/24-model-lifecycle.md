@@ -5,13 +5,13 @@ This document covers the language models behind an OGL Cortex fleet. It answers 
 Related documents: `01-core-architecture.md` (how the daemon spawns seats), `02-execution-engine.md` (PTY and cron engine), `03-configuration-registry.md` (config file catalogue), `04-failsafe-boundary-log.md` (fail-safes), `13-vendor-risk.md`, `22-prompt-registry.md`, `23-evals-and-benchmarks.md`.
 
 Terms:
-- **Seat**: one long-running agent session managed by the cortextOS daemon.
+- **Seat**: one long-running agent session managed by the OGL Cortex daemon.
 - **Runtime**: which CLI the daemon launches for a seat. `claude-code` is Anthropic's Claude Code CLI. `codex-app-server` is OpenAI's Codex CLI. `opencode` is the OpenCode CLI.
 - **Model id**: the string passed to the CLI with `--model`, for example `claude-opus-4-8[1m]`. A `[1m]` suffix selects the 1 million token context variant where the model offers one.
 - **Alias**: a short model name the CLI resolves itself, such as `sonnet`, `opus` or `haiku`.
 - **Weekly cap**: the 7-day usage limit on a Claude subscription. When a seat hits it, the process stays alive but every turn returns a limit message.
 
-Path conventions: `$CORTEX_HOME` is your cortextOS checkout, `<org>` and `<seat>` are your folder names, `<instance>` is the daemon instance id.
+Path conventions: `$CORTEX_HOME` is your framework checkout, `<org>` and `<seat>` are your folder names, `<instance>` is the daemon instance id.
 
 ## 1. Where models are set
 
@@ -39,6 +39,8 @@ done
 ```
 
 To confirm what a running seat uses, trust the process, not the file:
+
+The command-line tool is named `cortextos`.
 
 ```bash
 cortextos status --instance <instance>

@@ -2,11 +2,13 @@
 
 This document takes a new operator from an empty machine to a running OGL Cortex fleet, then covers daily operation, safe changes and the ship chain. Internals are in `01-core-architecture.md` and `02-execution-engine.md`. Settings are in `03-configuration-registry.md`. Guards are in `04-failsafe-boundary-log.md`.
 
-Every `cortextos` command below was checked against the CLI's `--help` output. Commands from the OGL layer (the ship wrapper and the pentest gate) are marked as such; their location depends on how you install the layer.
+The command-line tool is named `cortextos`.
+
+Every `cortextos` command below was checked against the CLI's `--help` output. Commands from the OGL layer are marked as such and live in this repo's `harness/` folder (`harness/tools/ship.sh`, `harness/install.sh`). The pentest gate is your own scanner and is not included.
 
 ## Terms
 
-- **Instance**: one runtime state folder, `$CORTEX_HOME/<instance>`. `$CORTEX_HOME` is `~/.cortextos`. The default instance id is `default`.
+- **Instance**: one runtime state folder, `$CTX_ROOT` = `~/.cortextos/<instance>`. The default instance id is `default`. `$CORTEX_HOME` is the framework checkout (for example `~/cortextos`).
 - **Org**: a group of seats that share a knowledge base, tasks and approvals. Lives in the framework checkout at `orgs/<org>/`.
 - **Seat**: one agent, in `orgs/<org>/agents/<seat>/`.
 - **Daemon**: the Node process (`dist/daemon.js`) that keeps every seat's Claude Code session alive.
@@ -23,7 +25,7 @@ Every `cortextos` command below was checked against the CLI's `--help` output. C
 | Claude Code | `npm install -g @anthropic-ai/claude-code`, then `claude login` | Pin the version you run |
 | Telegram bot per seat | @BotFather | One bot token per seat |
 | Your numeric Telegram user id | Any user-id bot, or `getUpdates` (step 3.3) | Goes in `ALLOWED_USER` |
-| Optional: whisper.cpp model | `scripts/install-whisper-model.sh` | Local voice-note transcription |
+| Optional: whisper.cpp model | `scripts/install-whisper-model.sh` in the framework repo | Local voice-note transcription |
 | Optional: Gemini API key | `GEMINI_API_KEY` | Knowledge base embeddings |
 | Disk encryption | FileVault on macOS, LUKS on Linux | Seats hold tokens and client data on disk |
 
@@ -75,17 +77,17 @@ pm2 start ecosystem.config.js && pm2 save && pm2 startup
 
 ### 2.3 Add the OGL layer
 
-The OGL layer is seat files and hooks, not a framework fork. For each seat, copy from this repo's `harness/` folder:
+The OGL layer is seat files and hooks, not a framework fork. For each seat, `harness/install.sh <seat-dir> --apply` installs from this repo's `harness/` folder:
 
 | Piece | Destination |
 |---|---|
-| Bootstrap files (`CLAUDE.md`, `GUARDRAILS.md`, `MEMORY.md`, `USER.md`, `SYSTEM.md`, `TOOLS.md`, `HEARTBEAT.md`) | `orgs/<org>/agents/<seat>/` |
-| Seat hooks and `settings.json` | `orgs/<org>/agents/<seat>/.claude/` |
-| User-level hooks (surface guard, send lint, account guard) | `~/.claude/hooks/`, registered in `~/.claude/settings.json` |
-| Skills | `orgs/<org>/agents/<seat>/.claude/skills/<skill>/SKILL.md` |
+| Seat templates (`harness/templates/CLAUDE.md`, `harness/templates/STATE.md`); the other bootstrap files come from the framework template | `orgs/<org>/agents/<seat>/` |
+| Hooks (`harness/hooks/`) and the `settings.example.json` block | `orgs/<org>/agents/<seat>/.claude/hooks/ogl/`, merged into `.claude/settings.json` |
+| Optional user-level guards (ship gate, surface guard, send lint), with `--user-level` | `~/.claude/hooks/ogl/`, registered in `~/.claude/settings.json` |
+| Skills (`harness/skills/`) | `orgs/<org>/agents/<seat>/.claude/skills/<skill>/SKILL.md` |
 | Crons | Added with `cortextos bus add-cron` (section 6) |
 
-Status: the `harness/` contents and an installer are part of this repo's build. Check the repo root README for the current install script before copying by hand.
+The installer is a dry run unless you pass `--apply`. See [`harness/README.md`](../harness/README.md) for what it writes and how to remove it.
 
 ## 3. First boot
 
@@ -125,7 +127,7 @@ cortextos doctor --instance <instance>
 
 Every lifecycle command defaults to `--instance default`: `install`, `setup`, `init`, `add-agent`, `start`, `stop`, `restart`, `enable`, `disable`, `doctor`, `dashboard`, `ecosystem`. `status` and `list-agents` take `--instance` with no default.
 
-If your fleet runs under another instance id and you leave the flag off, the CLI reads `$CORTEX_HOME/default` and reports "Daemon is not running" while the daemon is healthy. Do not run `cortextos start` in response; it can create orphan processes.
+If your fleet runs under another instance id and you leave the flag off, the CLI reads `~/.cortextos/default` and reports "Daemon is not running" while the daemon is healthy. Do not run `cortextos start` in response; it can create orphan processes.
 
 Rule: pass `--instance <instance>` on every lifecycle command, or use the instance id `default` for single-fleet installs.
 
@@ -157,7 +159,7 @@ Rule: pass `--instance <instance>` on every lifecycle command, or use the instan
 | Ask the owner "fresh restart or continue with history?" before restarting on request | The two restarts lose different things |
 | Before a daemon restart, list every side service (tunnels, chatbots, guards, previews, local APIs), check each has its own supervisor (pm2 or a launchd/systemd unit with run-at-load and keep-alive), and get the owner's go | Side services started by a seat die with the daemon |
 | Before restarting any production service, read its entrypoint for side effects | An entrypoint can start a job that sends or posts |
-| Read `$CORTEX_HOME/<instance>/logs/<seat>/restarts.log` before deciding why a seat restarted | |
+| Read `$CTX_ROOT/logs/<seat>/restarts.log` before deciding why a seat restarted | |
 | Prefer asking a seat to self-restart at a clean point | A commanded restart mid-task can lose work |
 | After a crash storm, pm2 stops retrying | Run `pm2 restart cortextos-daemon` by hand |
 
@@ -225,7 +227,7 @@ cortextos terminate-worker <name>
 | Update | `cortextos bus update-cron <seat> <name> [--interval <i>] [--cron-expr <e>] [--prompt <p>] [--enabled true|false] [--desc <d>]` |
 | Remove | `cortextos bus remove-cron <seat> <name>` |
 
-Storage: `$CORTEX_HOME/<instance>/.cortextOS/state/agents/<seat>/crons.json`, envelope `{ "updated_at": "<ISO>", "crons": [ ... ] }`, written atomically (`src/bus/crons.ts`, `src/bus/crons-schema.ts`). The daemon owns dispatch and reloads the file across restarts.
+Storage: `$CTX_ROOT/.cortextOS/state/agents/<seat>/crons.json`, envelope `{ "updated_at": "<ISO>", "crons": [ ... ] }`, written atomically (`src/bus/crons.ts`, `src/bus/crons-schema.ts`). The daemon owns dispatch and reloads the file across restarts.
 
 Guidance:
 - Prefer 5-field wall-clock expressions (`"0 8 * * *"`). An interval at or above the heartbeat length can starve on the scheduler.
@@ -237,12 +239,12 @@ Guidance:
 
 | What | Path |
 |---|---|
-| Per-seat logs | `$CORTEX_HOME/<instance>/logs/<seat>/` (`stdout.log`, `crashes.log`, `restarts.log`, `inbound-messages.jsonl`, `outbound-messages.jsonl`) |
+| Per-seat logs | `$CTX_ROOT/logs/<seat>/` (`stdout.log`, `crashes.log`, `restarts.log`, `inbound-messages.jsonl`, `outbound-messages.jsonl`) |
 | pm2 logs | `~/.pm2/logs/` (`cortextos-daemon-out.log`, `cortextos-daemon-error.log`, dashboard logs) |
-| Tasks, approvals, events | `$CORTEX_HOME/<instance>/orgs/<org>/{tasks,approvals,analytics}` |
-| Crons | `$CORTEX_HOME/<instance>/.cortextOS/state/agents/<seat>/crons.json` |
-| Seat runtime state and scripts | `$CORTEX_HOME/<instance>/state/<seat>/` |
-| Knowledge base | `$CORTEX_HOME/<instance>/orgs/<org>/knowledge-base/` (`config.json`, `chromadb/`) |
+| Tasks, approvals, events | `$CTX_ROOT/orgs/<org>/{tasks,approvals,analytics}` |
+| Crons | `$CTX_ROOT/.cortextOS/state/agents/<seat>/crons.json` |
+| Seat runtime state and scripts | `$CTX_ROOT/state/<seat>/` |
+| Knowledge base | `$CTX_ROOT/orgs/<org>/knowledge-base/` (`config.json`, `chromadb/`) |
 | Seat memory | `orgs/<org>/agents/<seat>/memory/` and `MEMORY.md` |
 
 ## 10. Changing the harness safely
@@ -286,30 +288,31 @@ CI runs only on code pushed to GitHub. A local-only checkout gets the same check
 
 ```mermaid
 flowchart LR
-  A[Owner approves the change] --> B["ship.sh dir prod-url"]
-  B --> C[Pentest gate on source]
-  C -->|pass| D["Deploy candidate with prod env, no domain"]
-  D --> E["Gate candidate URL: ZAP, headers, index checks"]
-  E -->|pass| F[Promote]
-  F --> G["Verify prod serves the candidate"]
-  C -->|fail| X["exit 3, nothing built"]
-  E -->|fail| Y["exit 6, candidate removed, prod untouched"]
-  G -->|mismatch| Z["exit 5 or 7, alert"]
+  A[Owner approves the change] --> B["ship.sh dir prod-url --gate-cmd ..."]
+  B --> C[Gate command, static run]
+  C -->|pass| D["Deploy candidate (--deploy-cmd)"]
+  D --> E["Candidate answers 200 and passes the gate with its URL"]
+  E -->|pass| F["Promote (--promote-cmd)"]
+  F --> G["Prod answers 200 and passes the gate with its URL"]
+  C -->|fail| X["exit 3, nothing deployed"]
+  E -->|fail| Y["exit 6, candidate removed if --remove-cmd, prod untouched"]
+  F -->|fail| W["exit 7, prod still on old deployment"]
+  G -->|fail| Z["exit 5, live and wrong, alert"]
 ```
 
 | Step | Detail |
 |---|---|
 | Approval | Website changes need the owner's go before the ship starts |
-| Wrapper (OGL layer) | `bash $CORTEX_HOME/<instance>/state/<deploy-seat>/scripts/ship.sh <abs-dir> <prod-url> [--deploy-cmd "<cmd>"] [--no-index-check "<reason>"]` |
-| Default deploy | `vercel deploy --prod --skip-domain --yes --format json` inside `<dir>`. The candidate builds with production env but no domain. `vercel promote --yes` runs only after the candidate passes, so the artifact that passed is the artifact that goes live |
-| Abort conditions | Missing or invalid gate URL; gate status not pass; ZAP not completed or return code not 0 or 2; any High finding; a report older than the step's start; candidate not HTTP 200 |
-| Index checks | Candidate `sitemap.xml` and `robots.txt` answer 200 and point at the production host; no `noindex` meta on the candidate root |
-| Exit codes | 0 shipped; 2 usage; 3 aborted before deploy; 4 candidate deploy failed; 5 promoted but prod does not serve the candidate; 6 candidate failed, prod untouched; 7 promote did not take; 8 shipped with a `noindex` header warning |
-| Pentest gate (OGL layer) | `python3 <gate-dir>/cortex_pentest_gate.py <root> --output security [--url <url>] [--requires-authz --authz-evidence <file>] [--skip-zap]`. Passing state: `security/pentest-gate-report.json` has `"status": "pass"` |
+| Wrapper (OGL layer) | `harness/tools/ship.sh <dir> <prod-url> --gate-cmd "<cmd>" [--deploy-cmd "<cmd>"] [--promote-cmd "<cmd>"] [--remove-cmd "<cmd>"]`. Each option can also come from `OGL_SHIP_GATE_CMD`, `OGL_SHIP_DEPLOY_CMD`, `OGL_SHIP_PROMOTE_CMD`, `OGL_SHIP_REMOVE_CMD` |
+| Deploy modes | Default deploy command: `vercel deploy --prod --yes` (direct mode). For preview-then-promote on Vercel pass `--deploy-cmd 'vercel deploy --prod --skip-domain --yes --format json' --promote-cmd 'vercel promote --yes' --remove-cmd 'vercel remove --yes'`. The promote runs only after the candidate passes, so the artifact that passed is the artifact that goes live |
+| Abort conditions | Gate report missing, not written during that step, or status not `pass`; deploy command fails or prints no candidate URL; candidate or prod not HTTP 200 |
+| Index checks | Not built in. Put `sitemap.xml`, `robots.txt` and `noindex` checks in your gate command if you need them |
+| Exit codes | 0 shipped; 2 usage error; 3 pre-deploy gate failed, nothing deployed; 4 deploy failed or no candidate URL, prod untouched; 5 live and wrong (prod not 200 or live gate failed); 6 candidate failed, prod untouched; 7 promote failed, prod on the old deployment |
+| Pentest gate (bring your own; not included) | Any command that scans `<dir>` (and the URL in `$1` when given) and writes `security/pentest-gate-report.json` with `"status": "pass"`. `ship.sh` runs it as `bash -c "<cmd>" _ "<url>"` |
 | Risk acceptance | Owner only, written in `security/pentest-risk-acceptance.md` |
-| Hook backstop (OGL layer) | A user-level PreToolUse hook (`ship_gate_hook.py`) blocks `git push`, `gh release`, `gh pr merge`, `npm publish`, `vercel deploy`, `netlify deploy`, `firebase deploy`, `wrangler deploy`, `railway up`, `scp`, `sftp`, `rsync` over ssh and similar unless a passing gate report exists in the working folder or a parent |
+| Hook backstop (OGL layer) | The PreToolUse hook `harness/hooks/ship_gate.py` (installed to `<seat>/.claude/hooks/ogl/`, or `~/.claude/hooks/ogl/` with `--user-level`) blocks `git push`, `gh release`, `gh pr merge`, `npm publish`, `vercel deploy`, `netlify deploy`, `firebase deploy`, `wrangler deploy`, `railway up`, `scp`, `sftp`, `rsync` over ssh and similar unless a passing gate report exists in the working folder or a parent |
 
-Rollback: on candidate failure, production is untouched. After a bad promote (exit 5), promote the previous deployment again with `vercel promote` or re-point the alias.
+Rollback: on candidate failure, production is untouched. After exit 5 (live and wrong), promote the previous deployment again with `vercel promote` or re-point the alias.
 
 ### 11.3 Deploy rules
 
