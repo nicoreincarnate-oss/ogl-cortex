@@ -33,7 +33,7 @@ Terms:
 | 8 | Known-answer recall evals | memory eval | memory recall returns the right fact with a source | free | `evals.py` beside the memory tool |
 | 9 | Adversarial pass | adversarial | a fresh model cannot break one stated claim | one model session | `harness/tools/adversarial-pass.sh` |
 | 10 | Brief audit | audit | a worker wrote only inside its brief's FILES | free | `harness/tools/brief_audit.py <task_id>` |
-| 11 | Pentest gate | security gate | secrets, dependencies, authz evidence, ZAP | free to minutes | your gate command (not included) |
+| 11 | Pentest gate | security gate | secrets, dependencies, authz evidence, ZAP | free to minutes | `harness/security/cortex_pentest_gate.py` |
 | 12 | Truth-correction ledger | error ledger | every recorded wrong claim and who caught it | free | bus `truth_correction` events |
 
 ```mermaid
@@ -244,9 +244,9 @@ The command-line tool is named `cortextos`.
 
 ### 2.13 Pentest gate
 
-The pentest gate is not included in this repository. Bring any scanner that writes `security/pentest-gate-report.json` with `"status": "pass"` or `"fail"`; the ship gate hook and `harness/tools/ship.sh` read only that file. A useful gate runs secret scanning, dependency audits, an API authorization evidence check, HTTP header checks and a dynamic scan such as OWASP ZAP.
+The pentest gate ships as `harness/security/cortex_pentest_gate.py`. Any other scanner works if it writes `security/pentest-gate-report.json` with `"status": "pass"` or `"fail"`; the ship gate hook and `harness/tools/ship.sh` read only that file. A useful gate runs secret scanning, dependency audits, an API authorization evidence check, HTTP header checks and a dynamic scan such as OWASP ZAP.
 
-Scan the live URL for anything web-facing. A gate that runs without a URL skips the web scan and can still report `pass`. Record each scan's own return code in the report and read it before you trust a pass. Give the gate tests that prove it never prints a raw secret and that an undispositioned hit blocks.
+Scan the live URL for anything web-facing. A gate that runs without a URL skips the web scan and can still report `pass`. Record each scan's own return code in the report and read it before you trust a pass. Give the gate tests that prove it never prints a raw secret and that an undispositioned hit blocks. The shipped gate has them in `harness/tests/test_pentest_gate.py` and `harness/security/test_secret_redaction.py`.
 
 ### 2.14 Truth-correction ledger
 

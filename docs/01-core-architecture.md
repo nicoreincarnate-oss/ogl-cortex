@@ -49,20 +49,20 @@ The command-line tool is named `cortextos`.
 | 1 | Conversation context | The live session text. Seats restart with `--continue`, so one conversation can span days | `~/.claude/projects/<project-slug>/<session-id>.jsonl` | Short-term | Claude Code / seat |
 | 2 | Auto-compaction window | Claude Code compresses the conversation when it passes a token limit | `<seat>/.claude/settings.json` key `autoCompactWindow` | Short-term | Claude Code |
 | 3 | STATE.md and compaction kit | A seat-written "where the work stands" file. A context-meter hook nudges the seat to update it as the window fills. After compaction a hook pastes it back in; another saves the compaction summary | `<seat>/STATE.md`; `<seat>/.claude/hooks/ogl/compaction/` (`compaction.json`, `meter.py`, `after_compact.py`, `save_summary.py`; source `harness/hooks/compaction/`); summaries in `<seat>/compactions/` | Short-term bridge | Seat writes / hooks re-inject |
-| 4 | Pre-compaction checkpoints (optional, not included) | A PreCompact hook copies the last transcript lines to a checkpoint. A SessionStart hook re-injects the newest checkpoint plus the tail of today's daily memory. This repository does not ship these hooks | `<seat>/memory/checkpoints/` if you add them | Short-term bridge | Hooks only |
+| 4 | Pre-compaction checkpoints | A PreCompact hook copies the last 40 messages of conversation text to a checkpoint and writes `CHECKPOINT FAILED` if it captured none. A SessionStart hook re-injects the newest checkpoint plus the tail of today's daily memory | `<seat>/memory/checkpoints/`; hooks in `<seat>/.claude/hooks/ogl/memory/` (source `harness/hooks/memory/`) | Short-term bridge | Hooks only |
 | 5 | Daily memory | One markdown file per day, an append-only work log | `<seat>/memory/YYYY-MM-DD.md` | Episodic | Seat / SessionStart hook injects the last 3,000 characters |
-| 6 | Session digests (optional, not included) | At session end and before compaction, a hook filters the transcript, runs a headless Claude to write a digest, and indexes it into a local search index. This repository does not ship it | Your choice, for example `<seat>/memory/digests/` | Episodic | Hook / seat on demand |
+| 6 | Session digests (optional, `install.sh --with-digest`) | At session end and before compaction, a hook filters the transcript, runs a headless Claude to write a digest, and indexes it into a local search index | `<seat>/memory/digests/`; code in `harness/memory/session-digest/` | Episodic | Hook / seat on demand, or every prompt with `--with-notes-recall` |
 | 7 | Incidents log | Narrative record of failures and the lessons drawn from them | `<seat>/memory/topics/incidents.md` | Episodic | Orchestrator, auditor |
 | 8 | Seat MEMORY.md | Long-term rules and lessons, read at boot | `<seat>/MEMORY.md` | Long-term | Seat; the auditor may add coaching rules |
 | 9 | Claude auto-memory | Claude Code's per-project memory folder: one index file plus one file per lesson. Only the index loads, capped at 200 lines | `~/.claude/projects/<project-slug>/memory/` | Long-term | Claude Code and seat |
 | 10 | ENTITIES.md | Noun index: one entry per person, place or thing, with source rank and as-of date | `<seat>/ENTITIES.md` | Long-term | Orchestrator, behind a written write gate |
 | 11 | Org knowledge.md | Shared facts for every seat in the org, read at boot | `orgs/<org>/knowledge.md` | Long-term | Any seat |
 | 12 | Knowledge base (RAG) | `cortextos bus kb-query` searches a Chroma vector database. Embedding model, dimensions and chunk size are set in the KB `config.json`; there is one collection per seat plus a shared one | `$CTX_ROOT/orgs/<org>/knowledge-base/` (`config.json`, `chromadb/`) | Long-term | `kb-ingest` crons write / any seat reads |
-| 13 | External knowledge stores (optional) | Owner tools such as a note vault or a graph database, wired in through MCP servers | Owner-defined | Long-term | Owner and agents |
-| 14 | Client memory graph (optional, not included) | A SQLite graph of clients and people with quoted, dated facts. A UserPromptSubmit hook reads it. This repository does not ship it | Owner-defined | Long-term | Built offline / hook reads |
+| 13 | External knowledge stores (optional) | GBrain, an Obsidian vault mirror and a graph layer, wired in through MCP servers. The harness ships a wikilink graph builder, a graph MCP server and a Neo4j loader in `harness/memory/vault-graph/` | Owner-defined | Long-term | Owner and agents |
+| 14 | Client memory graph (optional, `install.sh --with-client-graph`) | A SQLite graph of clients and people with quoted, dated facts. A UserPromptSubmit hook reads it | `<seat>/.claude/hooks/ogl/memory/client-graph/graph.db`; code in `harness/memory/client-graph/` | Long-term | Built offline / hook reads |
 | 15 | Truth-correction ledger | When a seat is caught, or catches itself, stating something false, a guarded script logs a `truth_correction` event | `harness/tools/emit-truth-correction.sh` (calls `cortextos bus log-event action truth_correction`); events in `$CTX_ROOT/orgs/<org>/analytics/events/` | Episodic | Any seat / auditor scores it |
 | 16 | Telegram logs | Every message in and out | `$CTX_ROOT/logs/<seat>/inbound-messages.jsonl`, `outbound-messages.jsonl` | Episodic | Daemon and `send-telegram` |
-| 17 | Session facts | `cortextos bus recall-facts` returns facts extracted at compaction | `src/hooks/hook-extract-facts.ts` | Episodic | Requires the extract hook to be registered in the seat's settings |
+| 17 | Session facts | `cortextos bus recall-facts` returns compaction summaries with keywords | `$CTX_ROOT/state/<seat>/memory/facts/`; written by `<seat>/.claude/hooks/ogl/memory/session_facts.py` (PostCompact) | Episodic | Harness hook writes / seat reads |
 
 Short-term: layers 1 to 4. Episodic: 5, 6, 7, 15, 16, 17. Long-term: 8 to 14.
 
@@ -133,6 +133,9 @@ Mechanical rules live in the `hooks` object of `<seat>/.claude/settings.json` an
 | PreCompact | any | `cortextos bus hook-compact-telegram` | Telegram notice | No |
 | SessionStart | compact | `<seat>/.claude/hooks/ogl/compaction/after_compact.py` | Hands STATE.md back | No |
 | PostCompact | any | `<seat>/.claude/hooks/ogl/compaction/save_summary.py` | Saves the summary to `compactions/` | No |
+| PreCompact | any | `<seat>/.claude/hooks/ogl/memory/precompact_checkpoint.py` | Writes `memory/checkpoints/latest.md` | No |
+| SessionStart | any | `<seat>/.claude/hooks/ogl/memory/sessionstart_inject.py` | Injects the checkpoint and the daily memory tail | No |
+| PostCompact | any | `<seat>/.claude/hooks/ogl/memory/session_facts.py` | Writes the summary as a session fact for `recall-facts` | No |
 
 Specialist seats carry a subset: the Telegram hooks, the send guard and the shared-surface guard. An infrastructure seat can run the shared-surface guard in strict mode by omitting `SURFACE_CODE_MODE=warn`. The framework templates also ship `cortextos bus hook-loop-detector` as a PreToolUse hook (`src/hooks/hook-loop-detector.ts`).
 
@@ -310,7 +313,7 @@ flowchart LR
 4. **Seat hooks run inside subagents.** A subagent working in a seat folder inherits that seat's hooks. A hook that reads the parent transcript reports the parent's state to the subagent. Scope such hooks to the main session, or tell subagents in their brief to ignore state-file instructions.
 5. **The auto-memory index loads at most 200 lines.** Lines past the cap are dropped without error. Keep MEMORY.md files as indexes of short lines.
 6. **Several files can describe the same thing.** CLAUDE.md, AGENTS.md and the daemon's boot prompt each touch boot behaviour; FLEET-style indexes duplicate `enabled-agents.json`. Document 03 lists one owner file per setting.
-7. **`recall-facts` returns nothing unless the extract hook is registered.** Templates do not register `hook-extract-facts` by default.
+7. **The framework's facts hook writes nothing.** `hook-extract-facts` runs at PreCompact and reads a `summary` field that Claude Code does not send at PreCompact. The harness writes session facts from PostCompact instead (`session_facts.py`).
 8. **A plist on disk is not a loaded job.** LaunchAgents run only after `launchctl load`. Check `launchctl list` for each sentinel and backup job.
 
 ---

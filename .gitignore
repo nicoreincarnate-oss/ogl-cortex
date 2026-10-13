@@ -4,4 +4,4 @@ docs/site/img/*.mmd
 __pycache__/
 *.pyc
 .DS_Store
-security/
+/security/

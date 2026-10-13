@@ -55,7 +55,7 @@ The command-line tool is named `cortextos`.
 1. **Get the owner's go** for the specific change. Client sites always need it.
 2. **Find the live source of truth before you edit.** The obvious repo may be behind production, for example when the site was deployed from a CLI and the repo was not updated. Rebuild from what is live, or you will revert fixes on deploy.
 3. **Design pass** for anything visible. Start with the design skill family and end with a taste gate that includes a horizontal-overflow check at a 390x844 viewport.
-4. **Security gate**: run your pentest gate (not included in this repository) against the source and a local or candidate URL. It must write `security/pentest-gate-report.json` with `"status": "pass"`. A gate run without a URL skips the web scan and can still report `pass`.
+4. **Security gate**: run the pentest gate (`harness/security/cortex_pentest_gate.py`) against the source and a local or candidate URL. It must write `security/pentest-gate-report.json` with `"status": "pass"`. A gate run without a URL skips the web scan, lists `zap` under `skipped` in the report, and can still report `pass`.
 5. **Ship through the wrapper**, never raw `vercel --prod`:
    ```bash
    harness/tools/ship.sh <site-dir> <prod-url> --gate-cmd '<your gate> . --output security ${1:+--url "$1"}' \

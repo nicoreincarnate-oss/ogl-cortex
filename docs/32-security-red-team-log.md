@@ -135,7 +135,7 @@ Secrets go to the keychain or a password manager. If one lands in chat, rotate i
 
 ### 3.5 Pentest gate, ship wrapper and ship hook (mechanical)
 
-- **Pentest gate** (your own scanner; not included in this repository): writes `security/pentest-gate-report.json` with `"status": "pass"` or `"fail"`. A good gate runs a secret scan (for example TruffleHog), a dependency audit, a web scan (for example OWASP ZAP) when given a URL, header checks, and an API authorisation evidence check for apps with accounts. Never write raw secret-scan output to disk; store hits redacted, and treat an unverified hit with no recorded disposition as a blocker.
+- **Pentest gate** (`harness/security/cortex_pentest_gate.py`): writes `security/pentest-gate-report.json` with `"status": "pass"` or `"fail"`. A good gate runs a secret scan (for example TruffleHog), a dependency audit, a web scan (for example OWASP ZAP) when given a URL, header checks, and an API authorisation evidence check for apps with accounts. Never write raw secret-scan output to disk; store hits redacted, and treat an unverified hit with no recorded disposition as a blocker.
 - **Ship wrapper** (`harness/tools/ship.sh`): gate, deploy a candidate, gate the candidate URL, then promote the same build. Exit codes in RB-11.
 - **Ship gate hook** (`harness/hooks/ship_gate.py`, PreToolUse at seat or user level): blocks recognised ship commands unless a passing `security/pentest-gate-report.json` exists in the current directory or an ancestor.
 - **Risk acceptance** lives in a separate acceptance note under `security/`, written in the owner's words. The gate report always keeps its true verdict. A wrapper that rewrites the report to `pass` is a forged pass.

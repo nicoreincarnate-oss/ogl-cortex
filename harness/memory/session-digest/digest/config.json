@@ -1,0 +1,10 @@
+{
+  "mode": "headless",
+  "min_turns": 5,
+  "max_turns": 120,
+  "max_chars": 40000,
+  "model": "sonnet",
+  "corpus": "",
+  "log_dir": "digests",
+  "distil": false
+}

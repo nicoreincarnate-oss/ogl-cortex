@@ -1,0 +1,67 @@
+[
+ {
+  "q": "Who owns Northwind Bakery?",
+  "must": [
+   "Priya Shah --[owns]--> Northwind Bakery"
+  ],
+  "must_not": [
+   "Mallory"
+  ]
+ },
+ {
+  "q": "What is Priya upset about?",
+  "must": [
+   "the order form breaks on her phone"
+  ],
+  "must_not": [
+   "FABRICATED",
+   "prices are far too high",
+   "Tom Reyes"
+  ]
+ },
+ {
+  "q": "What does Northwind Bakery like?",
+  "must": [
+   "photos make the croissants look real"
+  ],
+  "must_not": [
+   "bookings doubled"
+  ]
+ },
+ {
+  "q": "What must we never do for Harbor Kayaks?",
+  "must": [
+   "never use stock photos of tropical beaches"
+  ],
+  "must_not": [
+   "croissants"
+  ]
+ },
+ {
+  "q": "What do we owe Harbor Kayaks?",
+  "must": [
+   "Send the spring tour price sheet",
+   "2026-02-01"
+  ],
+  "must_not": []
+ },
+ {
+  "q": "What have we delivered to Northwind Bakery?",
+  "must": [
+   "Website - Menu Page Copy",
+   "2026-01-03"
+  ],
+  "must_not": [
+   "notes.txt"
+  ]
+ },
+ {
+  "q": "Who is in charge when the boss is away?",
+  "must": [
+   "no memory matches"
+  ],
+  "must_not": [
+   "-->"
+  ]
+ }
+]

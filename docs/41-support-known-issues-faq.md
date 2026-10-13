@@ -202,7 +202,7 @@ Status: **LIMITATION** (property of the software today), **WATCH** (works, fragi
 
 ### 4.14 "The pentest gate passed but nothing was scanned"
 
-**Cause.** Without `--url`, the web scan is skipped and the gate can still report `pass`.
+**Cause.** Without `--url`, the web scan is skipped and the gate can still report `pass`. The report lists the scan under `skipped`, and the gate prints `skipped=zap: no --url given`.
 
 **Fix.** Run with `--url`, then print the ZAP return code and report mtime in the same command.
 

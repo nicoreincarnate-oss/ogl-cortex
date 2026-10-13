@@ -173,7 +173,7 @@ The command-line tool is named `cortextos`.
 ## ADR-010: a pentest gate runs before anything ships
 
 - **Context.** Agents can deploy sites and send deliverables with no security check.
-- **Decision.** Nothing ships, deploys, publishes or goes to a client until the pentest gate (your scanner; not included in this repository) writes `security/pentest-gate-report.json` with `"status": "pass"`, or the owner accepts the risk in `security/pentest-risk-acceptance.md`. Web surfaces need `--url <url>`. Apps with accounts, roles or user data need `--requires-authz`.
+- **Decision.** Nothing ships, deploys, publishes or goes to a client until the pentest gate (`harness/security/cortex_pentest_gate.py` or your own scanner) writes `security/pentest-gate-report.json` with `"status": "pass"`, or the owner accepts the risk in `security/pentest-risk-acceptance.md`. Web surfaces need `--url <url>`. Apps with accounts, roles or user data need `--requires-authz`.
 - **Consequences.** Every ship has a security record. A gate run without a URL skips the web scan, so ADR-032 wraps the gate in a script that runs it again with the candidate and production URLs and rejects a stale report.
 
 ## ADR-011: MEMORY.md is a compact index; detail lives in topic files

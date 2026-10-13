@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">34</div><div><p class="dg">Operations and security</p>
-<h1>Changelog</h1><p class="meta">2,059 words · <a href="../34-changelog.md">Markdown source</a></p></div></header>
+<h1>Changelog</h1><p class="meta">2,049 words · <a href="../34-changelog.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#release-map">Release map</a></li><li><a href="#hook-inventory-at-v05">Hook inventory at v0.5</a></li><li><a href="#v05-delete-guards-and-memory-hygiene">v0.5: Delete guards and memory hygiene</a></li><li><a href="#v04-the-guard-layer">v0.4: The guard layer</a></li><li><a href="#v03-send-path-and-ship-path">v0.3: Send path and ship path</a></li><li><a href="#v02-instruments">v0.2: Instruments</a></li><li><a href="#v01-foundation">v0.1: Foundation</a></li><li><a href="#deprecations">Deprecations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>The version labels v0.1 to v0.5 group features in the order they were added. They are not tagged releases.</p>
 <p>Release notes for the OGL Cortex harness layer: the hooks, guards, tools, memory protocol and deploy path that sit on top of the framework. Framework changes are tracked in the upstream framework repository.</p>
@@ -148,7 +148,7 @@
 </ul>
 <h3 id="security">Security</h3>
 <ul>
-<li><strong>Redacted secret scan</strong> (optional, not included in this repository). The pentest gate no longer writes raw secret-scan output to disk. Hits are stored as short hashes. An unverified hit with no recorded disposition is a blocker, not a warning.</li>
+<li><strong>Redacted secret scan</strong> (<code>harness/security/</code>). The pentest gate no longer writes raw secret-scan output to disk. Hits are stored as short hashes. An unverified hit with no recorded disposition is a blocker, not a warning.</li>
 <li><strong>Shared test-fixture list.</strong> Known fake keys used in tests can be marked as fixtures. The list never applies to a verified hit.</li>
 </ul>
 <h3 id="memory-and-knowledge-base">Memory and knowledge base</h3>
@@ -208,7 +208,7 @@
 <h3 id="ship-path">Ship path</h3>
 <ul>
 <li><strong><code>harness/tools/ship.sh</code> for every deploy.</strong> Static gate, candidate deploy without the domain, candidate gate, then promote the same build, then a live re-check. Exit codes 0, 2 to 7 (see RB-11).</li>
-<li><strong>Pentest gate</strong> (optional, not included in this repository). Secret scan, dependency audit, ZAP with a URL, header checks, API authorisation evidence. <code>ship.sh</code> and the ship gate hook read only its report file.</li>
+<li><strong>Pentest gate</strong> (<code>harness/security/cortex_pentest_gate.py</code>). Secret scan, dependency audit, ZAP with a URL, header checks, API authorisation evidence. <code>ship.sh</code> and the ship gate hook read only its report file.</li>
 <li><strong>Ship gate hook</strong> (<code>harness/hooks/ship_gate.py</code>). A PreToolUse hook at seat or user level blocks recognised ship commands without a passing report.</li>
 <li><strong>Ship verdict rule.</strong> Only exit 0 from <code>ship.sh</code> counts as shipped.</li>
 </ul>

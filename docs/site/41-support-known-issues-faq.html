@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">41</div><div><p class="dg">Business and assurance</p>
-<h1>Support, known issues and FAQ</h1><p class="meta">2,480 words · <a href="../41-support-known-issues-faq.md">Markdown source</a></p></div></header>
+<h1>Support, known issues and FAQ</h1><p class="meta">2,495 words · <a href="../41-support-known-issues-faq.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#1-triage-flow">1. Triage flow</a></li><li><a href="#2-known-issues-and-failure-modes">2. Known issues and failure modes</a></li><li><a href="#3-deprecation-table">3. Deprecation table</a></li><li><a href="#4-faq">4. FAQ</a></li><li><a href="#5-enterprise-items-and-their-equivalents">5. Enterprise items and their equivalents</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>What to do when an agent acts strangely. This document has four parts: a three-tier triage flow, a registry of known issues and failure modes, a deprecation table, and an FAQ of the problems that come back.</p>
 <p>Related documents: <code>30-sre-runbooks.md</code> (step-by-step recovery), <code>31-observability-alerting.md</code> (logs and heartbeats), <code>40-finops-capacity.md</code> (quota and disk), <code>42-chaos-telemetry-determinism.md</code> (which guards are tested), <code>../TROUBLESHOOTING.md</code> (quick index). Path and role names follow <code>30-sre-runbooks.md</code>.</p>
@@ -413,7 +413,7 @@
 <p><strong>Cause.</strong> Disabled, seat down, interval drift, or wrong time zone.</p>
 <p><strong>Fix.</strong> RB-10. Use a 5-field wall-clock schedule and confirm the first fire by its artifact.</p>
 <h3 id="414-the-pentest-gate-passed-but-nothing-was-scanned">4.14 "The pentest gate passed but nothing was scanned"</h3>
-<p><strong>Cause.</strong> Without <code>--url</code>, the web scan is skipped and the gate can still report <code>pass</code>.</p>
+<p><strong>Cause.</strong> Without <code>--url</code>, the web scan is skipped and the gate can still report <code>pass</code>. The report lists the scan under <code>skipped</code>, and the gate prints <code>skipped=zap: no --url given</code>.</p>
 <p><strong>Fix.</strong> Run with <code>--url</code>, then print the ZAP return code and report mtime in the same command.</p>
 <h3 id="415-i-sent-a-file-and-the-seat-never-saw-it">4.15 "I sent a file and the seat never saw it"</h3>
 <p><strong>Cause.</strong> Telegram bots cannot download files over 20 MB. The daemon injects a <code>DOWNLOAD_FAILED</code> marker.</p>

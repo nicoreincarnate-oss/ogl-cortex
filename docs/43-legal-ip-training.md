@@ -35,6 +35,7 @@ Related documents: `32-security-red-team-log.md` (third-party code risk), `40-fi
 | Vercel CLI | Deploys in `harness/tools/ship.sh` (default deploy command) | Apache-2.0 | Hosting use is governed by Vercel's terms |
 | TruffleHog | Secret scan in the pentest gate | AGPL-3.0 | Run as a separate tool. Do not vendor a modified copy into a product without reviewing AGPL duties |
 | OWASP ZAP | Web scan in the pentest gate, run in a container | Apache-2.0 (per the ZAP project; not checked against an installed copy during writing) | |
+| Semgrep | Optional static analysis in the pentest gate | LGPL-2.1 (engine; rule packs have their own terms; not checked against an installed copy during writing) | Run as a separate tool when installed |
 | Playwright | Browser automation | Apache-2.0 | Bundled browsers carry their own licences |
 
 ### 1.4 Media and speech

@@ -33,11 +33,11 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">14</div><div><p class="dg">Strategy and governance</p>
-<h1>README and quickstart: install, run, change safely, ship</h1><p class="meta">3,177 words · <a href="../14-readme-quickstart.md">Markdown source</a></p></div></header>
+<h1>README and quickstart: install, run, change safely, ship</h1><p class="meta">3,170 words · <a href="../14-readme-quickstart.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-prerequisites">1. Prerequisites</a></li><li><a href="#2-install">2. Install</a></li><li><a href="#3-first-boot">3. First boot</a></li><li><a href="#4-the-instance-flag">4. The instance flag</a></li><li><a href="#5-start-stop-restart">5. Start, stop, restart</a></li><li><a href="#6-talking-to-the-fleet">6. Talking to the fleet</a></li><li><a href="#7-adding-a-seat">7. Adding a seat</a></li><li><a href="#8-crons">8. Crons</a></li><li><a href="#9-logs-and-state">9. Logs and state</a></li><li><a href="#10-changing-the-harness-safely">10. Changing the harness safely</a></li><li><a href="#11-ci-and-the-ship-chain">11. CI and the ship chain</a></li><li><a href="#12-troubleshooting-quick-table">12. Troubleshooting quick table</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document takes a new operator from an empty machine to a running OGL Cortex fleet, then covers daily operation, safe changes and the ship chain. Internals are in <code>01-core-architecture.md</code> and <code>02-execution-engine.md</code>. Settings are in <code>03-configuration-registry.md</code>. Guards are in <code>04-failsafe-boundary-log.md</code>.</p>
 <p>The command-line tool is named <code>cortextos</code>.</p>
-<p>Every <code>cortextos</code> command below was checked against the CLI's <code>--help</code> output. Commands from the OGL layer are marked as such and live in this repo's <code>harness/</code> folder (<code>harness/tools/ship.sh</code>, <code>harness/install.sh</code>). The pentest gate is your own scanner and is not included.</p>
+<p>Every <code>cortextos</code> command below was checked against the CLI's <code>--help</code> output. Commands from the OGL layer are marked as such and live in this repo's <code>harness/</code> folder (<code>harness/tools/ship.sh</code>, <code>harness/install.sh</code>). The pentest gate is <code>harness/security/cortex_pentest_gate.py</code>.</p>
 <h2 id="terms">Terms</h2>
 <ul>
 <li><strong>Instance</strong>: one runtime state folder, <code>$CTX_ROOT</code> = <code>~/.cortextos/&lt;instance&gt;</code>. The default instance id is <code>default</code>. <code>$CORTEX_HOME</code> is the framework checkout (for example <code>~/cortextos</code>).</li>
@@ -570,7 +570,7 @@ The <code>templates/</code> folder also holds <code>agent-opencode</code>, <code
 <td>0 shipped; 2 usage error; 3 pre-deploy gate failed, nothing deployed; 4 deploy failed or no candidate URL, prod untouched; 5 live and wrong (prod not 200 or live gate failed); 6 candidate failed, prod untouched; 7 promote failed, prod on the old deployment</td>
 </tr>
 <tr>
-<td>Pentest gate (bring your own; not included)</td>
+<td>Pentest gate (<code>harness/security/cortex_pentest_gate.py</code>, or your own)</td>
 <td>Any command that scans <code>&lt;dir&gt;</code> (and the URL in <code>$1</code> when given) and writes <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code>. <code>ship.sh</code> runs it as <code>bash -c "&lt;cmd&gt;" _ "&lt;url&gt;"</code></td>
 </tr>
 <tr>

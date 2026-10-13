@@ -57,7 +57,7 @@ The command-line tool is named `cortextos`.
 - Each U-series packet changes only `surface.py`; `shared_surface_guard.py` and `codewrites.py` stay unchanged.
 
 ### Security
-- **Redacted secret scan** (optional, not included in this repository). The pentest gate no longer writes raw secret-scan output to disk. Hits are stored as short hashes. An unverified hit with no recorded disposition is a blocker, not a warning.
+- **Redacted secret scan** (`harness/security/`). The pentest gate no longer writes raw secret-scan output to disk. Hits are stored as short hashes. An unverified hit with no recorded disposition is a blocker, not a warning.
 - **Shared test-fixture list.** Known fake keys used in tests can be marked as fixtures. The list never applies to a verified hit.
 
 ### Memory and knowledge base
@@ -112,7 +112,7 @@ The command-line tool is named `cortextos`.
 
 ### Ship path
 - **`harness/tools/ship.sh` for every deploy.** Static gate, candidate deploy without the domain, candidate gate, then promote the same build, then a live re-check. Exit codes 0, 2 to 7 (see RB-11).
-- **Pentest gate** (optional, not included in this repository). Secret scan, dependency audit, ZAP with a URL, header checks, API authorisation evidence. `ship.sh` and the ship gate hook read only its report file.
+- **Pentest gate** (`harness/security/cortex_pentest_gate.py`). Secret scan, dependency audit, ZAP with a URL, header checks, API authorisation evidence. `ship.sh` and the ship gate hook read only its report file.
 - **Ship gate hook** (`harness/hooks/ship_gate.py`). A PreToolUse hook at seat or user level blocks recognised ship commands without a passing report.
 - **Ship verdict rule.** Only exit 0 from `ship.sh` counts as shipped.
 

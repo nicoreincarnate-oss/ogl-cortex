@@ -1,0 +1,25 @@
+{
+ "entities": [],
+ "signals": [
+  {
+   "kind": "never_do",
+   "who": "Tom Reyes",
+   "about": "",
+   "summary": "no tropical stock photos",
+   "quote": "never use stock photos of tropical beaches, they paddle in a cold bay",
+   "msg": "msg-103",
+   "date": "2026-01-12"
+  },
+  {
+   "kind": "praise",
+   "who": "Tom",
+   "about": "booking flow",
+   "about_type": "PRODUCT",
+   "summary": "happy with booking flow",
+   "quote": "is happy with the booking flow, he said bookings doubled this week",
+   "msg": "msg-104",
+   "date": "2026-01-14"
+  }
+ ],
+ "relations": []
+}

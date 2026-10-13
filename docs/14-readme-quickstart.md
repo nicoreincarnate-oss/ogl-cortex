@@ -4,7 +4,7 @@ This document takes a new operator from an empty machine to a running OGL Cortex
 
 The command-line tool is named `cortextos`.
 
-Every `cortextos` command below was checked against the CLI's `--help` output. Commands from the OGL layer are marked as such and live in this repo's `harness/` folder (`harness/tools/ship.sh`, `harness/install.sh`). The pentest gate is your own scanner and is not included.
+Every `cortextos` command below was checked against the CLI's `--help` output. Commands from the OGL layer are marked as such and live in this repo's `harness/` folder (`harness/tools/ship.sh`, `harness/install.sh`). The pentest gate is `harness/security/cortex_pentest_gate.py`.
 
 ## Terms
 
@@ -308,7 +308,7 @@ flowchart LR
 | Abort conditions | Gate report missing, not written during that step, or status not `pass`; deploy command fails or prints no candidate URL; candidate or prod not HTTP 200 |
 | Index checks | Not built in. Put `sitemap.xml`, `robots.txt` and `noindex` checks in your gate command if you need them |
 | Exit codes | 0 shipped; 2 usage error; 3 pre-deploy gate failed, nothing deployed; 4 deploy failed or no candidate URL, prod untouched; 5 live and wrong (prod not 200 or live gate failed); 6 candidate failed, prod untouched; 7 promote failed, prod on the old deployment |
-| Pentest gate (bring your own; not included) | Any command that scans `<dir>` (and the URL in `$1` when given) and writes `security/pentest-gate-report.json` with `"status": "pass"`. `ship.sh` runs it as `bash -c "<cmd>" _ "<url>"` |
+| Pentest gate (`harness/security/cortex_pentest_gate.py`, or your own) | Any command that scans `<dir>` (and the URL in `$1` when given) and writes `security/pentest-gate-report.json` with `"status": "pass"`. `ship.sh` runs it as `bash -c "<cmd>" _ "<url>"` |
 | Risk acceptance | Owner only, written in `security/pentest-risk-acceptance.md` |
 | Hook backstop (OGL layer) | The PreToolUse hook `harness/hooks/ship_gate.py` (installed to `<seat>/.claude/hooks/ogl/`, or `~/.claude/hooks/ogl/` with `--user-level`) blocks `git push`, `gh release`, `gh pr merge`, `npm publish`, `vercel deploy`, `netlify deploy`, `firebase deploy`, `wrangler deploy`, `railway up`, `scp`, `sftp`, `rsync` over ssh and similar unless a passing gate report exists in the working folder or a parent |
 

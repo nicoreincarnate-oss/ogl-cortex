@@ -1,0 +1,19 @@
+# Neo4j for the optional graph layer. Community edition, bound to localhost only.
+# Start:  NEO4J_PASSWORD='<a long random password>' docker compose up -d
+# Stop:   docker compose down        Data stays in ./neo4j/data.
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: ogl-vault-graph-neo4j
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD}
+      NEO4J_server_memory_heap_initial__size: 512M
+      NEO4J_server_memory_heap_max__size: 512M
+      NEO4J_server_memory_pagecache_size: 256M
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/logs:/logs

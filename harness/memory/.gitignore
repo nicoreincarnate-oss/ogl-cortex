@@ -1,0 +1,9 @@
+# Data the memory components write next to their code. Never commit it: it holds conversation text and client data.
+session-digest/digest/pending/
+session-digest/digest/log/
+session-digest/index/index.db
+session-digest/index/distilled/
+client-graph/graph.db
+client-graph/work/
+client-graph/graph.config.json
+vault-graph/neo4j/

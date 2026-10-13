@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li class="on"><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">43</div><div><p class="dg">Business and assurance</p>
-<h1>Legal, IP, licences and training</h1><p class="meta">2,288 words · <a href="../43-legal-ip-training.md">Markdown source</a></p></div></header>
+<h1>Legal, IP, licences and training</h1><p class="meta">2,324 words · <a href="../43-legal-ip-training.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#1-component-licences">1. Component licences</a></li><li><a href="#2-how-third-party-code-enters-an-install">2. How third-party code enters an install</a></li><li><a href="#3-models-and-datasets">3. Models and datasets</a></li><li><a href="#4-client-material-and-client-ip">4. Client material and client IP</a></li><li><a href="#5-protecting-your-own-install">5. Protecting your own install</a></li><li><a href="#6-training-curriculum">6. Training curriculum</a></li><li><a href="#7-enterprise-items-and-their-equivalents">7. Enterprise items and their equivalents</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>What OGL Cortex is built from, the licence of each component, what those licences let you do, how to vet third-party code before it enters your install, and what a new seat or a new human operator must learn before they get access.</p>
 <p>This is not legal advice. It is an inventory of licence terms as published by each project. Get a lawyer's read before you redistribute OGL Cortex, sell work built on it, or ship any component inside a client deliverable.</p>
@@ -136,6 +136,12 @@
 <td>Web scan in the pentest gate, run in a container</td>
 <td>Apache-2.0 (per the ZAP project; not checked against an installed copy during writing)</td>
 <td></td>
+</tr>
+<tr>
+<td>Semgrep</td>
+<td>Optional static analysis in the pentest gate</td>
+<td>LGPL-2.1 (engine; rule packs have their own terms; not checked against an installed copy during writing)</td>
+<td>Run as a separate tool when installed</td>
 </tr>
 <tr>
 <td>Playwright</td>

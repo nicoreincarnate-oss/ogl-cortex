@@ -2,22 +2,25 @@
 
 The command-line tool is named `cortextos`.
 
-The harness is the layer OGL Cortex adds on top of the framework install (daemon, bus and `cortextos` CLI). It holds guard hooks, operating skills and
-seat templates. You install it into one seat (one agent directory) at a time.
+The harness is the layer OGL Cortex adds on top of the framework install (daemon, bus and `cortextos` CLI). It holds guard hooks, memory hooks,
+memory components, operating skills and seat templates. You install it into one seat (one agent directory) at a time.
 
 | Piece | Path | What it does |
 |-------|------|--------------|
 | Guard hooks | `hooks/` | Claude Code hooks that block unsafe or sloppy tool calls before they run |
+| Memory hooks | `hooks/memory/` | PreCompact checkpoint, SessionStart re-inject, PostCompact session facts |
+| Memory components | `memory/` | Session digests with a local search index, the client memory graph, the vault graph and its MCP server |
 | Hook tests | `tests/` | Feed sample hook JSON to each hook and check the exit code |
 | Settings block | `settings.example.json` | The `hooks` block that wires the guards into a seat |
 | Skills | `skills/` | Four operating skills: tasks, approvals, cron-management, complex-decomposition |
-| Templates | `templates/` | A seat `CLAUDE.md` and a `STATE.md` that encode the operating rules |
+| Templates | `templates/` | Seat `CLAUDE.md`, `STATE.md`, `ENTITIES.md`, `MEMORY.md`, `GUARDRAILS.md`, `HEARTBEAT.md`, the daily memory format, org `GUARDRAILS.md` and `knowledge.md`, and a user-level `CLAUDE.md` memory block |
 | Tools | `tools/` | Command-line tools the operating rules call: ship.sh, adversarial-pass.sh, brief_audit.py, emit-truth-correction.sh |
 | Installer | `install.sh` | Copies all of the above into a seat. Dry run by default |
 | Licences | `third_party/` | Licence texts for code derived from other projects |
 
 Requirements: the OGL Cortex framework installed, with its CLI on `PATH` as `cortextos`, Claude Code, Python 3.9 or later, bash. The hooks
-use the Python standard library only.
+and memory components use the Python standard library only. Two parts take optional extras: the digest index adds a
+meaning leg when `fastembed` is installed, and `memory/vault-graph/neo4j_load.py` needs the `neo4j` driver and Docker.
 
 ## How a hook blocks
 
@@ -65,11 +68,11 @@ All hooks live in `<seat>/.claude/hooks/ogl/` after install.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `OGL_PENTEST_GATE_CMD` | placeholder text | the command printed in the block message to produce the report |
+| `OGL_PENTEST_GATE_CMD` | placeholder text | the command printed in the block message to produce the report. Set it to `python3 <repo>/harness/security/cortex_pentest_gate.py . --output security` |
 | `OGL_PENTEST_OVERRIDE` | unset | `accepted-risk` plus a risk-acceptance file lets ship commands through |
 | `OGL_SHIP_EXTRA_PATTERNS` | unset | extra regexes, one per line, that also count as ship commands (for example `\bdeploy\.sh\b`) |
 
-The report format is the only contract. Any pentest tool works if it writes that JSON file.
+The report format is the only contract. `harness/security/cortex_pentest_gate.py` writes it; any other tool works if it writes the same JSON file with a top-level `"status"` of `"pass"` or `"fail"`.
 
 ### Shared-surface guard: `shared_surface_guard.py` (+ `surface.py`, `codewrites.py`)
 
@@ -190,6 +193,97 @@ Set `limit` to the context size you want the seat to work within and the thresho
 overwrites an existing `compaction.json`. Per-session marks go to `$OGL_STATE_DIR/compaction-marks/` when
 `OGL_STATE_DIR` is set, else to `.marks/` beside the hooks.
 
+### Memory hooks: `memory/`
+
+Three hooks that carry the conversation across compaction and restarts. None of them blocks; each always exits 0.
+`transcript.py` is the shared reader: it keeps the person's words and the agent's text replies, and drops tool calls,
+tool results, thinking, sub-agent (sidechain) lines, injected harness text, system reminders and `[CRON FIRED ...]`
+prompts.
+
+| File | Event | Does |
+|------|-------|------|
+| `precompact_checkpoint.py` | `PreCompact` | writes the last 40 messages (600 characters each) to `memory/checkpoints/latest.md` and a timestamped copy (newest 20 kept), and appends `NOTE <hh:mm> UTC: [hook] PreCompact checkpoint written (N msgs captured)` to today's daily file |
+| `sessionstart_inject.py` | `SessionStart` (every source) | injects `latest.md` if it is under 72 hours old (last 4,000 characters), the last 3,000 characters of today's daily file (or yesterday's), and an ENTITIES.md reminder when the seat has one |
+| `session_facts.py` | `PostCompact` | appends the compaction summary to `$CTX_ROOT/state/<agent>/memory/facts/<date>.jsonl`, the file `cortextos bus recall-facts` reads |
+
+The checkpoint hook is pure Python and reads its JSON payload from stdin before anything else runs. (A shell wrapper
+around `python3 - <<EOF` hands Python the script on stdin, so the payload never arrives and every checkpoint is
+empty; `test_memory_hooks.py` keeps a regression case for that.) A capture of zero messages is written as
+`CHECKPOINT FAILED` in the file and the daily note, and the inject hook turns it into a warning for the agent, so
+a broken checkpoint cannot look healthy.
+
+`session_facts.py` exists because the framework's `hook-extract-facts` reads a `summary` field that Claude Code's
+PreCompact payload does not carry (the summary does not exist yet at PreCompact). The summary arrives at PostCompact
+as `compact_summary`; this hook writes it in the framework's JSON-lines shape (`ts`, `session_id`, `agent`, `org`,
+`source`, `summary`, `keywords`).
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `OGL_CHECKPOINT_MESSAGES` | `40` | messages kept in a checkpoint |
+| `OGL_CHECKPOINT_CHARS` | `600` | characters kept per message |
+| `OGL_CHECKPOINT_KEEP` | `20` | timestamped checkpoint copies kept |
+| `OGL_INJECT_MAX_AGE_HOURS` | `72` | an older checkpoint is not injected |
+| `OGL_INJECT_CHECKPOINT_CHARS` | `4000` | checkpoint characters injected |
+| `OGL_INJECT_DAILY_CHARS` | `3000` | daily-file characters injected |
+| `CTX_ROOT`, `CTX_AGENT_NAME`, `CTX_ORG` | set by the daemon | where `session_facts.py` writes |
+
+## Memory components: `memory/`
+
+Each component is optional and installed by a flag. Code is copied into `<seat>/.claude/hooks/ogl/memory/`. Data
+the components write stays next to the code or in the seat's `memory/` folder. `memory/.gitignore` lists the data
+paths; never commit them.
+
+### Session digest: `memory/session-digest/` (`--with-digest`, `--with-notes-recall`)
+
+A model-written summary of each session, filed into the seat's notes and made searchable without a vector database
+or an API key.
+
+| File | Role |
+|------|------|
+| `digest/session_end.py` | `SessionEnd` and `PreCompact` hook. Filters the transcript in code (same keep and drop rules as above), keeps the last `max_turns` turns within `max_chars`, stages the text in `digest/pending/`, and in `headless` mode spawns the write-up detached. Returns in well under a second |
+| `digest/headless_run.py` | Runs `claude -p --model <model>` in an empty folder with `CLAUDE*` and `CTX_*` variables removed, appends the entry under `## Session <hh:mm>` to `<notes>/digests/<YYYY-MM-DD>.md`, then re-indexes that file. On failure the staged file stays for a retry and the reason goes to `digest/log/digest.log` |
+| `digest/session_start.py` | `SessionStart` hook for `session` mode: hands staged text to the next session to write up in a background sub-agent. Silent in `headless` mode |
+| `digest/digest-prompt.md` | The voice and structure of an entry: what happened, decisions, lessons, facts, open loops, and a dense "for the index" block. Edit it |
+| `digest/config.json` | `mode` (`headless` or `session`), `min_turns` (5), `max_turns` (120), `max_chars` (40000), `model` (`sonnet`), `corpus` (notes folder; empty means `<seat>/memory`), `log_dir` (`digests`), `distil` (false) |
+| `index/build_index.py` | Chunks markdown on headings (about 1,600 characters, each chunk labelled `[file § section]`), builds a SQLite FTS5 keyword index and, with `fastembed`, a local `bge-small-en-v1.5` embedding leg, into `index/index.db`. `--update <rel>` re-indexes one file. Skips hidden folders, `archive/` and `checkpoints/` |
+| `index/search.py` | `python3 search.py [--top N] "question"`: both legs, merged by reciprocal rank fusion (k=60), hits printed with the lines around them |
+| `index/recall_hook.py` | Optional `UserPromptSubmit` hook: injects the top five hits (about 1,500 characters). Skips cron prompts. Loads the embedding model per prompt (about a second with `fastembed`, near zero without) |
+| `index/distil.py` | Optional: one `claude -p` call per note turns it into the questions it answers plus a quote; the quote must appear in the note word for word or the entry is dropped. Turn on with `"distil": true` |
+
+Cost: `headless` mode spends one model call per session end and per compaction. `session` mode spends none in the
+hook and asks the next session to do the write-up.
+
+### Client memory graph: `memory/client-graph/` (`--with-client-graph`)
+
+A small SQLite graph of clients, people, deliverables and commitments, with dated facts that each carry a quote from
+the source message. A `UserPromptSubmit` hook injects the matching facts before the model reads a question about a
+known client or person.
+
+| File | Role |
+|------|------|
+| `schema.sql` | `entities`, `relations` (with `date` and `quote`), `aliases`, `meta` |
+| `build_graph.py` | `code`: loads clients, people and roles from your config, deliverable files named `<prefix> - <project> - <doc> (<YYYY-MM-DD>).<ext>`, and a commitments JSON. `extract`: one `claude -p` call per batch of a client's messages, closed vocabulary, resumable. `load`: writes `graph.db`, keeping a signal only when code finds its quote in the source message, and never taking ownership or roles from a chat quote |
+| `recall.py` | Seeds entities from the question, walks two hops with a recursive SQL query, filters by question intent, newest first. No model call |
+| `recall_hook.py` | The hook. Skips `[CRON FIRED` prompts; for wrapped Telegram and agent messages reads only the newest body (the longest code fence); injects nothing when a name appears with no question; caps output at 6,000 characters; labels quotes as evidence and summaries as model-written |
+| `evals.py` | Known-answer checks from a cases file: `python3 evals.py --cases cases.json` |
+| `config.example.json` | Message log path and field names, the operator's name, names that never seed a search, and one entry per client |
+| `fixtures/` | A synthetic two-client set (messages, model output with a planted fabricated quote and a planted ownership claim, cases) used by the tests. Not installed |
+
+Build: copy `config.example.json` to `graph.config.json`, fill it in, then
+`python3 build_graph.py all --config graph.config.json`. Write your own `cases.json` from the sources before you look
+at recall output, and run `evals.py` after every rebuild. `graph.db` and `work/` hold client data.
+
+### Vault graph and graph MCP: `memory/vault-graph/` (user level, not installed into a seat)
+
+| File | Role |
+|------|------|
+| `vault_graph.py` | Builds `graph.json` from a markdown vault's `[[wikilinks]]` and tags, no model. Same node-link shape as graphify output |
+| `graph_mcp.py` | A stdio MCP server over any `graph.json` (graphify's or `vault_graph.py`'s): `memory_query`, `memory_neighbors`, `memory_shortest_path`, `memory_read_note`. Read-only; re-reads the graph when the file changes; `memory_read_note` refuses paths outside `OGL_VAULT_DIR` |
+| `neo4j_load.py` | Loads `graph.json` into Neo4j (`:Note` nodes, `:LINK {relation}` edges), replacing the previous load. `--dry-run` prints the plan. Password from `NEO4J_PASSWORD` only |
+| `docker-compose.yml` | Neo4j 5 community edition bound to `127.0.0.1` |
+
+Setup steps for this and the other external stores are in [GETTING-STARTED.md](../GETTING-STARTED.md#memory-full-setup).
+
 ## Skills
 
 | Skill | Use |
@@ -205,11 +299,36 @@ and add the OGL Cortex rules. Every `cortextos bus` command in them exists in th
 
 ## Templates
 
-- `templates/CLAUDE.md`: a seat's operating rules. Session start, tasks, dispatch, approval gates, memory protocol,
-  STATE.md checkpoints, messages, crons, guards, restart, compact instructions. Replace every `<placeholder>`. Roles:
-  orchestrator, specialist, auditor, sentinel.
-- `templates/STATE.md`: the checkpoint file the compaction kit hands back. Checkpoint, promises, live surfaces and
-  their rollback, changes of plan, decisions, dead ends, open dispatches, the user's rules.
+| Template | Goes to | Installer rule |
+|----------|---------|----------------|
+| `CLAUDE.md` | `<seat>/CLAUDE.md` | merged as the `seat-rules` block (from `## Session start` on when the file has its own text) |
+| `GUARDRAILS.md` | `<seat>/GUARDRAILS.md` | merged as the `seat-gates` block (from `## Named gates` on) |
+| `HEARTBEAT.md` | `<seat>/HEARTBEAT.md` | merged as the `memory-steps` block (from `## OGL Cortex memory steps` on) |
+| `STATE.md`, `ENTITIES.md`, `MEMORY.md` | `<seat>/` | created only if missing |
+| `org-GUARDRAILS.md` | `$CORTEX_HOME/orgs/<org>/GUARDRAILS.md` | merged as the `cardinal-rule` block |
+| `org-knowledge.md` | `$CORTEX_HOME/orgs/<org>/knowledge.md` | merged as the `fleet-rules` block (from `## Cardinal rules` on) |
+| `user-CLAUDE.md` | `~/.claude/CLAUDE.md` | merged as the `memory-read-order` block, only with `--user-level` |
+| `daily-memory.md` | reference only | the format of `memory/<YYYY-MM-DD>.md` |
+
+- `CLAUDE.md`: a seat's operating rules. Session start, tasks, dispatch, approval gates, memory protocol and recall
+  order, STATE.md checkpoints, messages, crons, guards, restart, compact instructions. Roles: orchestrator,
+  specialist, auditor, sentinel.
+- `STATE.md`: the checkpoint file the compaction kit hands back. Checkpoint, promises, live surfaces and their
+  rollback, changes of plan, decisions, dead ends, open dispatches, the user's rules.
+- `ENTITIES.md`: the noun index with its write gate (rank the source, check for conflict, attach provenance) and
+  the entry format.
+- `MEMORY.md`: the long-term memory file and its index rules.
+- `GUARDRAILS.md`: a red-flag table and named gates (evidence-state labels, source grounding, untrusted reads,
+  pre-restart inventory, no undisclosed astroturf, regulatory and money flags, secrets).
+- `HEARTBEAT.md`: the heartbeat cycle with entity upkeep, knowledge base re-ingest, checkpoint health and meetings.
+- `org-GUARDRAILS.md`: the cardinal rule (label every claim Proven, Inferred or Open) and authority rules.
+- `org-knowledge.md`: the org knowledge file with cardinal rules, fleet conventions and an expected-dormant list.
+- `user-CLAUDE.md`: the memory read order and write rules for every Claude Code session on the machine.
+
+A merged block sits between `<!-- OGL-CORTEX:BEGIN <name> ... -->` and `<!-- OGL-CORTEX:END <name> -->`. The
+installer replaces only that block on a re-run, keeps every line outside it, and backs the file up first. `<seat>`
+and `<org>` are filled in from the seat path. Edit the harness template, not the block, or your edit is replaced on
+the next run. To stop managing a file, delete the two marker lines.
 
 ## Tools
 
@@ -223,7 +342,7 @@ Every production deploy goes through one command, so the gate cannot be skipped 
 
 ```bash
 harness/tools/ship.sh <dir> <prod-url> \
-  --gate-cmd 'python3 /path/to/pentest_gate.py . --output security ${1:+--url "$1"}' \
+  --gate-cmd 'python3 /path/to/ogl-cortex/harness/security/cortex_pentest_gate.py . --output security ${1:+--url "$1"}' \
   [--deploy-cmd "<cmd>"] [--promote-cmd "<cmd>"] [--remove-cmd "<cmd>"]
 ```
 
@@ -321,7 +440,7 @@ The installer works on one seat directory: the folder that holds the seat's `CLA
 # 1. See what it would do. Writes nothing.
 harness/install.sh "$CORTEX_HOME/orgs/<org>/agents/<seat>"
 
-# 2. Install.
+# 2. Install. Add --with-digest, --with-notes-recall or --with-client-graph for the optional memory components.
 harness/install.sh "$CORTEX_HOME/orgs/<org>/agents/<seat>" --apply
 
 # 3. Check the installed guard, then restart the seat so Claude Code loads the hooks.
@@ -335,10 +454,15 @@ What `--apply` writes:
 |--------|------|
 | `<seat>/.claude/hooks/ogl/*` | created, or replaced with a backup when different |
 | `<seat>/.claude/hooks/ogl/compaction/compaction.json` | created only if missing |
-| `<seat>/.claude/settings.json` | hook entries from `settings.example.json` merged in; entries already present are skipped; other keys are kept |
+| `<seat>/.claude/hooks/ogl/memory/*.py` | the memory hooks; created, or replaced with a backup when different |
+| `<seat>/.claude/hooks/ogl/memory/session-digest/` | with `--with-digest`: code replaced with a backup when different; `digest/config.json` created only if missing |
+| `<seat>/.claude/hooks/ogl/memory/client-graph/` | with `--with-client-graph`: code only, never `graph.db` |
+| `<seat>/.claude/settings.json` | hook entries from `settings.example.json` (and the component `hooks.json` files you asked for) merged in; entries already present are skipped; `autoCompactWindow` set only if missing; other keys are kept |
 | `<seat>/.claude/skills/<name>/SKILL.md` | created, or replaced with a backup when different |
-| `<seat>/CLAUDE.md` | created only if missing; otherwise the template goes to `CLAUDE.ogl-template.md` for you to merge by hand |
-| `<seat>/STATE.md` | created only if missing |
+| `<seat>/CLAUDE.md`, `GUARDRAILS.md`, `HEARTBEAT.md` | the OGL block merged in (see Templates); the rest of the file is kept |
+| `<seat>/STATE.md`, `ENTITIES.md`, `MEMORY.md` | created only if missing |
+| `<seat>/memory/` | created if missing |
+| `$CORTEX_HOME/orgs/<org>/GUARDRAILS.md`, `knowledge.md` | the OGL block merged in, when the seat sits under `orgs/<org>/agents/` |
 
 Every file it changes is first copied to `<file>.bak-<UTC timestamp>`. Running it twice changes nothing.
 
@@ -346,8 +470,9 @@ Every file it changes is first copied to `<file>.bak-<UTC timestamp>`. Running i
 
 The ship gate, shared-surface guard and Orwell send-lint protect the whole machine. With `--user-level` they are
 wired once in `~/.claude/settings.json` (hooks copied to `~/.claude/hooks/ogl/`) and left out of the seat's
-settings, so they do not run twice. Seat-scoped hooks (brief guard, future-time guard, compaction kit) stay in the
-seat. Without the flag the installer never reads or writes `~/.claude`.
+settings, so they do not run twice. Seat-scoped hooks (brief guard, future-time guard, compaction kit, memory hooks)
+stay in the seat. The flag also merges the memory read-order block into `~/.claude/CLAUDE.md`. Without the flag the
+installer never reads or writes `~/.claude`.
 
 ```bash
 harness/install.sh "$CORTEX_HOME/orgs/<org>/agents/<seat>" --apply --user-level
@@ -355,8 +480,9 @@ harness/install.sh "$CORTEX_HOME/orgs/<org>/agents/<seat>" --apply --user-level
 
 ### Manual install
 
-Copy `hooks/` to `<seat>/.claude/hooks/ogl/` and merge the `hooks` block of `settings.example.json` into
-`<seat>/.claude/settings.json`. Claude Code expands `$CLAUDE_PROJECT_DIR` in hook commands to the seat directory.
+Copy `hooks/` to `<seat>/.claude/hooks/ogl/` and merge the `hooks` block and `autoCompactWindow` of
+`settings.example.json` into `<seat>/.claude/settings.json`. For a memory component, copy its folder to
+`<seat>/.claude/hooks/ogl/memory/<component>/` and merge its `hooks.json`. Claude Code expands `$CLAUDE_PROJECT_DIR` in hook commands to the seat directory.
 
 ### Configuration
 
@@ -370,7 +496,9 @@ variables for the session; check on your Claude Code version that hook processes
 python3 harness/tests/run_all.py
 ```
 
-Each hook test feeds `PreToolUse` JSON to one hook on stdin and asserts the exit code: every must-block case exits
+The memory tests feed hook JSON and synthetic transcripts (`tests/memfixtures.py`) to each memory hook and
+component, use a fake `claude` for the model, and assert what gets written or injected (must-work) and that bad
+input exits 0 without a traceback (must-not-break). Each guard test feeds `PreToolUse` JSON to one hook on stdin and asserts the exit code: every must-block case exits
 `2`, every must-allow case exits `0`. `test_tools.py` runs each tool against fakes (a fake gate, deploy, HTTP
 check, model CLI and `cortextos` CLI) and asserts its documented exit code for must-pass and must-fail cases. Tests run with a temp `OGL_STATE_DIR` and `OGL_NO_BUS=1`, so they write nothing
 outside temp directories and send no bus events. Expected output:
@@ -387,8 +515,16 @@ ship.sh                must-pass 3/3   must-fail 13/13   PASS
 adversarial-pass.sh    must-pass 2/2   must-fail 6/6   PASS
 brief_audit.py         must-pass 4/4   must-fail 5/5   PASS
 emit-truth-correction  must-pass 8/8   must-fail 15/15   PASS
+pentest_gate           checks 18/18 (incl. 14 redaction tests)   PASS
+memory hooks           must-work 17/17   must-not-break 12/12   PASS
+session digest         must-work 12/12   must-not-break 11/11   PASS
+client graph           must-work 10/10   must-not-break 11/11   PASS
+vault graph + MCP      must-work 13/13   must-not-break 8/8   PASS
+install.sh (memory)    must-work 18/18   must-not-break 5/5   PASS
 ALL PASS
 ```
+
+`test_pentest_gate.py` checks that a clean project passes; a project with fake AWS, GitHub and private-key values fails; no raw value reaches any gate output; a recorded disposition clears an unverified hit; `--url` without Docker fails; `--requires-authz` without evidence fails; and `ship_gate.py` allows a push with the gate's pass report and blocks it with the fail report. It also runs the 14-case redaction suite in `harness/security/test_secret_redaction.py`. External scanners are hidden during the test, so it needs no network and no Docker.
 
 Run one file to test one hook: `python3 harness/tests/test_ship_gate.py`. The future-time test skips itself within 30
 minutes of midnight UTC.
@@ -406,7 +542,9 @@ echo '{"tool_name":"Bash","tool_input":{"command":"npx vercel --prod"},"cwd":"/t
    backup the installer made: `cp <seat>/.claude/settings.json.bak-<stamp> <seat>/.claude/settings.json`.
 2. Delete `<seat>/.claude/hooks/ogl/`.
 3. Delete the skills you do not want under `<seat>/.claude/skills/`, or restore their `SKILL.md.bak-<stamp>` files.
-4. Delete `<seat>/CLAUDE.ogl-template.md` if present. Keep or delete `STATE.md` and `compactions/`.
+4. Delete the `OGL-CORTEX:BEGIN` to `OGL-CORTEX:END` blocks from `CLAUDE.md`, `GUARDRAILS.md`, `HEARTBEAT.md` and the
+   org `GUARDRAILS.md` and `knowledge.md`, or restore their `.bak-<stamp>` files. Keep or delete `STATE.md`,
+   `ENTITIES.md`, `memory/` and `compactions/`: they hold the seat's memory.
 5. If you used `--user-level`: do steps 1 and 2 for `~/.claude/settings.json` and `~/.claude/hooks/ogl/`.
 6. Delete `~/.ogl-cortex/state/` (tokens and guard logs).
 7. Restart the seat.
@@ -426,6 +564,14 @@ echo '{"tool_name":"Bash","tool_input":{"command":"npx vercel --prod"},"cwd":"/t
   pass. Direct mode deploys before the live gate runs; use preview-then-promote to gate before prod changes.
 - `brief_audit.py` cannot tell two tasks apart when one seat works both in the same window, and it does not see
   Bash writes outside the seat folder.
+- The checkpoint and digest filters know the transcript format of current Claude Code versions. If the format
+  changes, the checkpoint says `CHECKPOINT FAILED` and the digest stages nothing; neither blocks.
+- `headless` digests run a model call per session end and per compaction, on the seat's own Claude login.
+- The digest index without `fastembed` is keyword-only. A full rebuild of a large notes folder takes minutes; the
+  hooks re-index one file at a time.
+- The client graph is only as current as its last build. Rebuild it on a cron; the recall hook reads whatever
+  `graph.db` holds.
+- `graph_mcp.py` reads a whole `graph.json` into memory. Very large graphs belong in Neo4j.
 - `emit-truth-correction.sh` reads `OGL_PRINCIPAL_ID` from its caller's environment. Anyone who can run it can set
   that variable, so the principal check proves a matching record exists, not who ran the script.
 
@@ -440,4 +586,8 @@ echo '{"tool_name":"Bash","tool_input":{"command":"npx vercel --prod"},"cwd":"/t
   adversarial pass and the brief audit). **Licence confirmation pending.**
 - `hooks/compaction/`: the pattern (meter thresholds, STATE.md hand-back, summary save) is adapted from Glitch Cat
   Club's "Controlled Compaction". The four-line brief follows the same source's orchestration guidance. **Licence confirmation pending** for both.
+- `memory/session-digest/` (filter, headless write-up, distil, heading-aware index with rank fusion) and
+  `memory/client-graph/` (three-table graph, quote-checked extraction, recursive recall, recall hook, evals): adapted
+  from Glitch Cat Club's memory starter and graph memory starter. **Licence confirmation pending.**
+- `hooks/memory/`, `memory/vault-graph/` and the memory templates: OGL Cortex.
 - The Orwell rules come from George Orwell, "Politics and the English Language" (1946). The word lists are original.

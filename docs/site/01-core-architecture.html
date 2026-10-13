@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">01</div><div><p class="dg">Core system</p>
-<h1>Core System Architecture</h1><p class="meta">3,607 words · <a href="../01-core-architecture.md">Markdown source</a></p></div></header>
+<h1>Core System Architecture</h1><p class="meta">3,683 words · <a href="../01-core-architecture.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#conventions">Conventions</a></li><li><a href="#1-overview">1. Overview</a></li><li><a href="#2-component-glossary">2. Component glossary</a></li><li><a href="#3-roles">3. Roles</a></li><li><a href="#4-surfaces">4. Surfaces</a></li><li><a href="#5-lifecycle-of-one-request">5. Lifecycle of one request</a></li><li><a href="#6-known-limitations">6. Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document explains what OGL Cortex is made of, how the parts relate, and how one request travels from the owner's phone to an agent and back. Document 02 covers the execution engine, 03 the configuration files, and 04 the guardrails.</p>
 <h2 id="conventions">Conventions</h2>
@@ -130,9 +130,9 @@
 </tr>
 <tr>
 <td>4</td>
-<td>Pre-compaction checkpoints (optional, not included)</td>
-<td>A PreCompact hook copies the last transcript lines to a checkpoint. A SessionStart hook re-injects the newest checkpoint plus the tail of today's daily memory. This repository does not ship these hooks</td>
-<td><code>&lt;seat&gt;/memory/checkpoints/</code> if you add them</td>
+<td>Pre-compaction checkpoints</td>
+<td>A PreCompact hook copies the last 40 messages of conversation text to a checkpoint and writes <code>CHECKPOINT FAILED</code> if it captured none. A SessionStart hook re-injects the newest checkpoint plus the tail of today's daily memory</td>
+<td><code>&lt;seat&gt;/memory/checkpoints/</code>; hooks in <code>&lt;seat&gt;/.claude/hooks/ogl/memory/</code> (source <code>harness/hooks/memory/</code>)</td>
 <td>Short-term bridge</td>
 <td>Hooks only</td>
 </tr>
@@ -146,11 +146,11 @@
 </tr>
 <tr>
 <td>6</td>
-<td>Session digests (optional, not included)</td>
-<td>At session end and before compaction, a hook filters the transcript, runs a headless Claude to write a digest, and indexes it into a local search index. This repository does not ship it</td>
-<td>Your choice, for example <code>&lt;seat&gt;/memory/digests/</code></td>
+<td>Session digests (optional, <code>install.sh --with-digest</code>)</td>
+<td>At session end and before compaction, a hook filters the transcript, runs a headless Claude to write a digest, and indexes it into a local search index</td>
+<td><code>&lt;seat&gt;/memory/digests/</code>; code in <code>harness/memory/session-digest/</code></td>
 <td>Episodic</td>
-<td>Hook / seat on demand</td>
+<td>Hook / seat on demand, or every prompt with <code>--with-notes-recall</code></td>
 </tr>
 <tr>
 <td>7</td>
@@ -203,16 +203,16 @@
 <tr>
 <td>13</td>
 <td>External knowledge stores (optional)</td>
-<td>Owner tools such as a note vault or a graph database, wired in through MCP servers</td>
+<td>GBrain, an Obsidian vault mirror and a graph layer, wired in through MCP servers. The harness ships a wikilink graph builder, a graph MCP server and a Neo4j loader in <code>harness/memory/vault-graph/</code></td>
 <td>Owner-defined</td>
 <td>Long-term</td>
 <td>Owner and agents</td>
 </tr>
 <tr>
 <td>14</td>
-<td>Client memory graph (optional, not included)</td>
-<td>A SQLite graph of clients and people with quoted, dated facts. A UserPromptSubmit hook reads it. This repository does not ship it</td>
-<td>Owner-defined</td>
+<td>Client memory graph (optional, <code>install.sh --with-client-graph</code>)</td>
+<td>A SQLite graph of clients and people with quoted, dated facts. A UserPromptSubmit hook reads it</td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/memory/client-graph/graph.db</code>; code in <code>harness/memory/client-graph/</code></td>
 <td>Long-term</td>
 <td>Built offline / hook reads</td>
 </tr>
@@ -235,10 +235,10 @@
 <tr>
 <td>17</td>
 <td>Session facts</td>
-<td><code>cortextos bus recall-facts</code> returns facts extracted at compaction</td>
-<td><code>src/hooks/hook-extract-facts.ts</code></td>
+<td><code>cortextos bus recall-facts</code> returns compaction summaries with keywords</td>
+<td><code>$CTX_ROOT/state/&lt;seat&gt;/memory/facts/</code>; written by <code>&lt;seat&gt;/.claude/hooks/ogl/memory/session_facts.py</code> (PostCompact)</td>
 <td>Episodic</td>
-<td>Requires the extract hook to be registered in the seat's settings</td>
+<td>Harness hook writes / seat reads</td>
 </tr>
 </tbody>
 </table>
@@ -490,6 +490,27 @@
 <td>any</td>
 <td><code>&lt;seat&gt;/.claude/hooks/ogl/compaction/save_summary.py</code></td>
 <td>Saves the summary to <code>compactions/</code></td>
+<td>No</td>
+</tr>
+<tr>
+<td>PreCompact</td>
+<td>any</td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/memory/precompact_checkpoint.py</code></td>
+<td>Writes <code>memory/checkpoints/latest.md</code></td>
+<td>No</td>
+</tr>
+<tr>
+<td>SessionStart</td>
+<td>any</td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/memory/sessionstart_inject.py</code></td>
+<td>Injects the checkpoint and the daily memory tail</td>
+<td>No</td>
+</tr>
+<tr>
+<td>PostCompact</td>
+<td>any</td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/memory/session_facts.py</code></td>
+<td>Writes the summary as a session fact for <code>recall-facts</code></td>
 <td>No</td>
 </tr>
 </tbody>
@@ -750,7 +771,7 @@
 <li><strong>Seat hooks run inside subagents.</strong> A subagent working in a seat folder inherits that seat's hooks. A hook that reads the parent transcript reports the parent's state to the subagent. Scope such hooks to the main session, or tell subagents in their brief to ignore state-file instructions.</li>
 <li><strong>The auto-memory index loads at most 200 lines.</strong> Lines past the cap are dropped without error. Keep MEMORY.md files as indexes of short lines.</li>
 <li><strong>Several files can describe the same thing.</strong> CLAUDE.md, AGENTS.md and the daemon's boot prompt each touch boot behaviour; FLEET-style indexes duplicate <code>enabled-agents.json</code>. Document 03 lists one owner file per setting.</li>
-<li><strong><code>recall-facts</code> returns nothing unless the extract hook is registered.</strong> Templates do not register <code>hook-extract-facts</code> by default.</li>
+<li><strong>The framework's facts hook writes nothing.</strong> <code>hook-extract-facts</code> runs at PreCompact and reads a <code>summary</code> field that Claude Code does not send at PreCompact. The harness writes session facts from PostCompact instead (<code>session_facts.py</code>).</li>
 <li><strong>A plist on disk is not a loaded job.</strong> LaunchAgents run only after <code>launchctl load</code>. Check <code>launchctl list</code> for each sentinel and backup job.</li>
 </ol>
 <hr />

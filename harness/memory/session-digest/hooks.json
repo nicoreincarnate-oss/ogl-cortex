@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/memory/session-digest/digest/session_end.py", "timeout": 30 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/memory/session-digest/digest/session_end.py", "timeout": 30 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/memory/session-digest/digest/session_start.py", "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "specification": {
+    "name": "CortexOS 16-Agent / 4-Project Harness Version 2.1",
+    "path": "(internal planning document, not distributed)",
+    "sha256": "78379a1829dd47bc80b1bb9d5b4386ad81cea7725beb893f362c8217aae9f558"
+  },
+  "implementationClaim": "fail-closed compatibility vertical slice; not the authoritative v2.1 control plane",
+  "operationalState": {
+    "legacyDaemonOnline": true,
+    "updatedHarnessDaemonActivated": false,
+    "baseHarnessActivationFlagDefaultsOff": true,
+    "dashboardOnline": false,
+    "disabledRosterApplied": false,
+    "compatibilityDispatchRequested": false,
+    "compatibilityDispatchEffective": false,
+    "providerCallsAuthorized": false,
+    "spendAuthorized": false,
+    "provisioningAuthorized": false,
+    "externalEgressAuthorized": false,
+    "productionReleaseAuthorized": false
+  },
+  "implementedVerticalSlice": [
+    "one F0 operator contract with natural-language-to-CLI instructions",
+    "exactly four durable project slots with deterministic fifth-project queuing",
+    "logical 16-seat F0-F4/C1-C8/O1-O3 roster",
+    "durable ten-stage adversarial workflow, including Sonnet correction build/test before O3 final review",
+    "exact disabled-only roster manifest plus validate and dry-run/apply CLI; live roster application has not occurred",
+    "project pause, resume, cancel, human request, and human response commands",
+    "single-writer shadow SQLite store and atomic sanitized dashboard projection",
+    "authenticated GET-only harness dashboard APIs and four-project operator view",
+    "opt-in legacy bus compatibility projection guarded by fail-closed preflight",
+    "generated authoritative v2.1 DDL artifact with deterministic digest",
+    "read-only live smoke test that refuses an inactive or stale deployment"
+  ],
+  "authoritativeMigration": {
+    "path": "migrations/harness/0021_v21.sql",
+    "sha256": "f887cc7de8d70458d152e03326fa4a62f61ce2118cb02f6dcfd6a83fc9aa621a",
+    "installed": false,
+    "reason": "The signed native authority kernel, exact SQLite closure, dedicated service identity, broker, and sandbox prerequisites are not present. Installing the schema would create an authoritative-looking database without its required enforcement boundary."
+  },
+  "nativeClosure": {
+    "requiredSqliteVersion": "3.51.0",
+    "observedSqliteVersion": "3.53.1",
+    "observedSqliteSourceId": "2026-05-05 10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9",
+    "satisfied": false
+  },
+  "workPackages": {
+    "WP00": "partial: Node 26 scaffold and fail-closed shell exist; exact signed native closure does not",
+    "WP01": "not implemented: native authority kernel and default-deny SQLite authorizer",
+    "WP02": "partial: exact generated DDL artifact exists; fresh authoritative installer/bootstrap do not",
+    "WP03": "partial: local daemon IPC and dashboard authentication exist; trusted ingress/RBAC/capabilities do not",
+    "WP04": "partial: four-slot admission and deterministic queue exist; authoritative WDRR/admission bundles do not",
+    "WP05": "partial: logical roster and compatibility dispatch path exist; dispatch is hard-locked until fresh-session isolation, verified runtime-model handshake, and completion attestation exist",
+    "WP06": "not implemented: immutable artifact broker, provenance, taint, and acceptance CAS",
+    "WP07": "not implemented: provider budget, usage, and host-resource reservation authority",
+    "WP08": "partial: sanitized projection and dashboard exist; signed replayable projection batches do not",
+    "WP09": "not implemented: repository, merge, gate, approval, and remote-effect brokers",
+    "WP10": "not implemented: preregistered randomized paired benchmark and blinded evaluator",
+    "WP11": "partial: exact disabled-only roster manifest plus validate and dry-run/apply CLI are implemented but have not been applied; retained-identity migration saga is not implemented",
+    "WP12": "partial: compatibility verification passes 1,901 backend tests with 3 skipped and 130 dashboard tests; the normative 225-test/native/sandbox/crash matrix does not",
+    "WP13": "partial: compatibility shadow mode exists; stub-provider/disposable-repository soak is not complete",
+    "WP14": "blocked: rollout evidence cannot pass while credentials and native/sandbox closures remain unresolved"
+  },
+  "releaseGates": {
+    "dependencyAudit": "pass: zero npm vulnerabilities after patch-level remediation",
+    "apiAuthorizationEvidence": "pass: security/api-authz-evidence.md",
+    "credentialScan": "fail: final scan reports 4 currently verified occurrences (3 Anthropic, 1 Twilio). Consecutive scans reported 38, then 21, then 4 non-artifact verified occurrences across Anthropic, Groq, and Twilio; provider verification is transient and a later non-verification is not revocation evidence. One earlier 76-result run included 38 scanner self-detections, now removed. Rotate every candidate or explicitly accept the documented local-only risk",
+    "webBaselineScan": "warning: zero high-risk alerts and 2 medium CSP alerts for Next.js inline bootstrap scripts/styles",
+    "dedicatedServiceIdentity": "fail",
+    "rootOwnedSignedInstallTree": "fail",
+    "authenticatedCapabilityBroker": "fail",
+    "seatbeltSandboxClosure": "fail",
+    "freshSessionIsolation": "fail: required for any effective dispatch",
+    "exactRuntimeModelHandshake": "fail: required for any effective dispatch",
+    "completionAttestation": "fail: required for any effective dispatch",
+    "exactSqliteClosure": "fail"
+  },
+  "riskAcceptance": {
+    "status": "pending",
+    "granted": false
+  },
+  "activationRule": "The base harness activation flag defaults off. Do not restart into or enable the base harness until the mandatory pentest gate passes or the operator explicitly accepts the documented local-only credential risk. Compatibility dispatch remains hard-locked unless fresh-session isolation, verified runtime-model handshake, and completion attestation all pass. Never present this vertical slice as authoritative v2.1."
+}

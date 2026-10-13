@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">04</div><div><p class="dg">Core system</p>
-<h1>Fail-Safes and Boundaries</h1><p class="meta">5,261 words · <a href="../04-failsafe-boundary-log.md">Markdown source</a></p></div></header>
+<h1>Fail-Safes and Boundaries</h1><p class="meta">5,293 words · <a href="../04-failsafe-boundary-log.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#terms">Terms</a></li><li><a href="#1-rule-enforcement-three-layers">1. Rule enforcement: three layers</a></li><li><a href="#2-tokens-and-context">2. Tokens and context</a></li><li><a href="#3-fallback-behaviour">3. Fallback behaviour</a></li><li><a href="#4-failure-classes-and-the-guard-for-each">4. Failure classes and the guard for each</a></li><li><a href="#5-known-limitations">5. Known limitations</a></li><li><a href="#6-risk-table">6. Risk table</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document describes what stops OGL Cortex agents from doing damage, what happens when a component fails, and how the system recovers. It covers the three enforcement layers, every guard in the OGL layer, the context and compaction lifecycle, the watchdog set, failure handling per component, and the failure classes each guard defends against.</p>
 <p>Related documents: <code>03-configuration-registry.md</code> covers how hooks are registered. <code>11-ai-safety-governance.md</code> lists the rules these guards enforce.</p>
@@ -194,7 +194,7 @@
 </tr>
 </tbody>
 </table>
-<p>Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; compaction meter, state hand-back and summary saver. Optional hooks not included in this repository fit the same slot: a PreCompact checkpoint, session-start injection, a session digest, prompt-time recall and routing, and a post-commit trigger for <code>harness/tools/adversarial-pass.sh</code>. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.</p>
+<p>Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; compaction meter, state hand-back and summary saver. The memory hooks fit the same slot: the PreCompact checkpoint, session-start injection, session facts, and with flags the session digest and prompt-time recall. Prompt-time routing and a post-commit trigger for <code>harness/tools/adversarial-pass.sh</code> are not included. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.</p>
 <p>The shared-surface guard and the Orwell send-lint write logs under <code>$OGL_STATE_DIR</code> (default <code>~/.ogl-cortex/state/</code>: <code>surface-guard.log</code>, <code>orwell-lint.log</code>). Each line carries a verdict (PASS, BLOCK, WARN, NOTE, shadow, pass-once, FAIL-CLOSED, FAIL-OPEN) and the seat. A guard counts as live only after a real call leaves a line in its log.</p>
 <h3 id="13-ship-gate-requirements">1.3 Ship gate requirements</h3>
 <p>The ship gate is the guard most likely to look stronger than it is. It meets these requirements:</p>
@@ -422,7 +422,7 @@
 </tr>
 <tr>
 <td>Last exchanges before compaction</td>
-<td>An optional PreCompact checkpoint hook (not included), for example into <code>memory/checkpoints/latest.md</code></td>
+<td>The PreCompact checkpoint hook writes <code>memory/checkpoints/latest.md</code>; the SessionStart hook injects it</td>
 </tr>
 <tr>
 <td>The current day's work log</td>
@@ -430,11 +430,11 @@
 </tr>
 <tr>
 <td>Session as a whole</td>
-<td>An optional session digest on PreCompact and SessionEnd (not included)</td>
+<td>The session digest on PreCompact and SessionEnd (<code>--with-digest</code>), searchable with <code>search.py</code></td>
 </tr>
 </tbody>
 </table>
-<p>Implementation note for checkpoint hooks: a shell hook that runs <code>python3 - &lt;&lt; 'EOF'</code> gives Python the script on stdin, so the hook's JSON payload never arrives and <code>transcript_path</code> is empty. Pass the script as a file or with <code>-c</code>, read the payload from stdin, write to a dedicated file rather than a shared boot card, and write nothing when zero messages are captured. Test with a real hook payload. Alert when a checkpoint reports zero messages.</p>
+<p>Implementation note for checkpoint hooks: a shell hook that runs <code>python3 - &lt;&lt; 'EOF'</code> gives Python the script on stdin, so the hook's JSON payload never arrives and <code>transcript_path</code> is empty. The shipped <code>precompact_checkpoint.py</code> is a plain file that reads the payload from stdin first and writes to a dedicated file. When it captures zero messages it writes <code>CHECKPOINT FAILED</code>, the next session start shows a warning, and <code>scripts/doctor.sh</code> reports a <code>FAIL</code>. Prove it with <code>/compact</code> (GETTING-STARTED.md, M1).</p>
 <h3 id="24-session-rotation-and-restarts">2.4 Session rotation and restarts</h3>
 <p>The daemon restarts each seat after <code>max_session_seconds</code> with <code>--continue</code>, which keeps the conversation. The timer re-reads <code>config.json</code> on each fire, so a changed value takes effect without a daemon restart. After a daemon restart every seat comes back with <code>--continue</code> and re-reads its bootstrap files.</p>
 <p>Daemon commands take <code>--instance &lt;instance&gt;</code>. Without it the CLI targets the <code>default</code> instance and can report "Daemon is not running" while your instance is up.</p>
@@ -637,8 +637,8 @@
 <td>9</td>
 <td>A checkpoint hook writes empty checkpoints</td>
 <td>Heredoc takes stdin from the hook payload</td>
-<td>See 2.3</td>
-<td>Alert on zero</td>
+<td><code>precompact_checkpoint.py</code> is a plain file that reads stdin first; a zero capture writes <code>CHECKPOINT FAILED</code>, warns at session start and fails the doctor (see 2.3)</td>
+<td>Yes, with a regression test</td>
 </tr>
 <tr>
 <td>10</td>

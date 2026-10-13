@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 21,
+  "mode": "compatibility-shadow",
+  "instanceId": "cortextos1",
+  "organization": "atrium",
+  "limits": {
+    "maximumAdmittedProjects": 4,
+    "minimumFreeDiskGiB": 20,
+    "minimumNodeMajor": 26
+  },
+  "authority": {
+    "dispatchEnabled": false,
+    "providerCallsAllowed": false,
+    "provisioningAllowed": false,
+    "canonicalGitMutationAllowed": false,
+    "externalEgressAllowed": false,
+    "productionReleaseAllowed": false
+  },
+  "requiredProductionClosures": {
+    "dedicatedServiceIdentity": false,
+    "rootOwnedInstallTree": false,
+    "authenticatedExecutorBroker": false,
+    "signedSeatbeltClosure": false,
+    "signedProviderHandshakes": false,
+    "nativeAuthoritativeStore": false,
+    "credentialRotationAfterExposure": false
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 21,
+  "sourceSpecification": "(internal planning document, not distributed)",
+  "sourceHeading": "## 6. Authoritative schema — executable SQLite DDL",
+  "extractionRule": "first tilde-fenced SQL block after sourceHeading, including one final newline",
+  "bytes": 1202490,
+  "sha256": "f887cc7de8d70458d152e03326fa4a62f61ce2118cb02f6dcfd6a83fc9aa621a",
+  "validatedInventory": {
+    "tables": 157,
+    "views": 8,
+    "triggers": 696,
+    "explicitIndexes": 27,
+    "foreignKeyViolations": 0,
+    "integrityCheck": "ok"
+  },
+  "activation": {
+    "installed": false,
+    "reason": "Production native-store, service-identity, signed-closure, sandbox, provider-handshake, capacity, and credential-rotation gates remain unresolved. This artifact is generated and verified but never opened by the compatibility-shadow store."
+  }
+}

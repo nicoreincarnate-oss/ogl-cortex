@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">23</div><div><p class="dg">Design, data and AI quality</p>
-<h1>Evals and benchmarks</h1><p class="meta">3,248 words · <a href="../23-evals-and-benchmarks.md">Markdown source</a></p></div></header>
+<h1>Evals and benchmarks</h1><p class="meta">3,252 words · <a href="../23-evals-and-benchmarks.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#0-scale">0. Scale</a></li><li><a href="#1-the-eval-map">1. The eval map</a></li><li><a href="#2-each-check-in-detail">2. Each check in detail</a></li><li><a href="#3-what-these-checks-do-not-measure">3. What these checks do not measure</a></li><li><a href="#4-a-golden-dataset-sized-for-one-owner">4. A golden dataset sized for one owner</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document explains how OGL Cortex tests itself: which kinds of checks exist, what each one proves, how to run them, and how to build a small golden dataset for your own fleet. It covers the framework test suite, the guard test method, hook self-tests, liveness canaries, production lint logs, model evals and the security gate.</p>
 <p>Related documents: <code>01-core-architecture.md</code> (seats, bus, daemon), <code>02-execution-engine.md</code> (turns and tool calls), <code>03-configuration-registry.md</code> (where hooks are wired), <code>04-failsafe-boundary-log.md</code> (guard logic), <code>21-data-models-schema-registry.md</code> (event shapes), <code>22-prompt-registry.md</code>, <code>24-model-lifecycle.md</code>.</p>
@@ -149,7 +149,7 @@
 <td>security gate</td>
 <td>secrets, dependencies, authz evidence, ZAP</td>
 <td>free to minutes</td>
-<td>your gate command (not included)</td>
+<td><code>harness/security/cortex_pentest_gate.py</code></td>
 </tr>
 <tr>
 <td>12</td>
@@ -333,8 +333,8 @@ If the file exists afterwards, delete it and alert the owner: the guard is down.
 <p>The command-line tool is named <code>cortextos</code>.</p>
 <p><code>python3 harness/tools/brief_audit.py &lt;task_id&gt;</code> reads a task, takes the paths from its FILES line, reads the worker's transcripts for the task window, and lists every write as IN, tmp or OUT. It calls only <code>cortextos bus list-tasks</code> and reads files. Exit 0: no OUT; 3: at least one OUT; 2: usage error or task not found. Run it before you accept a return, and save its output next to the task result so the audit is itself a record.</p>
 <h3 id="213-pentest-gate">2.13 Pentest gate</h3>
-<p>The pentest gate is not included in this repository. Bring any scanner that writes <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code> or <code>"fail"</code>; the ship gate hook and <code>harness/tools/ship.sh</code> read only that file. A useful gate runs secret scanning, dependency audits, an API authorization evidence check, HTTP header checks and a dynamic scan such as OWASP ZAP.</p>
-<p>Scan the live URL for anything web-facing. A gate that runs without a URL skips the web scan and can still report <code>pass</code>. Record each scan's own return code in the report and read it before you trust a pass. Give the gate tests that prove it never prints a raw secret and that an undispositioned hit blocks.</p>
+<p>The pentest gate ships as <code>harness/security/cortex_pentest_gate.py</code>. Any other scanner works if it writes <code>security/pentest-gate-report.json</code> with <code>"status": "pass"</code> or <code>"fail"</code>; the ship gate hook and <code>harness/tools/ship.sh</code> read only that file. A useful gate runs secret scanning, dependency audits, an API authorization evidence check, HTTP header checks and a dynamic scan such as OWASP ZAP.</p>
+<p>Scan the live URL for anything web-facing. A gate that runs without a URL skips the web scan and can still report <code>pass</code>. Record each scan's own return code in the report and read it before you trust a pass. Give the gate tests that prove it never prints a raw secret and that an undispositioned hit blocks. The shipped gate has them in <code>harness/tests/test_pentest_gate.py</code> and <code>harness/security/test_secret_redaction.py</code>.</p>
 <h3 id="214-truth-correction-ledger">2.14 Truth-correction ledger</h3>
 <p>Each seat records a caught false claim with <code>harness/tools/emit-truth-correction.sh</code>, which validates the input and calls:</p>
 <div class="sourceCode" id="cb9"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus log-event action truth_correction info <span class="at">--meta</span> <span class="st">&#39;{&quot;kind&quot;:&quot;peer_catch&quot;,&quot;caught_agent&quot;:&quot;&lt;seat&gt;&quot;,&quot;caught_by&quot;:&quot;&lt;catcher&gt;&quot;,&quot;catcher_type&quot;:&quot;party&quot;,&quot;dedupe_key&quot;:&quot;&lt;key&gt;&quot;, ...}&#39;</span></span></code></pre></div>

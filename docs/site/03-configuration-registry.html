@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">03</div><div><p class="dg">Core system</p>
-<h1>Configuration Registry</h1><p class="meta">3,721 words · <a href="../03-configuration-registry.md">Markdown source</a></p></div></header>
+<h1>Configuration Registry</h1><p class="meta">3,733 words · <a href="../03-configuration-registry.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#why-a-registry">Why a registry</a></li><li><a href="#1-the-registry">1. The registry</a></li><li><a href="#2-record-shapes">2. Record shapes</a></li><li><a href="#3-prompt-assembly">3. Prompt assembly</a></li><li><a href="#4-keeping-configuration-consistent">4. Keeping configuration consistent</a></li><li><a href="#5-one-owner-file-per-setting">5. One owner file per setting</a></li><li><a href="#6-known-limitations">6. Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>Every file that shapes how OGL Cortex behaves, the real shape of each record type, how a turn's context is assembled, and which file owns each kind of setting.</p>
 <p>Placeholders (<code>$CORTEX_HOME</code>, <code>$CTX_ROOT</code>, <code>&lt;instance&gt;</code>, <code>&lt;org&gt;</code>, <code>&lt;seat&gt;</code>, <code>&lt;project-slug&gt;</code>) are defined in 01.</p>
@@ -238,7 +238,7 @@
 <td><code>&lt;seat&gt;/MEMORY.md</code>, auto-memory</td>
 <td>Seat</td>
 <td>Long-term memory (4.1)</td>
-<td>Seat, or an optional background consolidation job (not included)</td>
+<td>Seat, or a nightly consolidation cron prompt you write (no code ships)</td>
 <td>Hash watch on bootstrap names</td>
 <td>Seat git repo (auto-memory lives under <code>~/.claude/projects/</code>)</td>
 </tr>
@@ -626,9 +626,14 @@
 <td>Context meter nudge and warning at the token counts in <code>compaction.json</code></td>
 </tr>
 <tr>
-<td>SessionStart, UserPromptSubmit, PreCompact</td>
-<td>Optional, not included in this repository</td>
-<td>A checkpoint-inject hook, a reply-style router or a client-graph recall hook can add context at these points</td>
+<td>SessionStart (any)</td>
+<td><code>&lt;seat&gt;/.claude/hooks/ogl/memory/sessionstart_inject.py</code></td>
+<td>The newest pre-compaction checkpoint and the tail of today's daily memory</td>
+</tr>
+<tr>
+<td>UserPromptSubmit</td>
+<td>Optional: <code>memory/client-graph/recall_hook.py</code>, <code>memory/session-digest/index/recall_hook.py</code></td>
+<td>Client graph facts or notes search hits. A reply-style router is not included</td>
 </tr>
 </tbody>
 </table>

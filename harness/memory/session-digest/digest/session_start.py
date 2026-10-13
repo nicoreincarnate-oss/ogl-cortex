@@ -1,0 +1,94 @@
+# OGL Cortex session digest. Pattern adapted from Glitch Cat Club's memory starter. See harness/README.md (Licences).
+"""SessionStart hook: hand a staged session to this one to write up.
+
+Session mode only. When a session closed and left its text staged, this hands
+that text, the voice and one instruction to the session opening now. The write
+up goes to a background sub-agent, so the session you are in carries on and is
+never waiting on it.
+
+In headless mode there is nothing to do here and nothing is printed.
+"""
+
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+import common  # noqa: E402
+
+DISTIL = HERE.parent / "index" / "distil.py"
+BUILD = HERE.parent / "index" / "build_index.py"
+
+
+def main():
+    cfg = common.config()
+    if cfg["mode"] != "session":
+        return
+    staged = sorted(common.PENDING.glob("*.md")) if common.PENDING.is_dir() else []
+    if not staged:
+        return
+    payload = {}
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        pass
+    notes = common.corpus(payload if isinstance(payload, dict) else {})
+    if notes is None:
+        return
+
+    first = staged[0]
+    text = first.read_text(encoding="utf-8")
+    if not text.strip():
+        first.unlink(missing_ok=True)
+        return
+
+    log = common.today_log(notes, cfg)
+    steps = [
+        f"1. Write the entry into {log} under a new heading: "
+        f"## Session {datetime.now():%H:%M}. The file is appended to, never edited.",
+        f"2. Delete the staged file {first}.",
+    ]
+    if cfg["distil"]:
+        steps.append(f'3. Run: python3 "{DISTIL}" "{notes}"')
+    else:
+        steps.append(f'3. Run: python3 "{BUILD}" --corpus "{notes}" --update "{log.relative_to(notes).as_posix()}"')
+
+    body = (
+        "A session closed and left its text to be written up.\n\n"
+        "Hand this to a background sub-agent NOW, before you answer anything else, "
+        "and then carry on with whatever I ask. Do not do it yourself and do not "
+        "make me wait for it. Spawn one background sub-agent with the steps, the "
+        "voice and the session text below, exactly as they are, then tell me in one "
+        "line that the last session is being written up.\n\n"
+        "=== the steps, for the sub-agent ===\n\n"
+        + "\n".join(steps)
+        + "\n\n=== how to write it ===\n\n"
+        + common.PROMPT.read_text(encoding="utf-8")
+        + "\n\n=== the session ===\n\n"
+        + text
+    )
+    count = len(staged)
+    print(
+        json.dumps(
+            {
+                "systemMessage": (
+                    f"memory: {count} session{'' if count == 1 else 's'} to write up"
+                ),
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": body,
+                },
+            }
+        )
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:  # a session opening is never blocked by this
+        common.note_failure("session_start", f"{type(exc).__name__} {exc}")
+    sys.exit(0)

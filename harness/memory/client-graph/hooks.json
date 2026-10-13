@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/memory/client-graph/recall_hook.py", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

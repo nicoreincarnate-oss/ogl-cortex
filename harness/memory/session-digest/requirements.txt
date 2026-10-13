@@ -1,0 +1,3 @@
+# Optional. Without it the index is keyword-only (SQLite FTS5) and everything else works.
+# With it, search adds a meaning leg (local bge-small-en-v1.5 model, about 67 MB, downloaded on first build).
+fastembed

@@ -92,7 +92,7 @@ The command-line tool is named `cortextos`.
 | 15 | `$CTX_ROOT/config/enabled-agents.json` | Daemon | Which registered seats start | `cortextos start <seat>`, `cortextos stop <seat>` | Daemon writes | Back up on change |
 | 16 | `$CORTEX_HOME/templates/` | Framework upstream | Starting shape for new seats: `agent`, `orchestrator`, `analyst`, `agent-codex`, `agent-opencode`, `hermes`, `m2c1-worker`, `org` | Upstream; the analyst's drift check watches it | Framework git | Framework repo |
 | 17 | `<seat>/ENTITIES.md` | Orchestrator | Canonical noun index: people, places, prices | Orchestrator, behind a written write gate | Prose gate | Seat git repo |
-| 18 | `<seat>/MEMORY.md`, auto-memory | Seat | Long-term memory (4.1) | Seat, or an optional background consolidation job (not included) | Hash watch on bootstrap names | Seat git repo (auto-memory lives under `~/.claude/projects/`) |
+| 18 | `<seat>/MEMORY.md`, auto-memory | Seat | Long-term memory (4.1) | Seat, or a nightly consolidation cron prompt you write (no code ships) | Hash watch on bootstrap names | Seat git repo (auto-memory lives under `~/.claude/projects/`) |
 | 19 | `<seat>/STATE.md` | Seat | Where the work stands; re-injected after compaction | Seat | None | Seat git repo |
 | 20 | `<seat>/.claude/hooks/ogl/` | Seat owner | Hooks installed by `harness/install.sh`: the guards and the compaction kit (`compaction/`: `meter.py`, `after_compact.py`, `save_summary.py`, `common.py`, `compaction.json`) | Orchestrator under auditor gate | Hash watch, `.gated-<sha>` | Seat git repo |
 | 21 | `<seat>/.claude/skills/`, `~/.claude/skills/` | Template and seat; owner for user skills | Skill text loaded on demand | Orchestrator | Hash watch | Seat repo; user skills in the `~/.claude` repo |
@@ -390,7 +390,8 @@ Cron prompts can carry real logic, for example a liveness canary procedure insid
 |---|---|---|
 | SessionStart (`compact`) | `<seat>/.claude/hooks/ogl/compaction/after_compact.py` | Full STATE.md, "Trust it over the summary" |
 | PostToolUse | `<seat>/.claude/hooks/ogl/compaction/meter.py` | Context meter nudge and warning at the token counts in `compaction.json` |
-| SessionStart, UserPromptSubmit, PreCompact | Optional, not included in this repository | A checkpoint-inject hook, a reply-style router or a client-graph recall hook can add context at these points |
+| SessionStart (any) | `<seat>/.claude/hooks/ogl/memory/sessionstart_inject.py` | The newest pre-compaction checkpoint and the tail of today's daily memory |
+| UserPromptSubmit | Optional: `memory/client-graph/recall_hook.py`, `memory/session-digest/index/recall_hook.py` | Client graph facts or notes search hits. A reply-style router is not included |
 
 ### 3.6 Goals cascade
 

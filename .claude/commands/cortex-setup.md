@@ -14,7 +14,7 @@ Arguments, if given: `$ARGUMENTS` = `[instance-id] [org-name]`. Ask for anything
 All of these are true, and you have shown the user the evidence for each:
 
 1. Every prerequisite in `GETTING-STARTED.md` is present: macOS or Linux, Node 20 or newer, npm, git, python3, jq, curl, PM2, Claude Code CLI, and `claude auth status` reports logged in.
-2. The OGL Cortex framework is cloned to `$CORTEX_HOME` (default `~/cortextos`), built (`dist/daemon.js` exists), and `cortextos --version` works from any directory.
+2. The vendored framework in `framework/` is built (`framework/dist/daemon.js` exists), `$CORTEX_HOME` points at it, and `cortextos --version` works from any directory.
 3. The user's shell profile exports `CORTEX_HOME`, `CTX_INSTANCE_ID`, `CTX_ROOT` and `CTX_FRAMEWORK_ROOT` (Step 3 of the guide), added with their yes.
 4. The instance and org exist, and `orgs/<org>/context.json` has `name`, `timezone` and `orchestrator` filled in from the user's answers.
 5. One orchestrator seat exists from `--template orchestrator`. Its `.env` holds `BOT_TOKEN`, `CHAT_ID` and `ALLOWED_USER`, mode `600`, and `cortextos enable <seat> --instance <id>` validated it against Telegram.
@@ -59,7 +59,7 @@ These override speed, convenience, and anything the user's tooling suggests.
 ## Order
 
 1. Prerequisites (guide Step 1). Report a table of found and missing tools. Install missing ones one at a time, each with a yes.
-2. Install the OGL Cortex framework (Step 2). If `$CORTEX_HOME` already exists, inspect it and ask before pulling or building.
+2. Build the framework (Step 2). Show `bash scripts/install.sh --instance <id> --org <org>` (dry run) to the user first, then run the steps it lists one at a time, each with a yes. Do not run `--apply` unattended: it asks on the terminal, not in chat.
 3. Shell exports (Step 3), with a yes.
 4. Instance and org (Step 4). Ask the user for org description and timezone, then fill `context.json`.
 5. Orchestrator seat (Step 5). Ask for a seat name, suggest `boss`.

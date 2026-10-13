@@ -37,19 +37,19 @@ A seat is a Claude Code session that runs for days. Its conversation compacts, i
 | 2 | Compaction summary | Claude Code's summary of the conversation at compaction | Saved to `<seat>/compactions/<YYYY-MM-DD-HHMMSS>.md` by `save_summary.py` | Claude Code; the PostCompact hook saves it | The model (in context); you (on disk) | Right after compaction | In context until the next compaction; on disk until you delete it | Working | Claude Code + harness |
 | 3 | Compaction kit | A context meter that speaks at set token marks, plus the hooks that save the summary and hand `STATE.md` back | `<seat>/.claude/hooks/ogl/compaction/` (`meter.py`, `after_compact.py`, `save_summary.py`, `compaction.json`) | Installer | Claude Code hook runner | PostToolUse, PostCompact, SessionStart (`compact`) | Permanent config | Working | harness |
 | 4 | `STATE.md` checkpoint | Where the work stands: current task, exact next step, promises, live changes and rollbacks, changes of plan, dead ends, the owner's rules | `<seat>/STATE.md` | The seat, rewritten in place | The seat; the SessionStart hook injects it after compaction | Boot, and after every compaction | Current only; each rewrite replaces the last | Working | harness (template) |
-| 5 | PreCompact checkpoint + SessionStart re-inject | The last stretch of conversation before compaction, and the tail of today's daily log, pasted back at session start | `<seat>/memory/checkpoints/latest.md` | A PreCompact hook you add | A SessionStart hook you add | SessionStart | Overwritten each compaction; inject skips files older than a cutoff | Working | convention |
+| 5 | PreCompact checkpoint + SessionStart re-inject | The last stretch of conversation before compaction, and the tail of today's daily log, pasted back at session start | `<seat>/memory/checkpoints/latest.md` | `harness/hooks/memory/precompact_checkpoint.py` (PreCompact) | `harness/hooks/memory/sessionstart_inject.py` (SessionStart) | SessionStart | `latest.md` overwritten each compaction, newest 20 timestamped copies kept; inject skips files older than 72 hours | Working | harness |
 | 6 | Daily memory log | Append-only journal: session start, `WORKING ON:` before each task, `COMPLETED:` after, heartbeat snapshots, inline notes, session end | `<seat>/memory/YYYY-MM-DD.md` | The seat | The seat at boot; the knowledge base after ingest | Boot (today's file); on demand | Kept until you archive it | Episodic | Framework (protocol) |
 | 7 | Seat `MEMORY.md` | Long-term lessons, patterns, corrections received, user preferences | `<seat>/MEMORY.md` | The seat | The seat at boot | Boot | Months; pruned by hand or by a consolidation pass | Semantic | Framework (template) |
 | 8 | Claude Code auto-memory | One fact per file with typed frontmatter, plus an index file that loads every session | `~/.claude/projects/<project-slug>/memory/` (`MEMORY.md` index + `<slug>.md` notes) | Claude Code and the seat | Claude Code loads the index; the seat opens notes on demand | Every session start (index only) | Until deleted | Semantic | Claude Code |
-| 9 | `ENTITIES.md` noun index | One entry per person, place or thing, each fact with source and as-of date | `<seat>/ENTITIES.md` | The seat, through a write gate | The seat at boot and before answering about a noun | Boot | Updated in place when a fact changes | Semantic + provenance | convention |
+| 9 | `ENTITIES.md` noun index | One entry per person, place or thing, each fact with source and as-of date | `<seat>/ENTITIES.md` | The seat, through a write gate | The seat at boot and before answering about a noun | Boot | Updated in place when a fact changes | Semantic + provenance | harness (template) |
 | 10 | Org `knowledge.md` | Shared facts every seat in the org needs | `$CORTEX_HOME/orgs/<org>/knowledge.md` | Any seat | Every seat at boot | Boot | Until edited | Semantic | Framework |
 | 11 | Knowledge base (RAG) | Chunked, embedded documents: memory files, research, outputs, media descriptions | `$CTX_ROOT/orgs/<org>/knowledge-base/` (`config.json`, `chromadb/`) | `cortextos bus kb-ingest` | `cortextos bus kb-query` | On demand | Until re-ingested or deleted | Semantic | Framework |
-| 12 | Session facts | Compaction summaries stored as JSON lines with keywords | `$CTX_ROOT/state/<seat>/memory/facts/YYYY-MM-DD.jsonl` | `hook-extract-facts` (PreCompact) | `cortextos bus recall-facts` | On demand | Until deleted; recall scans up to 30 days | Episodic | Framework (not wired by default) |
-| 13 | Session digests | A filtered, model-written summary of each session | A seat folder of your choice, for example `<seat>/memory/digests/` | A SessionEnd / PreCompact hook you add | The seat on demand; the knowledge base after ingest | On demand | Until deleted | Episodic | convention |
+| 12 | Session facts | Compaction summaries stored as JSON lines with keywords | `$CTX_ROOT/state/<seat>/memory/facts/YYYY-MM-DD.jsonl` | `harness/hooks/memory/session_facts.py` (PostCompact) | `cortextos bus recall-facts` | On demand | Until deleted; recall scans up to 30 days | Episodic | Framework (reader) + harness (writer) |
+| 13 | Session digests | A filtered, model-written summary of each session, plus a local keyword (and optional embedding) index | `<seat>/memory/digests/YYYY-MM-DD.md`; index at `<seat>/.claude/hooks/ogl/memory/session-digest/index/index.db` | `session-digest` SessionEnd and PreCompact hooks | `search.py`; an optional UserPromptSubmit recall hook; the knowledge base after ingest | On demand, or every prompt with the recall hook | Until deleted | Episodic | harness (`--with-digest`) |
 | 14 | Structured knowledge store (GBrain) | Pages about people, companies, meetings and ideas, with keyword and hybrid search | Its own database, served over MCP | Any agent via `gbrain put` or MCP | Any agent via `gbrain search`, `gbrain query`, `gbrain get` or MCP | On demand | Permanent | Semantic | optional |
 | 15 | Obsidian vault mirror | Human-readable markdown copy of the knowledge store, editable by hand | A folder you choose | You; `gbrain export` | You; `gbrain import` back into the store | On demand | Permanent | Semantic | optional |
-| 16 | Graph layer | Nodes and edges extracted from the vault, clustered into communities; traversal queries | `graphify-out/graph.json` in the vault; optional Neo4j database; a graph MCP server | graphify (and an optional Neo4j loader) | Any agent via MCP or `graphify query` | On demand | Rebuilt on each run | Relational | optional |
-| 17 | Client memory graph | People and accounts with dated, quoted facts, each quote checked against its source message | A small SQLite database in the seat | A build script you run | A UserPromptSubmit hook that injects matching facts | Every prompt that names a known entity | Until rebuilt | Relational + provenance | convention |
+| 16 | Graph layer | Nodes and edges extracted from the vault, clustered into communities; traversal queries | `graphify-out/graph.json` in the vault; optional Neo4j database; a graph MCP server | graphify (and an optional Neo4j loader) | Any agent via MCP (`harness/memory/vault-graph/graph_mcp.py`) or `graphify query` | On demand | Rebuilt on each run | Relational | optional (harness ships the wikilink builder, the MCP server and the Neo4j loader) |
+| 17 | Client memory graph | People and accounts with dated, quoted facts, each quote checked against its source message | `<seat>/.claude/hooks/ogl/memory/client-graph/graph.db` | `build_graph.py` (run by hand or by cron) | `recall_hook.py` (UserPromptSubmit) injects matching facts | Every prompt that names a known entity and asks about it | Until rebuilt | Relational + provenance | harness (`--with-client-graph`) |
 | 18 | Truth-correction ledger | Each time an agent stated something false: the claim, the correction, who caught it, evidence | `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/YYYY-MM-DD.jsonl` (`event: truth_correction`) | `harness/tools/emit-truth-correction.sh` | Scoring jobs, reviews, the seat itself | On demand | Append-only, permanent | Provenance | harness |
 | 19 | Message logs | Every inbound and outbound Telegram message; agent-to-agent messages | `$CTX_ROOT/logs/<seat>/inbound-messages.jsonl`, `outbound-messages.jsonl`; `$CTX_ROOT/inbox/<seat>/`, `processed/<seat>/` | Daemon, `send-telegram`, `send-message` | The seat; audit tools; the truth ledger's evidence checks | On demand | Append-only | Episodic + provenance | Framework |
 | 20 | Event log | Everything a seat chose to log: actions, tasks, errors, heartbeats, metrics | `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/YYYY-MM-DD.jsonl` | `cortextos bus log-event` | Dashboard, reviews, scoring | On demand | Append-only, one file per seat per UTC day | Episodic | Framework |
@@ -76,7 +76,15 @@ Set the thresholds below your Claude Code compaction point (`autoCompactWindow` 
 
 `STATE.md` is the seat's own record of where the work stands. The template at `harness/templates/STATE.md` has fixed sections: Checkpoint (current task, where it stands, exact next step), Promises to the user, Live surfaces changed (with rollback), Changes of plan (old, new, why, told the user?), Decisions and findings, Dead ends, Open dispatches, and the user's rules in their own words. Because a hook pastes it back after every compaction, it is the one file that crosses compaction intact by design.
 
-Layer 5 is a pattern you can add next to the kit. A PreCompact hook copies the last part of the conversation (user and assistant text, no tool output) to `memory/checkpoints/latest.md`, and a SessionStart hook injects that file, if it is recent, plus the tail of today's daily log. It recovers the last few exchanges that a summary tends to flatten. Section 7.2 explains how to build it so it does not fail silently.
+Layer 5 ships in `harness/hooks/memory/` next to the kit:
+
+| File | Hook event | What it does |
+|---|---|---|
+| `transcript.py` | n/a | Shared reader. Keeps the user's words and the agent's text replies. Drops tool calls and results, thinking, sub-agent lines, injected harness text, system reminders and `[CRON FIRED ...]` prompts |
+| `precompact_checkpoint.py` | PreCompact | Writes the last 40 messages (600 characters each) to `memory/checkpoints/latest.md` and a timestamped copy, and appends `NOTE <hh:mm> UTC: [hook] PreCompact checkpoint written (N msgs captured)` to today's daily log. A capture of zero is written as `CHECKPOINT FAILED` |
+| `sessionstart_inject.py` | SessionStart (every source) | Injects `latest.md` if it is under 72 hours old, the tail of today's daily log (or yesterday's), and an `ENTITIES.md` reminder. A failed checkpoint arrives as a warning, not as content |
+
+It recovers the last few exchanges that a summary tends to flatten. Section 7.3 explains why it is built the way it is. The limits are environment variables listed in `harness/README.md`.
 
 ### 2.2 Daily log and long-term files (layers 6, 7, 9, 10)
 
@@ -152,9 +160,16 @@ A daily cron that re-ingests memory files keeps the private collection current. 
 
 ### 2.5 Session facts and session digests (layers 12, 13)
 
-The framework ships a PreCompact hook, `dist/hooks/hook-extract-facts.js`, that appends a compaction summary with extracted keywords to `$CTX_ROOT/state/<seat>/memory/facts/<date>.jsonl`. `cortextos bus recall-facts --days 3` reads them back. The agent template does not wire this hook, so the layer is empty until you add it to a seat's `PreCompact` hooks. See Known limitations before you rely on it.
+`cortextos bus recall-facts --days 3` reads compaction summaries, with extracted keywords, from `$CTX_ROOT/state/<seat>/memory/facts/<date>.jsonl`. The framework's own writer, `dist/hooks/hook-extract-facts.js`, is a PreCompact hook that reads a `summary` field. Claude Code's PreCompact payload carries no summary, because the summary does not exist yet, so that hook writes nothing. The harness writer `session_facts.py` runs at PostCompact instead, where the payload carries `compact_summary`, and writes the same JSON-lines shape (`ts`, `session_id`, `agent`, `org`, `source`, `summary`, `keywords`). The installer wires it.
 
-A session digest is a richer pattern. A SessionEnd (and PreCompact) hook filters the transcript in code, keeping the user's words and the agent's replies and dropping tool calls, results and file dumps, then either stages the text for the next session to write up or spawns a short headless Claude run to write the digest. The hook must return fast and always exit `0`, so a session is never held up by its own memory. Ingest digests into the private knowledge base collection so they become searchable.
+Session digests ship in `harness/memory/session-digest/` and install with `--with-digest`:
+
+1. A SessionEnd and PreCompact hook (`digest/session_end.py`) filters the transcript in code with the same keep and drop rules as the checkpoint. It stages the text and returns in well under a second. It always exits `0`, so a session is never held up by its own memory.
+2. In `headless` mode it spawns `digest/headless_run.py` detached. That runs one `claude -p` call in an empty folder, appends the entry to `<seat>/memory/digests/<YYYY-MM-DD>.md`, and re-indexes that file. In `session` mode the next session writes the entry up in a background sub-agent instead, and the hook spends no model call.
+3. `index/build_index.py` indexes the seat's `memory/` folder into a local SQLite FTS5 keyword index. With the optional `fastembed` package it adds a local embedding leg. `index/search.py "<question>"` merges both legs by rank fusion. No API key and no network are needed.
+4. `--with-notes-recall` adds `index/recall_hook.py`, a UserPromptSubmit hook that injects the top hits on every prompt that is not a cron fire.
+
+Digests are plain markdown, so the knowledge base can ingest them too (section 2.4).
 
 ### 2.6 The optional knowledge stack (layers 14, 15, 16)
 
@@ -167,18 +182,22 @@ source of truth          human mirror            extractor          graph query 
 
 - **GBrain** is the structured store. Pages have slugs, types and tags. `gbrain put <slug> < page.md` writes, `gbrain get <slug>` reads, `gbrain search` does keyword search, and `gbrain query` does hybrid search when embeddings are configured. `gbrain serve` runs it as a stdio MCP server.
 - **The Obsidian vault** is a folder of markdown with `[[wikilinks]]`. `gbrain export --dir <vault>` writes the store out; `gbrain import <vault>` reads edits back. People browse and edit here.
-- **The graph layer** extracts nodes and edges from the vault with graphify, clusters them, and writes `graphify-out/graph.json`. `graphify query "<question>"`, `graphify path "A" "B"` and `graphify explain "X"` traverse it. A graph MCP server (bring your own, or use a Neo4j MCP) exposes neighbour, path and community queries to agents.
+- **The graph layer** turns the vault into `graphify-out/graph.json`. graphify extracts concepts with a model and clusters them; `graphify query "<question>"`, `graphify path "A" "B"` and `graphify explain "X"` traverse it. The harness ships a model-free alternative, `harness/memory/vault-graph/vault_graph.py`, that builds the same file shape from `[[wikilinks]]` and tags. `graph_mcp.py`, also in that folder, serves either file to agents over MCP with `memory_query`, `memory_neighbors`, `memory_shortest_path` and `memory_read_note`. `neo4j_load.py` and `docker-compose.yml` load it into a local Neo4j for Cypher queries.
+
+Install steps for all three are in GETTING-STARTED.md, [M6](../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer).
 
 Recall across this stack goes structured first (GBrain), relational second (graph), raw notes last.
 
 ### 2.7 Client memory graph (layer 17)
 
-For a seat that talks about many people and accounts, a small graph of entities with dated, quoted facts beats a long file. A build script reads the message logs, extracts entities, aliases and relations, and stores each fact with the exact quote and the message it came from. Each quote is checked against its source message before it enters the graph. A UserPromptSubmit hook then runs on every prompt:
+For a seat that talks about many people and accounts, a small graph of entities with dated, quoted facts beats a long file. It ships in `harness/memory/client-graph/` and installs with `--with-client-graph`; the installer copies code only, never a database. `build_graph.py` reads the message logs, extracts entities, aliases and relations, and stores each fact with the exact quote and the message it came from. Each quote is checked against its source message before it enters the graph. A UserPromptSubmit hook then runs on every prompt:
 
 1. It skips scheduled prompts (cron fires are not questions about a person).
 2. For wrapped Telegram or bus messages, it reads only the newest message, not the repeated history.
 3. If the prompt names a known entity and asks about it, it injects the matching facts, capped in size, labelled so the model knows quotes are evidence and summaries are model-written.
 4. It never blocks and always exits `0`.
+
+`build_graph.py` keeps a fact only when code finds its quote in the source message, and it never takes ownership or roles from a chat quote; those come from your config file. `evals.py --cases <file>` runs known-answer checks after each rebuild. `fixtures/` holds a small synthetic data set the tests use.
 
 The value is timing. The facts arrive before the model reads the question, so the seat does not have to remember to look.
 
@@ -232,7 +251,7 @@ sequenceDiagram
     X->>X: graphify rebuilds graph.json
 ```
 
-The diagram shows every write path and read path a fully configured seat uses. A base install has the daemon, the daily log, `MEMORY.md`, `knowledge.md`, the knowledge base, the event and message logs, and tasks. The harness adds the compaction kit and `STATE.md`. The rest are conventions or optional components.
+The diagram shows every write path and read path a fully configured seat uses. A base install has the daemon, the daily log, `MEMORY.md`, `knowledge.md`, the knowledge base, the event and message logs, and tasks. The harness adds the compaction kit, `STATE.md`, the checkpoint and inject hooks, session facts, the memory templates and, by flag, session digests and the client graph. GBrain, the vault and the graph layer are optional components. The nightly consolidation step is a cron prompt you write (section 8.4); no code ships for it.
 
 ---
 
@@ -391,13 +410,13 @@ The pattern: everything on disk survives everything except a move to a new machi
 - **Context hand-off.** The daemon tracks context use against `ctx_warning_threshold` and `ctx_handoff_threshold` in the seat's `config.json`. If Claude Code's compaction point is lower than those thresholds, compaction always happens first and the compaction kit does the work.
 - **Crash.** The daemon relaunches the seat up to `max_crashes_per_day`. Anything not yet written to disk is gone, which is why the protocol writes at every checkpoint instead of at session end.
 
-### 7.3 Building a checkpoint hook that cannot fail silently
+### 7.3 Why the checkpoint hook cannot fail silently
 
-If you add the PreCompact checkpoint (layer 5), three details matter:
+The shipped checkpoint (layer 5) is built around three details. Keep them if you change it:
 
-1. **Read the hook input before anything else consumes stdin.** A shell hook that runs `python3 - << 'EOF'` feeds the script itself on stdin, so the hook's JSON never arrives and `transcript_path` is always empty. Put the Python in its own file, or pass the input through an environment variable.
-2. **Record the capture count and treat zero as a failure.** A checkpoint that writes "0 messages captured" every time looks healthy in a file listing. Log the count, and alert when it is zero.
-3. **Fire it once on purpose.** Run `/compact` in a test seat and open the checkpoint file before you trust it.
+1. **It reads the hook input before anything else consumes stdin.** A shell hook that runs `python3 - << 'EOF'` feeds the script itself on stdin, so the hook's JSON never arrives and `transcript_path` is always empty. `precompact_checkpoint.py` is a plain Python file that Claude Code runs directly. `harness/tests/test_memory_hooks.py` keeps a regression case for the heredoc form.
+2. **It records the capture count and treats zero as a failure.** A checkpoint that writes "0 messages captured" every time looks healthy in a file listing. A zero capture writes `CHECKPOINT FAILED`, the inject hook turns that into a warning at the next session start, and `scripts/doctor.sh` reports it as a `FAIL`.
+3. **You fire it once on purpose.** Send `/compact` to the seat and open `memory/checkpoints/latest.md` before you trust it. GETTING-STARTED.md, [M1](../GETTING-STARTED.md#m1-prove-the-core-memory-hooks), has the commands.
 
 ---
 
@@ -409,55 +428,66 @@ If you add the PreCompact checkpoint (layer 5), three details matter:
 |---|---|
 | Memory protocol (daily log, `MEMORY.md`, knowledge base) | `templates/agent/AGENTS.md`, `templates/agent/MEMORY.md`, `templates/agent/memory/` |
 | Org knowledge file | `orgs/<org>/knowledge.md` |
-| Knowledge base CLI and engine | `src/bus/knowledge-base.ts`, `knowledge-base/scripts/mmrag.py` |
-| Session facts hook and recall command | `src/hooks/hook-extract-facts.ts` (built to `dist/hooks/hook-extract-facts.js`), `cortextos bus recall-facts` |
+| Knowledge base CLI, engine and setup | `src/bus/knowledge-base.ts`, `knowledge-base/scripts/mmrag.py`, `bus/kb-setup.sh` |
+| Session facts reader | `cortextos bus recall-facts` (the framework's PreCompact writer, `hook-extract-facts`, writes nothing; see section 2.5) |
 | Event log, message logs, tasks, approvals | `src/bus/event.ts`, `src/bus/message.ts`, `src/bus/task.ts`, `src/bus/approval.ts` |
 | Restart and rotation | `src/daemon/agent-process.ts`, `src/daemon/fast-checker.ts` |
 
 ### 8.2 In this repo (the OGL Cortex harness)
 
-| Component | Path in this repo |
-|---|---|
-| Compaction kit | `harness/hooks/compaction/` |
-| `STATE.md` template | `harness/templates/STATE.md` |
-| Seat `CLAUDE.md` with the memory protocol and `STATE.md` rules | `harness/templates/CLAUDE.md` |
-| Truth-correction emitter | `harness/tools/emit-truth-correction.sh` |
-| Future-time guard and shared-surface guard | `harness/hooks/future_time_guard.py`, `harness/hooks/shared_surface_guard.py` |
-| Hook wiring | `harness/settings.example.json` |
-| Installer | `harness/install.sh <seat-dir>` (dry run), `harness/install.sh <seat-dir> --apply` |
+| Component | Path in this repo | Installed by |
+|---|---|---|
+| Compaction kit | `harness/hooks/compaction/` | `install.sh --apply` |
+| PreCompact checkpoint, SessionStart re-inject, session facts | `harness/hooks/memory/` | `install.sh --apply` |
+| Session digests and their local search index | `harness/memory/session-digest/` | `--with-digest` |
+| Notes recall on every prompt | `harness/memory/session-digest/index/recall_hook.py` | `--with-notes-recall` (needs `--with-digest`) |
+| Client memory graph and its recall hook | `harness/memory/client-graph/` | `--with-client-graph` (code only; you build `graph.db`) |
+| Vault graph builder, graph MCP server, Neo4j loader | `harness/memory/vault-graph/` | By hand, at user level (GETTING-STARTED.md M6) |
+| Seat templates: `CLAUDE.md`, `STATE.md`, `ENTITIES.md`, `MEMORY.md`, `GUARDRAILS.md`, `HEARTBEAT.md`, `daily-memory.md` | `harness/templates/` | `install.sh --apply` |
+| Org templates: `org-GUARDRAILS.md`, `org-knowledge.md` | `harness/templates/` | `install.sh --apply`, when the seat sits under `orgs/<org>/agents/` |
+| User-level read order | `harness/templates/user-CLAUDE.md` | `--user-level` |
+| Truth-correction emitter | `harness/tools/emit-truth-correction.sh` | Run in place |
+| Future-time guard and shared-surface guard | `harness/hooks/future_time_guard.py`, `harness/hooks/shared_surface_guard.py` | `install.sh --apply` |
+| Hook wiring and `autoCompactWindow` | `harness/settings.example.json`, each component's `hooks.json` | `install.sh --apply` |
+| Memory checks | `scripts/doctor.sh` (Memory section) | Run in place |
 
-The installer copies the compaction kit to `<seat>/.claude/hooks/ogl/compaction/` and places `STATE.md` in the seat if one does not exist. Merge the `hooks` block from `settings.example.json` into the seat's `.claude/settings.json`.
+The installer works on one seat folder. `harness/install.sh <seat-dir>` prints the plan and writes nothing. `--apply` writes. It:
 
-### 8.3 Conventions you add in seat files
+- copies the hooks to `<seat>/.claude/hooks/ogl/` and merges their entries into `<seat>/.claude/settings.json`, skipping entries already present, and sets `autoCompactWindow` only when the seat has none
+- merges each template into its target file as one marked block, between `<!-- OGL-CORTEX:BEGIN <name> ... -->` and `<!-- OGL-CORTEX:END <name> -->`. A file that already has its own text keeps it; the block holds the template from its OGL heading down. A second run replaces the block in place, so running the installer twice changes nothing
+- creates `STATE.md`, `ENTITIES.md`, `MEMORY.md` and `memory/` only if missing
+- copies every file it changes to `<file>.bak-<UTC timestamp>` first
 
-These need no code from this repo, only text in the seat and, for some, a small hook you write:
+`harness/README.md` lists every target and rule. GETTING-STARTED.md, [Memory: full setup](../GETTING-STARTED.md#memory-full-setup), walks through turning on and proving each layer.
 
-- `ENTITIES.md` with the write gate at the top of the file
-- the PreCompact checkpoint and SessionStart re-inject hooks (section 7.3)
-- session digests (section 2.5)
-- the client memory graph and its UserPromptSubmit hook (section 2.7)
-- the session-facts hook: add `node $CORTEX_HOME/dist/hooks/hook-extract-facts.js` to the seat's `PreCompact` hooks
+### 8.3 Conventions that stay in seat files
+
+Some memory rules are text, not code. The templates carry them, and the seat follows them:
+
+- the write gate at the top of `ENTITIES.md` (section 5.2)
+- the daily log format in `daily-memory.md` and the memory protocol table in `CLAUDE.md`
+- the `MEMORY.md` index rules (section 5.3)
+- the memory steps in `HEARTBEAT.md`: entity upkeep, knowledge base re-ingest, checkpoint health
+- the recall order (section 6), in the seat's `CLAUDE.md` and, with `--user-level`, in `~/.claude/CLAUDE.md`
 
 ### 8.4 Optional external components
 
-GBrain, Obsidian, graphify and Neo4j are separate projects. Install each from its own source, then wire it to Claude Code over MCP so every seat can call it:
+GBrain, Obsidian, graphify and Neo4j are separate projects. GETTING-STARTED.md, [M6](../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer), has the full install steps. In short:
 
-```bash
-# Structured knowledge store, as a stdio MCP server for every project
-claude mcp add --scope user gbrain -- gbrain serve
+| Component | Install | Wire to Claude Code |
+|---|---|---|
+| GBrain | Clone `github.com/garrytan/gbrain`, `bun install && bun link`, `gbrain init` | `claude mcp add --scope user gbrain -- gbrain serve` |
+| Obsidian vault | Open a folder in Obsidian as a vault | None. Sync with `gbrain export --dir <vault>` and `gbrain import <vault>` |
+| graphify | `uv tool install graphifyy`, `graphify install --platform claude` | Run `/graphify .` in Claude Code inside the vault |
+| Vault graph MCP | Copy `harness/memory/vault-graph/graph_mcp.py` to a user-level folder | `claude mcp add --scope user vault-graph -- env OGL_GRAPH_JSON=<graph.json> OGL_VAULT_DIR=<vault> python3 <path>/graph_mcp.py` |
+| Neo4j | `docker compose up -d` in a copy of `harness/memory/vault-graph/`, with `NEO4J_PASSWORD` set | Load with `neo4j_load.py <graph.json>`; query with Cypher |
 
-# A graph MCP server of your choice (example shape)
-claude mcp add --scope user graph -- <graph-mcp-command> [args]
-```
-
-Then tell seats the recall order in their `CLAUDE.md` (section 6), and add a nightly cron to the seat that owns consolidation:
+Then add a nightly cron to the seat that owns consolidation:
 
 ```bash
 cortextos bus add-cron <seat> memory-nightly "<cron-expr>" \
-  "Consolidate today's lessons into MEMORY.md and auto-memory, run the write gate, gbrain put durable facts, gbrain export to the vault, and rebuild the graph."
+  "Consolidate today's lessons into MEMORY.md and auto-memory, run the write gate, gbrain import the vault, gbrain put durable facts, gbrain export to the vault, and rebuild the graph."
 ```
-
-Obsidian needs no wiring: point it at the vault folder. Re-import edits made in Obsidian with `gbrain import <vault>`.
 
 A seat must not depend on an optional component to boot. If an MCP server fails to connect, the seat falls back to the knowledge base and raw files, and says which layer it could not reach.
 
@@ -472,8 +502,15 @@ A seat must not depend on an optional component to boot. If an MCP server fails 
 - **The truth ledger shape lives in a script.** `emit-truth-correction.sh` enforces it, but anyone can call `cortextos bus log-event` directly and skip every check.
 - **The knowledge base needs an external embedding API.** Ingest and query call Gemini. Without `GEMINI_API_KEY`, or without network access, the knowledge base cannot ingest or answer.
 - **Ingested text is a snapshot.** A file changed after ingest keeps its old chunks until it is re-ingested with `--force`.
-- **Session facts depend on the PreCompact payload.** `hook-extract-facts` stores a `summary` field from its input and writes nothing when that field is absent. Check what your Claude Code version passes to PreCompact hooks, and prefer the harness `save_summary.py` (PostCompact) for saving summaries.
-- **The agent template's `AGENTS.md` mentions a `--collection` flag and a `memory-<seat>` collection** that `kb-query` and `kb-ingest` do not accept. Use `--scope private`, which writes to `agent-<seat>`.
+- **The framework's facts hook writes nothing.** `hook-extract-facts` runs at PreCompact and stores a `summary` field that Claude Code's PreCompact payload does not carry. Do not wire it. The harness `session_facts.py` writes the same file at PostCompact.
+- **The transcript filters know today's transcript format.** If Claude Code changes the session file format, the checkpoint writes `CHECKPOINT FAILED` and the digest stages nothing. Neither blocks, and the doctor flags the failed checkpoint.
+- **Headless digests cost a model call** per session end and per compaction, on the seat's own Claude login. `session` mode avoids it.
+- **The digest index is keyword-only without `fastembed`.** Install it in a venv for the embedding leg.
+- **The client graph is as current as its last build,** and its extraction step calls a model once per batch of messages. `graph.db` holds client data: keep it out of any repository.
+- **`graph_mcp.py` holds the whole `graph.json` in memory.** Very large graphs belong in Neo4j.
+- **No consolidation code ships.** Moving daily lessons into `MEMORY.md`, pruning indexes and checking that every indexed note exists are cron prompts and reviews, not scripts.
+- **No backup ships.** See "Memory is local to the host" below.
+- **The agent template's `AGENTS.md` mentions a `--collection` flag and a `memory-<seat>` collection** that `kb-query` and `kb-ingest` do not accept. The real scopes are `shared` (collection `shared-<org>`), `private` (collection `agent-<seat>`, needs `--agent` or `CTX_AGENT_NAME`) and, for queries only, `all`. Use `--scope private` for a seat's memory files.
 - **Compaction loses detail by design.** Whatever is not in `STATE.md`, the daily log or a checkpoint is gone after compaction, including exact tool output.
 - **Memory is local to the host.** Nothing replicates seat folders, `$CTX_ROOT` or the auto-memory folder. Back them up, and copy them when you move.
 - **Memory files are plain text.** They can hold anything a seat writes, including facts about people. Keep secrets out of memory, enable disk encryption, and exclude memory folders from any public repository.
@@ -485,6 +522,7 @@ A seat must not depend on an optional component to boot. If an MCP server fails 
 Framework (paths relative to `$CORTEX_HOME`):
 
 - `templates/agent/AGENTS.md` (Memory Protocol, session start and end)
+- `bus/kb-setup.sh` (knowledge base venv and store)
 - `templates/agent/MEMORY.md`, `templates/agent/memory/`
 - `templates/agent/.claude/settings.json` (default hooks)
 - `src/bus/knowledge-base.ts` (scopes, collections, paths)
@@ -499,9 +537,12 @@ Framework (paths relative to `$CORTEX_HOME`):
 This repo:
 
 - `harness/hooks/compaction/` (`compaction.json`, `common.py`, `meter.py`, `after_compact.py`, `save_summary.py`)
-- `harness/templates/STATE.md`, `harness/templates/CLAUDE.md`
+- `harness/hooks/memory/` (`transcript.py`, `precompact_checkpoint.py`, `sessionstart_inject.py`, `session_facts.py`)
+- `harness/memory/session-digest/`, `harness/memory/client-graph/`, `harness/memory/vault-graph/`
+- `harness/templates/` (`STATE.md`, `CLAUDE.md`, `ENTITIES.md`, `MEMORY.md`, `daily-memory.md`, `GUARDRAILS.md`, `HEARTBEAT.md`, `org-GUARDRAILS.md`, `org-knowledge.md`, `user-CLAUDE.md`)
 - `harness/tools/emit-truth-correction.sh`
 - `harness/hooks/future_time_guard.py`, `harness/hooks/shared_surface_guard.py`
-- `harness/settings.example.json`, `harness/install.sh`
+- `harness/settings.example.json`, `harness/install.sh`, `scripts/doctor.sh`
+- `harness/tests/test_memory_hooks.py`, `test_session_digest.py`, `test_client_graph.py`, `test_vault_graph.py`, `test_install_memory.py`
 
 Related documents: 01 (architecture), 03 (configuration), 04 (context limits and compaction), 21 (data models and schemas).

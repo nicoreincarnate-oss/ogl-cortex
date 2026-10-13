@@ -187,9 +187,9 @@ These are Read tool calls, so they land in the conversation, not the system prom
 
 | Event | Hook | What it adds |
 |---|---|---|
-| SessionStart (any) | Optional checkpoint-inject hook (not included in this repository) | The newest pre-compaction checkpoint and the tail of today's daily memory, if you add such a hook |
+| SessionStart (any) | `<seat>/.claude/hooks/ogl/memory/sessionstart_inject.py` | The newest pre-compaction checkpoint if under 72 hours old (a warning instead if it says `CHECKPOINT FAILED`), the tail of today's daily memory, and an `ENTITIES.md` reminder |
 | SessionStart (`compact`) | `<seat>/.claude/hooks/ogl/compaction/after_compact.py` | All of `STATE.md`, prefixed "The conversation was just compacted ... Trust it over the summary where they differ" |
-| UserPromptSubmit | Optional, not included in this repository | A client-graph recall hook or a reply-style router can inject text here. Keep such hooks silent for cron prompts and agent messages, and make any failure inject nothing |
+| UserPromptSubmit | Optional: the client-graph recall hook (`--with-client-graph`) and the notes recall hook (`--with-notes-recall`) | Facts about a named client or person, or the top hits from the seat's notes. Both stay silent for cron prompts, and any failure injects nothing |
 | PostToolUse | `<seat>/.claude/hooks/ogl/compaction/meter.py` | The context meter (4.5) |
 | statusLine | `cortextos bus hook-context-status` (every 5 s) | Not model context. Writes `$CTX_ROOT/state/<seat>/context_status.json` for the daemon |
 
@@ -207,7 +207,7 @@ Choose one primary policy. With a 1M-token window and `autoCompactWindow` at 430
 
 Around a compaction these hooks run in order:
 
-1. **PreCompact:** `cortextos bus hook-compact-telegram` (Telegram notice). Optional hooks not included in this repository can also write a transcript checkpoint or a session digest here.
+1. **PreCompact:** `cortextos bus hook-compact-telegram` (Telegram notice) and `memory/precompact_checkpoint.py` (transcript checkpoint). With `--with-digest`, the session digest also stages here.
 2. **Claude Code writes the summary.** A "Compact Instructions" section in `<seat>/CLAUDE.md` tells the summariser what to keep first: current checkpoint and next step, promises to the owner, live surfaces and rollback, plan changes, dead ends, the owner's rules.
 3. **PostCompact:** `compaction/save_summary.py` saves the summary to `compactions/`.
 4. **SessionStart (`compact`):** `compaction/after_compact.py` hands back STATE.md.
@@ -281,7 +281,7 @@ Example block and rewrite from `$OGL_STATE_DIR/orwell-lint.log` (default `~/.ogl
 
 The passive "are being written" was blocked. Seconds later the active rewrite passed.
 
-Other tool-related hooks: SessionEnd `cortextos crash-alert` (Telegram notice that distinguishes planned from unplanned exits). An optional post-commit adversarial trigger and a session digest are not included in this repository.
+Other tool-related hooks: SessionEnd `cortextos crash-alert` (Telegram notice that distinguishes planned from unplanned exits). A SessionEnd session digest ships with `--with-digest`. An optional post-commit adversarial trigger is not included in this repository.
 
 ---
 

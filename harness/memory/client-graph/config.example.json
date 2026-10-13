@@ -1,0 +1,25 @@
+{
+  "messages": "$CTX_ROOT/logs/$CTX_AGENT_NAME/inbound-messages.jsonl",
+  "fields": { "id": "message_id", "date": "timestamp", "text": "text", "from": "from_name" },
+  "id_prefix": "msg-",
+  "operator": { "name": "<your name>", "aliases": ["<short name>"] },
+  "own_names": ["<orchestrator seat name>"],
+  "no_seed": ["she", "he", "they", "a guest", "the client"],
+  "commitments": "",
+  "deliverables_root": "",
+  "model": "sonnet",
+  "workers": 4,
+  "clients": {
+    "<slug>": {
+      "name": "<Client business name>",
+      "aliases": ["<other spellings>", "<domain.com>"],
+      "description": "<one line: what they do, where>",
+      "people": [
+        { "name": "<Full Name>", "aliases": ["<first name>"], "role": "owns", "source": "ENTITIES.md" }
+      ],
+      "match": "<regex that finds this client in a message, case-insensitive>",
+      "folder": "<folder under deliverables_root, optional>",
+      "file_prefix": "<deliverable file prefix, optional>"
+    }
+  }
+}

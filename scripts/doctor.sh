@@ -19,7 +19,7 @@
 set -u
 
 INSTANCE="${CTX_INSTANCE_ID:-default}"
-FRAMEWORK="${CTX_FRAMEWORK_ROOT:-$HOME/cortextos}"
+FRAMEWORK="${CTX_FRAMEWORK_ROOT:-$(cd "$(dirname "$0")/.." && pwd)/framework}"
 DISK_FLOOR_GB=10
 OFFLINE=0
 
@@ -145,6 +145,16 @@ elif [ -d "$FRAMEWORK" ]; then
   fail "framework at $(tidy "$FRAMEWORK") has no dist/daemon.js (run npm run build)"
 else
   fail "framework dir $(tidy "$FRAMEWORK") not found (pass --framework <dir>)"
+fi
+
+if [ -f "$FRAMEWORK/VENDORED.md" ] && command -v cortextos >/dev/null 2>&1; then
+  PIN="$(grep -oE '[0-9a-f]{40}' "$FRAMEWORK/VENDORED.md" | head -1 | cut -c1-12)"
+  CTX_BIN="$(python3 -c 'import os,shutil;print(os.path.realpath(shutil.which("cortextos")))')"
+  FW_REAL="$(cd "$FRAMEWORK" && pwd -P)"
+  case "$CTX_BIN" in
+    "$FW_REAL"/*) pass "cortextos on PATH is this repo's pinned framework (${PIN:-unknown})" ;;
+    *) fail "cortextos on PATH is not this repo's pinned framework (${PIN:-unknown}); run npm link in framework/" ;;
+  esac
 fi
 
 # ---------------------------------------------------------------------------
@@ -418,6 +428,125 @@ if [ -f "$HOME/.claude/settings.json" ]; then
 fi
 if [ "$OFFLINE" -eq 1 ]; then info "Telegram checks skipped (--offline)"; fi
 unset TOKENS_SEEN
+
+# ---------------------------------------------------------------------------
+section "Memory"
+
+# Read-only. Prints key NAMES only; secret values never leave the Python process.
+if [ -n "$SEATS" ]; then
+  printf '%s\n' "$SEATS" | python3 -c '
+import json, os, re, sqlite3, sys, time
+framework, ctx_root, home = sys.argv[1:4]
+def out(level, msg): print("%s\t%s" % (level, msg))
+def tidy(p): return p.replace(home, "~", 1)
+def has_key(path, key):
+    try:
+        for line in open(path, encoding="utf-8", errors="replace"):
+            m = re.match(r"\s*(?:export\s+)?" + key + r"=(.*)$", line)
+            if m and m.group(1).strip().strip("\"\x27"):
+                return True
+    except OSError:
+        pass
+    return False
+orgs = {}
+for row in sys.stdin.read().splitlines():
+    parts = row.split("\t")
+    if len(parts) >= 2 and parts[0]:
+        orgs.setdefault(parts[1], []).append(parts[0])
+for org, seats in sorted(orgs.items()):
+    print("INFO\t-- org %s" % org)
+    for seat in seats:
+        sd = os.path.join(framework, "orgs", org, "agents", seat)
+        if not os.path.isdir(sd):
+            continue
+        missing = [f for f in ("STATE.md", "ENTITIES.md", "MEMORY.md") if not os.path.isfile(os.path.join(sd, f))]
+        if missing: out("WARN", "%s: memory files missing: %s (run harness/install.sh)" % (seat, ", ".join(missing)))
+        else: out("PASS", "%s: STATE.md, ENTITIES.md, MEMORY.md present" % seat)
+        try:
+            claude = open(os.path.join(sd, "CLAUDE.md"), encoding="utf-8").read()
+        except OSError:
+            claude = ""
+        if "OGL-CORTEX:BEGIN seat-rules" in claude: out("PASS", "%s: CLAUDE.md carries the OGL rules block" % seat)
+        else: out("WARN", "%s: CLAUDE.md has no OGL rules block (run harness/install.sh --apply)" % seat)
+        try:
+            st = json.load(open(os.path.join(sd, ".claude", "settings.json")))
+        except Exception:
+            st = {}
+        cmds = " ".join(h.get("command", "") for gs in (st.get("hooks") or {}).values() for g in gs or [] for h in (g or {}).get("hooks", []) or [])
+        want = ["precompact_checkpoint.py", "sessionstart_inject.py", "session_facts.py"]
+        lack = [w for w in want if w not in cmds]
+        if lack: out("WARN", "%s: memory hooks not wired: %s" % (seat, ", ".join(lack)))
+        else: out("PASS", "%s: memory hooks wired (checkpoint, inject, session facts)" % seat)
+        acw = st.get("autoCompactWindow")
+        try:
+            limit = json.load(open(os.path.join(sd, ".claude", "hooks", "ogl", "compaction", "compaction.json"))).get("limit")
+        except Exception:
+            limit = None
+        if acw is None: out("WARN", "%s: autoCompactWindow not set in .claude/settings.json" % seat)
+        elif limit and acw < limit: out("WARN", "%s: autoCompactWindow %s is below the meter limit %s; compaction fires before the warning" % (seat, acw, limit))
+        else: out("PASS", "%s: autoCompactWindow %s" % (seat, acw))
+        ck = os.path.join(sd, "memory", "checkpoints", "latest.md")
+        if os.path.isfile(ck):
+            head = open(ck, encoding="utf-8", errors="replace").read(600)
+            age = (time.time() - os.path.getmtime(ck)) / 3600
+            if "CHECKPOINT FAILED" in head: out("FAIL", "%s: last PreCompact checkpoint captured 0 messages (%.0f h ago)" % (seat, age))
+            else:
+                m = re.search(r"Captured (\d+) of", head)
+                out("PASS" if m and int(m.group(1)) > 0 else "WARN", "%s: last checkpoint %s, %.0f h ago" % (seat, ("captured %s messages" % m.group(1)) if m else "has no capture count", age))
+        else:
+            out("INFO", "%s: no checkpoint yet (written at the first compaction)" % seat)
+        dg = os.path.join(sd, ".claude", "hooks", "ogl", "memory", "session-digest")
+        if os.path.isdir(dg):
+            idx = os.path.join(dg, "index", "index.db")
+            out("PASS" if os.path.isfile(idx) else "WARN", "%s: session digest installed, index %s" % (seat, "built" if os.path.isfile(idx) else "not built (run index/build_index.py)"))
+            pend = os.path.join(dg, "digest", "pending")
+            n = len([f for f in os.listdir(pend) if f.endswith(".md")]) if os.path.isdir(pend) else 0
+            if n > 2: out("WARN", "%s: %d session digests waiting in digest/pending (see digest/log/digest.log)" % (seat, n))
+        cg = os.path.join(sd, ".claude", "hooks", "ogl", "memory", "client-graph")
+        if os.path.isdir(cg):
+            db = os.environ.get("OGL_CLIENT_GRAPH_DB") or os.path.join(cg, "graph.db")
+            out("PASS" if os.path.isfile(db) else "WARN", "%s: client graph installed, graph.db %s" % (seat, "present" if os.path.isfile(db) else "not built (build_graph.py all --config ...)"))
+    # knowledge base
+    env_files = [os.path.join(framework, ".env"), os.path.join(framework, "orgs", org, "secrets.env")]
+    key_in = [tidy(f) for f in env_files if has_key(f, "GEMINI_API_KEY")]
+    if key_in: out("PASS", "kb %s: GEMINI_API_KEY set in %s" % (org, ", ".join(key_in)))
+    else: out("FAIL", "kb %s: GEMINI_API_KEY not set in %s or %s; the knowledge base cannot ingest or query" % (org, tidy(env_files[1]), tidy(env_files[0])))
+    sec = env_files[1]
+    if os.path.isfile(sec):
+        mode = oct(os.stat(sec).st_mode & 0o777)[2:]
+        out("PASS" if mode in ("600", "400") else "WARN", "kb %s: secrets.env mode %s%s" % (org, mode, "" if mode in ("600", "400") else " (expected 600)"))
+    venv = os.path.join(framework, "knowledge-base", "venv")
+    out("PASS" if os.path.isdir(venv) else "FAIL", "kb: venv %s at %s" % ("present" if os.path.isdir(venv) else "missing (bash bus/kb-setup.sh --org <org>)", tidy(venv)))
+    kb = os.path.join(home, ".cortextos", os.path.basename(ctx_root), "orgs", org, "knowledge-base")
+    if not os.path.isfile(os.path.join(kb, "config.json")):
+        out("FAIL", "kb %s: no config.json at %s (run: bash $CORTEX_HOME/bus/kb-setup.sh --org %s --instance %s)" % (org, tidy(kb), org, os.path.basename(ctx_root)))
+        continue
+    out("PASS", "kb %s: config.json present" % org)
+    names = []
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % os.path.join(kb, "chromadb", "chroma.sqlite3"), uri=True)
+        names = [r[0] for r in con.execute("SELECT name FROM collections")]
+        con.close()
+    except Exception:
+        pass
+    want = ["shared-%s" % org] + ["agent-%s" % s for s in seats]
+    have = [w for w in want if w in names]
+    lack = [w for w in want if w not in names]
+    if not lack: out("PASS", "kb %s: collections present: %s" % (org, ", ".join(have)))
+    else: out("WARN", "kb %s: collections missing: %s (run a first kb-ingest)" % (org, ", ".join(lack)))
+    crons_found = False
+    for s in seats:
+        try:
+            d = json.load(open(os.path.join(ctx_root, ".cortextOS", "state", "agents", s, "crons.json")))
+            c = d.get("crons", []) if isinstance(d, dict) else d
+            crons_found = crons_found or any("kb-ingest" in (x.get("name", "") + " " + x.get("prompt", "")) for x in c)
+        except Exception:
+            pass
+    out("PASS" if crons_found else "WARN", "kb %s: %s" % (org, "a kb-ingest cron is scheduled" if crons_found else "no kb-ingest cron (add kb-ingest-daily, see GETTING-STARTED)"))
+' "$FRAMEWORK" "$CTX_ROOT_DIR" "$HOME" | emit
+else
+  info "no seats registered; memory checks skipped"
+fi
 
 # ---------------------------------------------------------------------------
 section "Host"

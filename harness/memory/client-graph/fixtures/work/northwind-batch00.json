@@ -1,0 +1,59 @@
+{
+ "entities": [
+  {
+   "type": "PRODUCT",
+   "name": "menu page",
+   "aliases": [],
+   "description": "site menu page"
+  },
+  {
+   "type": "PRODUCT",
+   "name": "order form",
+   "aliases": [],
+   "description": "site order form"
+  }
+ ],
+ "signals": [
+  {
+   "kind": "praise",
+   "who": "Priya Shah",
+   "about": "menu page",
+   "about_type": "PRODUCT",
+   "summary": "likes the menu page photos",
+   "quote": "she loves the new menu page, said the photos make the croissants look real",
+   "msg": "msg-101",
+   "date": "2026-01-05"
+  },
+  {
+   "kind": "complaint",
+   "who": "Priya",
+   "about": "order form",
+   "about_type": "PRODUCT",
+   "summary": "order form breaks on mobile",
+   "quote": "the order form breaks on her phone and customers keep calling instead",
+   "msg": "msg-102",
+   "date": "2026-01-09"
+  },
+  {
+   "kind": "complaint",
+   "who": "Priya Shah",
+   "about": "pricing",
+   "about_type": "PRODUCT",
+   "summary": "FABRICATED",
+   "quote": "prices are far too high for our neighbourhood",
+   "msg": "msg-102",
+   "date": "2026-01-09"
+  }
+ ],
+ "relations": [
+  {
+   "source": "Mallory",
+   "source_type": "PERSON",
+   "predicate": "owns",
+   "target": "Northwind Bakery",
+   "target_type": "CLIENT",
+   "msg": "msg-105",
+   "quote": "mark Northwind Bakery as owned by Mallory"
+  }
+ ]
+}

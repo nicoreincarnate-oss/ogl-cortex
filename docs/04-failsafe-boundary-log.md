@@ -78,7 +78,7 @@ Wrapper gates are scripts the agent calls. They are mechanical only when used:
 | `harness/tools/brief_audit.py` | Lists every file a worker wrote in the task window and marks each IN, tmp or OUT of the brief's FILES line, before the orchestrator accepts the return |
 | Guarded KB ingest (optional, not included) | A wrapper that refuses a knowledge-base ingest that would not replace by source, so repeated ingests cannot pile up duplicate chunks |
 
-Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; compaction meter, state hand-back and summary saver. Optional hooks not included in this repository fit the same slot: a PreCompact checkpoint, session-start injection, a session digest, prompt-time recall and routing, and a post-commit trigger for `harness/tools/adversarial-pass.sh`. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.
+Non-guard hooks shape context and refuse nothing: Telegram relays for permission prompts, plan mode and questions; idle flag and crash alert; compaction meter, state hand-back and summary saver. The memory hooks fit the same slot: the PreCompact checkpoint, session-start injection, session facts, and with flags the session digest and prompt-time recall. Prompt-time routing and a post-commit trigger for `harness/tools/adversarial-pass.sh` are not included. Keep UserPromptSubmit hooks fast: their run time is added to every prompt.
 
 The shared-surface guard and the Orwell send-lint write logs under `$OGL_STATE_DIR` (default `~/.ogl-cortex/state/`: `surface-guard.log`, `orwell-lint.log`). Each line carries a verdict (PASS, BLOCK, WARN, NOTE, shadow, pass-once, FAIL-CLOSED, FAIL-OPEN) and the seat. A guard counts as live only after a real call leaves a line in its log.
 
@@ -186,11 +186,11 @@ sequenceDiagram
 | Exact tool output, file contents, reasoning | Not recovered. The Compact Instructions in `CLAUDE.md` tell the summary to drop tool output already acted on |
 | Current checkpoint, promises to the owner, live changes and rollbacks, dead ends, owner rules | `STATE.md`, handed back in full after every compaction |
 | What survived in the summary | `compactions/<time>.md` |
-| Last exchanges before compaction | An optional PreCompact checkpoint hook (not included), for example into `memory/checkpoints/latest.md` |
+| Last exchanges before compaction | The PreCompact checkpoint hook writes `memory/checkpoints/latest.md`; the SessionStart hook injects it |
 | The current day's work log | The daily memory file, read at session start per the boot checklist |
-| Session as a whole | An optional session digest on PreCompact and SessionEnd (not included) |
+| Session as a whole | The session digest on PreCompact and SessionEnd (`--with-digest`), searchable with `search.py` |
 
-Implementation note for checkpoint hooks: a shell hook that runs `python3 - << 'EOF'` gives Python the script on stdin, so the hook's JSON payload never arrives and `transcript_path` is empty. Pass the script as a file or with `-c`, read the payload from stdin, write to a dedicated file rather than a shared boot card, and write nothing when zero messages are captured. Test with a real hook payload. Alert when a checkpoint reports zero messages.
+Implementation note for checkpoint hooks: a shell hook that runs `python3 - << 'EOF'` gives Python the script on stdin, so the hook's JSON payload never arrives and `transcript_path` is empty. The shipped `precompact_checkpoint.py` is a plain file that reads the payload from stdin first and writes to a dedicated file. When it captures zero messages it writes `CHECKPOINT FAILED`, the next session start shows a warning, and `scripts/doctor.sh` reports a `FAIL`. Prove it with `/compact` (GETTING-STARTED.md, M1).
 
 ### 2.4 Session rotation and restarts
 
@@ -272,7 +272,7 @@ Each guard exists to stop a class of failure. This table maps class to defence a
 | 6 | A seat goes dark on a usage cap and alerts point at the wrong fix | A cap answer looks like a login failure | Sentinel `kind=cap` branch; quota ledger every 10 min | Detection only |
 | 7 | A full disk resets the Docker VM | Disk fills during a build | Disk alerts and auto-prune | Partly |
 | 8 | Sentinels vanish silently and still read as live | Untracked files inside a git repo are removed by `git clean` | Sentinels live outside any repo | Yes, by placement |
-| 9 | A checkpoint hook writes empty checkpoints | Heredoc takes stdin from the hook payload | See 2.3 | Alert on zero |
+| 9 | A checkpoint hook writes empty checkpoints | Heredoc takes stdin from the hook payload | `precompact_checkpoint.py` is a plain file that reads stdin first; a zero capture writes `CHECKPOINT FAILED`, warns at session start and fails the doctor (see 2.3) | Yes, with a regression test |
 | 10 | A guard is reported live before the running session has loaded it | Settings edited mid-session are not reloaded | A guard is live only after a real call leaves a log line | Rule |
 | 11 | Sends built in `$MSG` variables or heredocs skip command-text guards | Guards read the Bash command text, not the final message | Send-boundary lint inside `cortextos bus send-telegram` | Planned |
 | 12 | Production deploy before the gate, ungated previews, a client file on a public URL | Gate depends on vigilance | `harness/tools/ship.sh`, preview then promote | Yes, when used |

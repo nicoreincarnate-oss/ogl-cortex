@@ -4,7 +4,7 @@
 
 **A fleet of persistent Claude Code agents you run from Telegram, with guard hooks, approval gates and a ship gate between them and anything that matters.**
 
-[![Licence: to be decided](https://img.shields.io/badge/licence-to%20be%20decided-0A0A0A?style=for-the-badge)](#licence)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-0A0A0A?style=for-the-badge)](LICENSE)
 [![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-FF4F00?style=for-the-badge&labelColor=0A0A0A)](https://docs.anthropic.com/en/docs/claude-code)
 [![Framework: MIT](https://img.shields.io/badge/framework-MIT-0B5FFF?style=for-the-badge&labelColor=0A0A0A)](https://github.com/grandamenium/cortextos)
 [![macOS and Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-F2EFE9?style=for-the-badge&labelColor=0A0A0A)](GETTING-STARTED.md#prerequisites)
@@ -33,7 +33,7 @@ Then, inside Claude Code:
 /cortex-setup
 ```
 
-**Path 2: set it up by hand.** Follow [Path B in GETTING-STARTED.md](GETTING-STARTED.md#path-b-do-it-yourself). It covers the same steps in order: install the framework, create an org, add an orchestrator seat, connect Telegram, start the daemon, add crons and a specialist, install the harness layer, then check everything with `bash scripts/doctor.sh --instance <instance>`.
+**Path 2: set it up by hand.** Run `bash scripts/install.sh --org <org>` for a dry run of the build and instance steps, then add `--apply`. It asks before every write outside the repository. Then follow [Path B in GETTING-STARTED.md](GETTING-STARTED.md#path-b-do-it-yourself) from Step 5: add an orchestrator seat, connect Telegram, start the daemon, add crons and a specialist, install the harness layer, then check everything with `bash scripts/doctor.sh --instance <instance>`.
 
 [How it works](#architecture) · [How a message flows](#how-a-message-flows) · [Docs map](#docs-map) · [Troubleshooting](#troubleshooting)
 
@@ -80,6 +80,10 @@ The command-line tool is named `cortextos`.
 | `compaction/` | nothing; it meters context use, hands `STATE.md` back after compaction and saves each summary |
 
 The harness also ships four command-line tools in [`harness/tools/`](harness/tools/): `ship.sh` (gate, deploy, live re-check), `adversarial-pass.sh` (a fenced read-only attack on one claim), `brief_audit.py` (did a worker stay inside its brief) and `emit-truth-correction.sh` (the false-claim ledger).
+
+The pentest gate that writes the ship gate's report is in [`harness/security/`](harness/security/): a built-in secret scan plus TruffleHog, Semgrep, `npm audit` and OWASP ZAP when they are available. Raw secret values never reach disk, and every check it could not run is listed as skipped with a reason.
+
+The framework itself is vendored in [`framework/`](framework/VENDORED.md), pinned to a tested cortextOS commit with the OGL patches applied.
 
 <img src="docs/assets/readme/icons/approval.svg" width="26" height="26" alt=""> **Approval gates.** External actions (sending email, deploying, deleting, spending) go through `cortextos bus create-approval` and wait for a human. `list-approvals` shows what is pending; the orchestrator surfaces it instead of letting it queue.
 
@@ -241,4 +245,4 @@ OGL Cortex is built on [cortextOS](https://github.com/grandamenium/cortextos) (M
 
 ## Licence
 
-Licence: to be decided. Until a licence file is added, all rights are reserved. The upstream framework keeps its own MIT licence.
+OGL Cortex is released under the [MIT licence](LICENSE). The upstream framework keeps its own MIT licence (Cortext LLC), included in `framework/LICENSE`. Parts marked "licence confirmation pending" in `harness/README.md` stay out of public releases until confirmed.

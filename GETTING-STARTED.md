@@ -24,6 +24,7 @@ Both paths end at the same place and use the same checks.
 - [Names used in this guide](#names-used-in-this-guide)
 - [Path A: Let Claude set it up](#path-a-let-claude-set-it-up)
 - [Path B: Do it yourself](#path-b-do-it-yourself)
+- [Memory: full setup](#memory-full-setup)
 - [The --instance gotcha](#the---instance-gotcha)
 - [Day 2: using the fleet](#day-2-using-the-fleet)
 - [Where logs and state live](#where-logs-and-state-live)
@@ -46,6 +47,7 @@ Both paths end at the same place and use the same checks.
 | PM2 | current | `pm2 --version` | `npm install -g pm2` |
 | jq, curl | any | `jq --version`, `curl --version` | Homebrew or your package manager. Bus shell scripts and the Telegram helpers use them |
 | C/C++ toolchain | | `xcode-select -p` (macOS), `gcc --version` (Linux) | Needed to build `node-pty`. macOS: `xcode-select --install`. Debian/Ubuntu: `sudo apt install build-essential` |
+| Docker, or TruffleHog | any | `docker info`, or `trufflehog --version` | Used by the pentest gate. With Docker running, the gate pulls the TruffleHog image and, for `--url` scans, the OWASP ZAP image. Without either, the gate runs only its built-in secret patterns and records TruffleHog as skipped. Optional: `semgrep` for static analysis |
 | Telegram account | | | Phone or desktop app |
 
 Hardware: every seat is a full Claude Code process that stays in memory around the clock. Size RAM for the number of seats you plan to run, and keep at least 10 GB of free disk. The doctor script checks disk and swap pressure.
@@ -142,7 +144,7 @@ cortextos --version
 ls "$CORTEX_HOME/dist/daemon.js"
 ```
 
-> The upstream project also ships a one-line installer (`install.mjs`, run with `curl ... | node`). It clones into `~/cortextos`, builds, links, installs PM2 and installs Claude Code if missing. This guide uses the explicit steps so you see and approve each one.
+> Upstream cortextOS also ships a one-line installer (`install.mjs`). It clones upstream, not this pinned copy, so it does not carry the OGL patches. Use `scripts/install.sh` or the steps above.
 
 ### Step 3. Pick an instance id and set your shell
 
@@ -151,7 +153,7 @@ The instance id selects the state directory `~/.cortextos/<instance>/`. Pick one
 Add these lines to `~/.zshrc` or `~/.bashrc`, then open a new terminal:
 
 ```bash
-export CORTEX_HOME="$HOME/cortextos"
+export CORTEX_HOME="$HOME/ogl-cortex/framework"         # framework/ inside your clone
 export CTX_INSTANCE_ID="default"                        # your instance id
 export CTX_ROOT="$HOME/.cortextos/$CTX_INSTANCE_ID"
 export CTX_FRAMEWORK_ROOT="$CORTEX_HOME"
@@ -383,8 +385,9 @@ bash harness/install.sh "$CORTEX_HOME/orgs/<org>/agents/boss" --apply  # install
 
 What the installer touches:
 
-- **Seat level**: hook scripts in `<seat>/.claude/hooks/ogl/` (including `compaction/`), hook entries merged into `<seat>/.claude/settings.json`, skills in `<seat>/.claude/skills/`, and `CLAUDE.md` and `STATE.md` only if they are missing (otherwise the template goes to `CLAUDE.ogl-template.md`).
-- **User level** (optional, `--user-level`): the ship gate, shared-surface guard and Orwell send-lint go to `~/.claude/hooks/ogl/` and are wired in `~/.claude/settings.json` instead of the seat. These apply to every Claude Code session on the machine, not only your seats. Install them only if you want that.
+- **Seat level**: hook scripts in `<seat>/.claude/hooks/ogl/` (including `compaction/` and `memory/`), hook entries and `autoCompactWindow` merged into `<seat>/.claude/settings.json`, skills in `<seat>/.claude/skills/`, the OGL rules merged into `CLAUDE.md`, `GUARDRAILS.md` and `HEARTBEAT.md` as marked blocks (the rest of each file is kept), and `STATE.md`, `ENTITIES.md`, `MEMORY.md` and `memory/` created if missing.
+- **Org level**: the cardinal rule merged into `$CORTEX_HOME/orgs/<org>/GUARDRAILS.md` and the fleet rules into `knowledge.md`, as marked blocks.
+- **User level** (optional, `--user-level`): the ship gate, shared-surface guard and Orwell send-lint go to `~/.claude/hooks/ogl/` and are wired in `~/.claude/settings.json` instead of the seat, and the memory read order is merged into `~/.claude/CLAUDE.md`. These apply to every Claude Code session on the machine, not only your seats. Install them only if you want that.
 
 The installer copies every file it changes to `<file>.bak-<UTC timestamp>` first. The command-line tools in `harness/tools/` (`ship.sh`, `adversarial-pass.sh`, `brief_audit.py`, `emit-truth-correction.sh`) are not installed; run them from the checkout or copy them onto your `PATH`. Restart a seat after its hooks change, so the new session loads them:
 
@@ -395,6 +398,38 @@ cortextos restart boss --instance "$CTX_INSTANCE_ID"
 A Claude Code hook blocks a tool call only when it exits with code 2. Any other non-zero exit is reported and the call goes ahead. After installing, prove each guard fires by feeding it a case it must block (see `harness/README.md`).
 
 > Full flags, the files `--apply` writes, and removal steps are in `harness/README.md`. Run `python3 harness/tests/run_all.py` to check the hooks and tools on your machine.
+
+#### The pentest gate
+
+The ship gate blocks `git push`, deploys and publishes until `security/pentest-gate-report.json` says
+`"status": "pass"`. This repository ships the scanner that writes that report:
+
+```bash
+cd <project-root>
+python3 /path/to/ogl-cortex/harness/security/cortex_pentest_gate.py . --output security
+python3 /path/to/ogl-cortex/harness/security/cortex_pentest_gate.py . --url http://localhost:3000 --output security
+python3 /path/to/ogl-cortex/harness/security/cortex_pentest_gate.py . --url <url> --requires-authz \
+  --authz-evidence security/api-authz-evidence.md --output security
+```
+
+It always runs a built-in secret-pattern scan. It runs TruffleHog (CLI or Docker, including git history), Semgrep,
+`npm audit`, Snyk and GitGuardian when they are available, and prints `skipped=<check>: <reason>` for each one that
+is not. With `--url` it checks security headers and runs the OWASP ZAP baseline in Docker; if Docker is not running
+the gate fails rather than pass without the web scan (pass `--skip-zap` to record that choice). Exit code: 0 pass,
+1 fail, 2 bad usage.
+
+Secret hits are stored as a 12-character hash, never as the value. To clear an unverified hit, record a disposition
+in `security/secret-dispositions.json`:
+
+```json
+{"<sha12>": {"disposition": "false_positive", "note": "why this is not a credential"}}
+```
+
+Allowed values: `false_positive`, `test_fixture`, `rotated`, `revoked`, `accepted_risk`. A verified TruffleHog hit
+always blocks.
+
+Set the command the ship gate prints when it blocks, in the seat's `.claude/settings.json` `env` block:
+`"OGL_PENTEST_GATE_CMD": "python3 /path/to/ogl-cortex/harness/security/cortex_pentest_gate.py . --output security"`.
 
 ### Step 13. Verify everything with the doctor
 
@@ -416,7 +451,207 @@ Every line is `PASS`, `WARN` or `FAIL`. The script exits non-zero on any `FAIL`.
 
 The framework has its own check too: `cortextos doctor --instance "$CTX_INSTANCE_ID"`.
 
-Setup is complete when the doctor shows zero `FAIL` lines and the round trip in Step 9 works.
+Setup is complete when the doctor shows zero `FAIL` lines and the round trip in Step 9 works. The doctor's Memory section checks each seat's memory files, the OGL block in `CLAUDE.md`, the memory hooks, `autoCompactWindow`, the last checkpoint's capture count, the digest index and client graph when installed, and for each org: `GEMINI_API_KEY` present (name only), `secrets.env` mode, the knowledge base venv and `config.json`, the `shared-<org>` and `agent-<seat>` collections, and a scheduled `kb-ingest` cron. Then work through [Memory: full setup](#memory-full-setup).
+
+---
+
+## Memory: full setup
+
+A seat remembers through several layers, each with its own writer and reader. Step 12 installs the core. This section turns on the rest and proves each layer works. [docs/05-memory-architecture.md](docs/05-memory-architecture.md) explains every layer in depth.
+
+| Layer | Turned on by | Proof it works |
+|---|---|---|
+| `STATE.md`, compaction meter, summary save | Step 12 | `compactions/<time>.md` appears after a compaction |
+| PreCompact checkpoint and SessionStart re-inject | Step 12 | `memory/checkpoints/latest.md` says `Captured N of M` with N above 0 |
+| Session facts (`recall-facts`) | Step 12 | `cortextos bus recall-facts --agent <seat> --days 1` lists the last summary |
+| Daily memory, `MEMORY.md`, `ENTITIES.md`, org `knowledge.md` | Step 12 (templates) plus the seat's own writes | Today's `memory/<YYYY-MM-DD>.md` has a session-start line |
+| Knowledge base | [M2](#m2-knowledge-base) | `kb-query` returns a seeded document |
+| Session digests and their search index | [M3](#m3-session-digests) | `search.py` finds a fact from the last session |
+| Client memory graph | [M4](#m4-client-memory-graph) | `evals.py` passes your cases |
+| User-level read order | [M5](#m5-user-level-read-order) | `~/.claude/CLAUDE.md` holds the `memory-read-order` block |
+| GBrain, Obsidian vault mirror, graph layer | [M6](#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer) | `gbrain query`, the vault folder, and the `vault-graph` MCP tools answer |
+
+### M1. Prove the core memory hooks
+
+The hooks run inside the seat's Claude Code session, so prove them there. Send `/compact` to the seat on Telegram (slash commands reach Claude Code unwrapped), wait for the compaction notice, then check from a shell:
+
+```bash
+SEAT_DIR="$CORTEX_HOME/orgs/<org>/agents/<seat>"
+head -3 "$SEAT_DIR/memory/checkpoints/latest.md"          # want: Captured N of M ..., N above 0
+grep "PreCompact checkpoint" "$SEAT_DIR/memory/$(date -u +%Y-%m-%d).md" | tail -1
+ls "$SEAT_DIR/compactions/" | tail -1                       # the saved summary
+CTX_AGENT_NAME=<seat> cortextos bus recall-facts --days 1  # the summary as a session fact
+```
+
+`CHECKPOINT FAILED` in `latest.md` means the hook ran but read nothing: check that `.claude/settings.json` runs `memory/precompact_checkpoint.py` with `python3` directly, not through a shell wrapper. The next session start also shows the agent a warning, and `scripts/doctor.sh` reports it as a `FAIL`.
+
+The installer sets `autoCompactWindow` to 430000 when the seat has none. Keep it above the meter's `limit` in `.claude/hooks/ogl/compaction/compaction.json` (default 400000), so the meter's warning fires before Claude Code compacts.
+
+### M2. Knowledge base
+
+The knowledge base is built into the framework: ChromaDB on disk plus Gemini embeddings, driven by `knowledge-base/scripts/mmrag.py` in its own Python venv. It needs a Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey).
+
+1. **Put the key in the org secrets file.** The bus reads `$CORTEX_HOME/.env` and then `$CORTEX_HOME/orgs/<org>/secrets.env`. Edit the file locally; never paste a key into a chat with a seat.
+
+   ```bash
+   touch "$CORTEX_HOME/orgs/<org>/secrets.env" && chmod 600 "$CORTEX_HOME/orgs/<org>/secrets.env"
+   ${EDITOR:-nano} "$CORTEX_HOME/orgs/<org>/secrets.env"     # add the line: GEMINI_API_KEY=<your key>
+   ```
+
+2. **Create the venv and the store.** `cortextos install` usually builds the venv already. The setup script is safe to re-run: it creates the venv if missing, installs `knowledge-base/scripts/requirements.txt`, creates `~/.cortextos/<instance>/orgs/<org>/knowledge-base/chromadb/` and writes `config.json` there (embedding model `gemini-embedding-2-preview`).
+
+   ```bash
+   cd "$CORTEX_HOME" && bash bus/kb-setup.sh --org <org> --instance "$CTX_INSTANCE_ID"
+   ```
+
+3. **First ingest.** Shared documents go to the org collection; each seat's memory files go to its private collection.
+
+   ```bash
+   cortextos bus kb-ingest "$CORTEX_HOME/orgs/<org>/knowledge.md" --org <org> --scope shared
+   for seat in <seat> <other-seat>; do
+     D="$CORTEX_HOME/orgs/<org>/agents/$seat"
+     cortextos bus kb-ingest "$D/MEMORY.md" "$D/ENTITIES.md" "$D/memory" --org <org> --agent "$seat" --scope private --force
+   done
+   cortextos bus kb-collections --org <org>
+   ```
+
+4. **Prove a hit.** Ingest a file with a fact that cannot match by accident, then ask for it:
+
+   ```bash
+   echo "The kb canary phrase is violet-anchor-42." > /tmp/kb-canary.md
+   cortextos bus kb-ingest /tmp/kb-canary.md --org <org> --scope shared
+   cortextos bus kb-query "what is the kb canary phrase" --org <org> --top-k 3
+   ```
+
+5. **Keep it current with a daily cron** on each seat (or one cron on the orchestrator that ingests for every seat). Bus cron commands need `CTX_ROOT` set (Step 3).
+
+   ```bash
+   cortextos bus add-cron <seat> kb-ingest-daily "30 3 * * *" \
+     "Re-ingest memory into the knowledge base: cortextos bus kb-ingest ./MEMORY.md ./ENTITIES.md ./memory --org \$CTX_ORG --agent \$CTX_AGENT_NAME --scope private --force. Then log-event action kb_ingest_daily info with the file count."
+   cortextos bus list-crons <seat>
+   ```
+
+Collections and scopes. `kb-ingest` and `kb-query` take `--scope`, not a collection name:
+
+| `--scope` | Collection | Holds |
+|---|---|---|
+| `shared` (ingest default) | `shared-<org>` | research, reports and org facts every seat may read |
+| `private` (needs `--agent`) | `agent-<seat>` | one seat's memory files and outputs |
+| `all` (query default) | both of the above | |
+
+The framework's agent `AGENTS.md` template shows a `--collection memory-<seat>` flag and a `memory-<seat>` collection. Neither exists in the CLI; use `--scope private`, which writes `agent-<seat>`.
+
+Gemini's free tier limits embedding calls per minute and per day. A large first ingest can hit the limit; re-run the same command later, as files already indexed are skipped unless you pass `--force`.
+
+### M3. Session digests
+
+Each session end (and each compaction) writes a short, model-written entry into `memory/digests/<YYYY-MM-DD>.md`, and a local index makes every memory file searchable with no API key.
+
+```bash
+bash harness/install.sh "$SEAT_DIR" --apply --with-digest              # add --with-notes-recall for per-prompt recall
+CLAUDE_PROJECT_DIR="$SEAT_DIR" python3 "$SEAT_DIR/.claude/hooks/ogl/memory/session-digest/index/build_index.py"
+cortextos restart <seat> --instance "$CTX_INSTANCE_ID"
+```
+
+The index is keyword-only until `fastembed` is importable by the `python3` the hooks run. To add the meaning leg, give the component its own venv and point the hook commands at it:
+
+```bash
+DG="$SEAT_DIR/.claude/hooks/ogl/memory/session-digest"
+python3 -m venv "$DG/.venv" && "$DG/.venv/bin/pip" install -r "$DG/requirements.txt"
+# then in $SEAT_DIR/.claude/settings.json replace "python3 " with "$DG/.venv/bin/python " in the session-digest hook commands
+```
+
+Prove it after the seat's next session end or compaction:
+
+```bash
+tail -20 "$SEAT_DIR/memory/digests/$(date +%Y-%m-%d).md"
+python3 "$DG/index/search.py" "<a fact from that session>"
+cat "$DG/digest/log/digest.log" 2>/dev/null                 # failures, if any
+```
+
+`digest/config.json` sets the mode: `headless` (default) runs `claude -p` once per session end, on the seat's login; `session` stages the text and asks the next session to write it up.
+
+### M4. Client memory graph
+
+For a seat that talks about many clients and people. The graph is built from the seat's inbound message log, your client list and your deliverable files.
+
+```bash
+bash harness/install.sh "$SEAT_DIR" --apply --with-client-graph
+CG="$SEAT_DIR/.claude/hooks/ogl/memory/client-graph"
+cp "$CG/config.example.json" "$CG/graph.config.json" && ${EDITOR:-nano} "$CG/graph.config.json"
+python3 "$CG/build_graph.py" all --config "$CG/graph.config.json"   # one model call per batch of messages
+python3 "$CG/recall.py" "what is <client> upset about?"
+```
+
+Write a `cases.json` of known answers from the sources before you look at recall output (format in `harness/README.md`), then run `python3 "$CG/evals.py" --cases cases.json` after every rebuild. Add a nightly cron that reruns `build_graph.py code` and `load`, and `extract` for new messages. `graph.db` and `work/` hold client data: back them up, never commit them.
+
+### M5. User-level read order
+
+Every Claude Code session on the machine reads `~/.claude/CLAUDE.md`. The read-order block tells it which memory layer to check first. Either run the installer with `--user-level`, or paste `harness/templates/user-CLAUDE.md` in by hand and delete the lines for stores you did not install.
+
+```bash
+bash harness/install.sh "$SEAT_DIR" --apply --user-level
+grep -c "OGL-CORTEX:BEGIN memory-read-order" ~/.claude/CLAUDE.md   # want: 1
+```
+
+### M6. Add-ons: GBrain, Obsidian vault and the graph layer
+
+These are separate projects. A seat never needs them to boot; when an MCP server fails to connect, the seat falls back to the knowledge base and raw files and says which layer it could not reach.
+
+**GBrain** (structured knowledge store, MIT, [github.com/garrytan/gbrain](https://github.com/garrytan/gbrain)). Needs Bun. Keyword search works with no keys; vector search needs `OPENAI_API_KEY`.
+
+```bash
+curl -fsSL https://bun.sh/install | bash && export PATH="$HOME/.bun/bin:$PATH"
+git clone https://github.com/garrytan/gbrain.git ~/gbrain && cd ~/gbrain && bun install && bun link
+gbrain --version
+gbrain init                                         # local PGLite brain, no server
+claude mcp add --scope user gbrain -- gbrain serve  # stdio MCP server for every Claude Code session
+gbrain doctor
+```
+
+Write and read: `gbrain put <slug> < page.md`, `gbrain get <slug>`, `gbrain search "<words>"`, `gbrain query "<question>"`. Keep its API keys in your shell profile or a mode-600 env file, never in a seat's memory.
+
+**Obsidian vault mirror.** Pick a folder for the vault, open it in [Obsidian](https://obsidian.md) as a vault, and sync it with GBrain in both directions:
+
+```bash
+VAULT="$HOME/<vault folder>"
+gbrain export --dir "$VAULT"       # brain -> vault (people browse and edit here)
+gbrain import "$VAULT"             # vault -> brain (pick up edits made in Obsidian)
+cd "$VAULT" && git init            # optional: lets gbrain sync work from diffs (gbrain sync --repo "$VAULT")
+```
+
+Run the export after the nightly memory pass and the import before it, or put both in one cron prompt on the seat that owns consolidation.
+
+**Graph layer.** Two ways to build `graph.json` from the vault, and one MCP server to query it:
+
+```bash
+# A. Model-extracted concepts and communities (graphify, MIT, github.com/safishamsi/graphify)
+uv tool install graphifyy && graphify install --platform claude
+#    then, inside Claude Code in the vault folder:  /graphify .      -> graphify-out/graph.json
+graphify query "how does billing connect to support?" --graph "$VAULT/graphify-out/graph.json"
+
+# B. Explicit [[wikilinks]] and tags only, no model, no dependencies
+python3 harness/memory/vault-graph/vault_graph.py "$VAULT"          # -> $VAULT/graphify-out/graph.json
+
+# The MCP server for either file: memory_query, memory_neighbors, memory_shortest_path, memory_read_note
+mkdir -p ~/.ogl-cortex/bin && cp harness/memory/vault-graph/graph_mcp.py ~/.ogl-cortex/bin/
+claude mcp add --scope user vault-graph -- env OGL_GRAPH_JSON="$VAULT/graphify-out/graph.json" \
+  OGL_VAULT_DIR="$VAULT" python3 "$HOME/.ogl-cortex/bin/graph_mcp.py"
+claude mcp list
+```
+
+Optional Neo4j, for graphs too large to hold in memory or for Cypher queries. Needs Docker.
+
+```bash
+cp -R harness/memory/vault-graph ~/.ogl-cortex/vault-graph && cd ~/.ogl-cortex/vault-graph
+export NEO4J_PASSWORD='<a long random password>'
+docker compose up -d                                             # Neo4j on 127.0.0.1:7474 and :7687
+python3 -m pip install neo4j                                     # or in a venv
+python3 neo4j_load.py "$VAULT/graphify-out/graph.json" --dry-run # see the plan
+python3 neo4j_load.py "$VAULT/graphify-out/graph.json"           # load
+```
+
+Rebuild the graph after each vault sync (graphify: `/graphify . --update` in Claude Code, or `graphify update "$VAULT"` for code files; vault graph: rerun `vault_graph.py`). The MCP server re-reads the file when it changes.
 
 ---
 
@@ -482,6 +717,8 @@ Seats restart. Context compacts. Memory on disk is what carries work across both
 |---|---|---|
 | Daily memory | `<seat>/memory/YYYY-MM-DD.md` | session start, before and after each task, each heartbeat, session end |
 | Long-term memory | `<seat>/MEMORY.md` | when a fact must outlive today |
+| Noun index | `<seat>/ENTITIES.md` | when a fact about a person, place or thing arrives or changes |
+| Checkpoint | `<seat>/STATE.md` | at every decision, finding, promise, change of plan or dead end |
 | Goals | `<seat>/goals.json`, rendered to `GOALS.md` | each morning review |
 
 Regenerate `GOALS.md` after editing `goals.json`:

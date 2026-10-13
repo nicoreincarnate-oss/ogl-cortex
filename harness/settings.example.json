@@ -1,4 +1,5 @@
 {
+  "autoCompactWindow": 430000,
   "hooks": {
     "PreToolUse": [
       {
@@ -32,6 +33,11 @@
     ],
     "SessionStart": [
       {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/memory/sessionstart_inject.py", "timeout": 10 }
+        ]
+      },
+      {
         "matcher": "compact",
         "hooks": [
           { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/compaction/after_compact.py", "timeout": 10 }
@@ -41,7 +47,22 @@
     "PostCompact": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/compaction/save_summary.py", "timeout": 10 }
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/compaction/save_summary.py", "timeout": 10 },
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/memory/session_facts.py", "timeout": 10 }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ogl/memory/precompact_checkpoint.py", "timeout": 15 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "cortextos bus hook-idle-flag", "timeout": 5 }
         ]
       }
     ]

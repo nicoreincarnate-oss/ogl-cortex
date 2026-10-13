@@ -1,0 +1,71 @@
+{
+ "messages": "messages.jsonl",
+ "fields": {
+  "id": "message_id",
+  "date": "timestamp",
+  "text": "text",
+  "from": "from_name"
+ },
+ "id_prefix": "msg-",
+ "operator": {
+  "name": "Operator",
+  "aliases": [
+   "op"
+  ]
+ },
+ "own_names": [
+  "boss"
+ ],
+ "no_seed": [
+  "she",
+  "he",
+  "they",
+  "a guest"
+ ],
+ "commitments": "commitments.json",
+ "deliverables_root": "deliverables",
+ "model": "sonnet",
+ "workers": 2,
+ "clients": {
+  "northwind": {
+   "name": "Northwind Bakery",
+   "aliases": [
+    "northwind",
+    "northwindbakery.example"
+   ],
+   "description": "Bakery with two shops; site northwindbakery.example",
+   "people": [
+    {
+     "name": "Priya Shah",
+     "aliases": [
+      "priya"
+     ],
+     "role": "owns",
+     "source": "ENTITIES.md"
+    }
+   ],
+   "match": "northwind|priya",
+   "folder": "Northwind - Projects",
+   "file_prefix": "Northwind"
+  },
+  "harbor": {
+   "name": "Harbor Kayaks",
+   "aliases": [
+    "harbor",
+    "harborkayaks.example"
+   ],
+   "description": "Kayak rentals and tours in a cold bay",
+   "people": [
+    {
+     "name": "Tom Reyes",
+     "aliases": [
+      "tom"
+     ],
+     "role": "owns",
+     "source": "ENTITIES.md"
+    }
+   ],
+   "match": "harbor|\\btom\\b"
+  }
+ }
+}
