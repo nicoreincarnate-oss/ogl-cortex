@@ -18,7 +18,7 @@ timeline
     v0.3 Send and ship : send guard : ship wrapper and pentest gate : auth sentinel : billing alerts : credential identity check
     v0.4 Guard layer : shared-surface guard : Google account guard : fail-closed guards : calendar launchd jobs : quota ledger : compaction and STATE : brief and time guards : adversarial passes
     v0.5 Delete guards : KB replace-by-source : redacted secret scan : U-series delete guards : floor guard without auto-prune
-    v0.6 Cortex OS dashboard : Knowledge Base tab shows the memory : install settings from env : graph layer retired in the reference install
+    v0.6 Cortex OS dashboard : Knowledge Base tab shows the memory : install settings from env
 ```
 
 ## Hook inventory at v0.5
@@ -61,7 +61,6 @@ The command-line tool is named `cortextos`.
 ### Memory
 - **The Knowledge Base tab shows the memory itself.** It searches every seat's files, the saved lessons, the vault and the docs, and groups results by kind (person, company, project, lesson, checkpoint and more). It shows where the work stands, open client promises, people and companies, and the corrections ledger. See `05-memory-architecture.md`, section 6.1.
 - **New read order.** Section 6 of `05-memory-architecture.md` lists the seven places memory lives and the order to read them: the seat's own files, its saved lessons, `ENTITIES.md` then GBrain, the knowledge base, other seats' memory, the vault, then the records. An absence claim needs every store searched.
-- **Graph layer retired in the reference install.** On 2026-10-17 the reference install stopped running its graph layer (graphify, MAGMA, Neo4j and the graph MCP tools) and the Perseus memory service. The graph stays an optional add-on, and `harness/memory/vault-graph/` still ships.
 
 ### Configuration
 - **Install settings come from env vars.** The org, the memory seat, the seats on the memory views, the vault path, the display timezone, client folders, CRM exclusions, the lead watch feed, the Instagram feed and the push contact are read by `framework/dashboard/src/lib/install.ts`. Each has a default documented in `framework/dashboard/.env.example`. Team page job lines live in `$CTX_ROOT/config/team.json`.

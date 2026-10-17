@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">12</div><div><p class="dg">Strategy and governance</p>
-<h1>Data Privacy and Compliance</h1><p class="meta">2,397 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/12-data-privacy-compliance.md">Markdown source</a></p></div></header>
+<h1>Data Privacy and Compliance</h1><p class="meta">2,394 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/12-data-privacy-compliance.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#scope-and-terms">Scope and terms</a></li><li><a href="#1-shape-of-the-system">1. Shape of the system</a></li><li><a href="#2-data-inventory">2. Data inventory</a></li><li><a href="#3-third-parties-that-receive-data">3. Third parties that receive data</a></li><li><a href="#4-retention-controls">4. Retention controls</a></li><li><a href="#5-access-and-exposure">5. Access and exposure</a></li><li><a href="#6-compliance-considerations">6. Compliance considerations</a></li><li><a href="#7-recommended-controls">7. Recommended controls</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document describes what personal and client data flows through OGL Cortex, where it is stored, how long it stays, which outside services receive it, and what an operator needs in place for GDPR, CCPA, Mexican privacy law, US marketing law and SOC 2. Secrets handling is in <code>11-ai-safety-governance.md</code> section 7. Vendors are profiled in <code>13-vendor-risk.md</code>.</p>
 <h2 id="scope-and-terms">Scope and terms</h2>
@@ -128,8 +128,8 @@
 <td>Yes: embeddings and document reads go to the configured embedding provider through <code>GEMINI_API_KEY</code></td>
 </tr>
 <tr>
-<td>Optional external brain (PGLite, Obsidian vault, graph layer)</td>
-<td>Structured pages, notes, graph</td>
+<td>Optional external brain (PGLite, Obsidian vault)</td>
+<td>Structured pages, notes</td>
 <td>Local unless configured otherwise</td>
 </tr>
 <tr>

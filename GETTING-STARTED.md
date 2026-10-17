@@ -469,7 +469,7 @@ A seat remembers through several layers, each with its own writer and reader. St
 | Session digests and their search index | [M3](#m3-session-digests) | `search.py` finds a fact from the last session |
 | Client memory graph | [M4](#m4-client-memory-graph) | `evals.py` passes your cases |
 | User-level read order | [M5](#m5-user-level-read-order) | `~/.claude/CLAUDE.md` holds the `memory-read-order` block |
-| GBrain, Obsidian vault mirror, graph layer | [M6](#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer) | `gbrain query`, the vault folder, and the `vault-graph` MCP tools answer |
+| GBrain, Obsidian vault mirror | [M6](#m6-add-ons-gbrain-and-the-obsidian-vault) | `gbrain query` answers and the vault folder holds the exported pages |
 
 ### M1. Prove the core memory hooks
 
@@ -594,7 +594,7 @@ bash harness/install.sh "$SEAT_DIR" --apply --user-level
 grep -c "OGL-CORTEX:BEGIN memory-read-order" ~/.claude/CLAUDE.md   # want: 1
 ```
 
-### M6. Add-ons: GBrain, Obsidian vault and the graph layer
+### M6. Add-ons: GBrain and the Obsidian vault
 
 These are separate projects. A seat never needs them to boot; when an MCP server fails to connect, the seat falls back to the knowledge base and raw files and says which layer it could not reach.
 
@@ -621,37 +621,6 @@ cd "$VAULT" && git init            # optional: lets gbrain sync work from diffs 
 ```
 
 Run the export after the nightly memory pass and the import before it, or put both in one cron prompt on the seat that owns consolidation.
-
-**Graph layer.** Two ways to build `graph.json` from the vault, and one MCP server to query it:
-
-```bash
-# A. Model-extracted concepts and communities (graphify, MIT, github.com/safishamsi/graphify)
-uv tool install graphifyy && graphify install --platform claude
-#    then, inside Claude Code in the vault folder:  /graphify .      -> graphify-out/graph.json
-graphify query "how does billing connect to support?" --graph "$VAULT/graphify-out/graph.json"
-
-# B. Explicit [[wikilinks]] and tags only, no model, no dependencies
-python3 harness/memory/vault-graph/vault_graph.py "$VAULT"          # -> $VAULT/graphify-out/graph.json
-
-# The MCP server for either file: memory_query, memory_neighbors, memory_shortest_path, memory_read_note
-mkdir -p ~/.ogl-cortex/bin && cp harness/memory/vault-graph/graph_mcp.py ~/.ogl-cortex/bin/
-claude mcp add --scope user vault-graph -- env OGL_GRAPH_JSON="$VAULT/graphify-out/graph.json" \
-  OGL_VAULT_DIR="$VAULT" python3 "$HOME/.ogl-cortex/bin/graph_mcp.py"
-claude mcp list
-```
-
-Optional Neo4j, for graphs too large to hold in memory or for Cypher queries. Needs Docker.
-
-```bash
-cp -R harness/memory/vault-graph ~/.ogl-cortex/vault-graph && cd ~/.ogl-cortex/vault-graph
-export NEO4J_PASSWORD='<a long random password>'
-docker compose up -d                                             # Neo4j on 127.0.0.1:7474 and :7687
-python3 -m pip install neo4j                                     # or in a venv
-python3 neo4j_load.py "$VAULT/graphify-out/graph.json" --dry-run # see the plan
-python3 neo4j_load.py "$VAULT/graphify-out/graph.json"           # load
-```
-
-Rebuild the graph after each vault sync (graphify: `/graphify . --update` in Claude Code, or `graphify update "$VAULT"` for code files; vault graph: rerun `vault_graph.py`). The MCP server re-reads the file when it changes.
 
 ---
 

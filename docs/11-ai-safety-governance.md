@@ -130,7 +130,7 @@ OGL Cortex ships no general copyright policy. Set one per install. Guidance:
 | Rebuilding a site from a third-party template or a cloned site | Copying a third party's layout, fonts and word structure 1:1 for a client site is the largest copyright exposure in a site-building fleet, because it ships to client domains. Prefer licensed templates. If you clone for reference, strip every template-owner fingerprint (comments, credit links, hidden links, asset URLs) and replace assets |
 | Fonts | Font licences do not transfer with a cloned site. Licence each font for the client domain or use open-licence fonts |
 | Repositories with no licence | Treat as all rights reserved: internal reading only, ideas only, no code copied |
-| Published reference data (books, recipes, guides) | Use as a graph-excluded sidecar. Do not copy full text |
+| Published reference data (books, recipes, guides) | Keep it in a separate reference folder, outside the memory stores. Do not copy full text |
 | Client media | Record reuse rights in writing before media appears on a site |
 | Third-party web tools | Flag every free web tool that stores uploads in the seat `TOOLS.md`, and never upload client files to a flagged tool |
 | Product names | Record trademark risk calls and the owner's ruling in `ENTITIES.md` so agents do not re-raise settled questions |

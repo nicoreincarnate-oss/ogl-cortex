@@ -33,14 +33,14 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">34</div><div><p class="dg">Operations and security</p>
-<h1>Changelog</h1><p class="meta">2,536 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/34-changelog.md">Markdown source</a></p></div></header>
+<h1>Changelog</h1><p class="meta">2,487 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/34-changelog.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#release-map">Release map</a></li><li><a href="#hook-inventory-at-v05">Hook inventory at v0.5</a></li><li><a href="#v06-cortex-os-dashboard-and-the-memory-read-order">v0.6: Cortex OS dashboard and the memory read order</a></li><li><a href="#v05-delete-guards-and-memory-hygiene">v0.5: Delete guards and memory hygiene</a></li><li><a href="#v04-the-guard-layer">v0.4: The guard layer</a></li><li><a href="#v03-send-path-and-ship-path">v0.3: Send path and ship path</a></li><li><a href="#v02-instruments">v0.2: Instruments</a></li><li><a href="#v01-foundation">v0.1: Foundation</a></li><li><a href="#deprecations">Deprecations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>The version labels v0.1 to v0.5 group features in the order they were added. They are not tagged releases.</p>
 <p>Release notes for the OGL Cortex harness layer: the hooks, guards, tools, memory protocol and deploy path that sit on top of the framework. Framework changes are tracked in the upstream framework repository.</p>
 <p>Each entry says what the feature does and why it exists, as a property of the software.</p>
 <p>Related documents: <code>32-security-red-team-log.md</code> (how each guard works), <code>31-observability-alerting.md</code> (each sentinel's thresholds), <code>30-sre-runbooks.md</code> (what to do when one fires).</p>
 <h2 id="release-map">Release map</h2>
-<figure class="diagram"><img src="img/68165a69b2e3.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/dbd8b6e731e0.svg" alt="Diagram"></figure>
 
 <h2 id="hook-inventory-at-v05">Hook inventory at v0.5</h2>
 <p>An orchestrator seat set up with <code>harness/install.sh</code> registers these hooks. Specialist seats register a subset. Hook files install to <code>&lt;seat&gt;/.claude/hooks/ogl/</code>. Entries marked "not included" describe optional components that this repository does not ship.</p>
@@ -151,7 +151,6 @@
 <ul>
 <li><strong>The Knowledge Base tab shows the memory itself.</strong> It searches every seat's files, the saved lessons, the vault and the docs, and groups results by kind (person, company, project, lesson, checkpoint and more). It shows where the work stands, open client promises, people and companies, and the corrections ledger. See <code>05-memory-architecture.md</code>, section 6.1.</li>
 <li><strong>New read order.</strong> Section 6 of <code>05-memory-architecture.md</code> lists the seven places memory lives and the order to read them: the seat's own files, its saved lessons, <code>ENTITIES.md</code> then GBrain, the knowledge base, other seats' memory, the vault, then the records. An absence claim needs every store searched.</li>
-<li><strong>Graph layer retired in the reference install.</strong> On 2026-10-17 the reference install stopped running its graph layer (graphify, MAGMA, Neo4j and the graph MCP tools) and the Perseus memory service. The graph stays an optional add-on, and <code>harness/memory/vault-graph/</code> still ships.</li>
 </ul>
 <h3 id="configuration">Configuration</h3>
 <ul>

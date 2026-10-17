@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">01</div><div><p class="dg">Core system</p>
-<h1>Core System Architecture</h1><p class="meta">3,683 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/01-core-architecture.md">Markdown source</a></p></div></header>
+<h1>Core System Architecture</h1><p class="meta">3,675 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/01-core-architecture.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#conventions">Conventions</a></li><li><a href="#1-overview">1. Overview</a></li><li><a href="#2-component-glossary">2. Component glossary</a></li><li><a href="#3-roles">3. Roles</a></li><li><a href="#4-surfaces">4. Surfaces</a></li><li><a href="#5-lifecycle-of-one-request">5. Lifecycle of one request</a></li><li><a href="#6-known-limitations">6. Known limitations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document explains what OGL Cortex is made of, how the parts relate, and how one request travels from the owner's phone to an agent and back. Document 02 covers the execution engine, 03 the configuration files, and 04 the guardrails.</p>
 <h2 id="conventions">Conventions</h2>
@@ -203,7 +203,7 @@
 <tr>
 <td>13</td>
 <td>External knowledge stores (optional)</td>
-<td>GBrain, an Obsidian vault mirror and a graph layer, wired in through MCP servers. The harness ships a wikilink graph builder, a graph MCP server and a Neo4j loader in <code>harness/memory/vault-graph/</code></td>
+<td>GBrain and an Obsidian vault mirror. GBrain is wired in through an MCP server; the vault syncs with <code>gbrain export</code> and <code>gbrain import</code></td>
 <td>Owner-defined</td>
 <td>Long-term</td>
 <td>Owner and agents</td>

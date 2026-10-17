@@ -23,7 +23,7 @@ Paths that start with `<seat>/` are relative to the seat folder. Commands writte
 
 ## 1. Why memory is layered
 
-A seat is a Claude Code session that runs for days. Its conversation compacts, its process restarts, and the host can change. No single store fits every kind of recall, so OGL Cortex splits memory the way cognitive science splits it, and gives each kind its own file, writer and lifespan. **Working memory** is the live context plus the `STATE.md` checkpoint that carries it across compaction. **Episodic memory** is the dated record of what happened: daily logs, session digests, message logs and the event log. **Semantic memory** is distilled fact: the seat's `MEMORY.md`, Claude Code's auto-memory notes, the `ENTITIES.md` noun index, the org `knowledge.md`, the vector knowledge base and an optional structured knowledge store. **Procedural memory** is how to do things: skills, the seat's `CLAUDE.md` and its guardrails. **Relational memory** is how things connect: an optional graph layer and an optional client memory graph. **Provenance memory** records where a fact came from and when a stated fact turned out false: source ranks and as-of dates on durable facts, plus the truth-correction ledger. Each layer is cheap to write and cheap to read for its own job, and expensive or wrong for the others. Most memory failures in agent systems come from asking one layer to do another layer's job.
+A seat is a Claude Code session that runs for days. Its conversation compacts, its process restarts, and the host can change. No single store fits every kind of recall, so OGL Cortex splits memory the way cognitive science splits it, and gives each kind its own file, writer and lifespan. **Working memory** is the live context plus the `STATE.md` checkpoint that carries it across compaction. **Episodic memory** is the dated record of what happened: daily logs, session digests, message logs and the event log. **Semantic memory** is distilled fact: the seat's `MEMORY.md`, Claude Code's auto-memory notes, the `ENTITIES.md` noun index, the org `knowledge.md`, the vector knowledge base and an optional structured knowledge store. **Procedural memory** is how to do things: skills, the seat's `CLAUDE.md` and its guardrails. **Relational memory** is how things connect: an optional client memory graph. **Provenance memory** records where a fact came from and when a stated fact turned out false: source ranks and as-of dates on durable facts, plus the truth-correction ledger. Each layer is cheap to write and cheap to read for its own job, and expensive or wrong for the others. Most memory failures in agent systems come from asking one layer to do another layer's job.
 
 ---
 
@@ -48,14 +48,13 @@ A seat is a Claude Code session that runs for days. Its conversation compacts, i
 | 13 | Session digests | A filtered, model-written summary of each session, plus a local keyword (and optional embedding) index | `<seat>/memory/digests/YYYY-MM-DD.md`; index at `<seat>/.claude/hooks/ogl/memory/session-digest/index/index.db` | `session-digest` SessionEnd and PreCompact hooks | `search.py`; an optional UserPromptSubmit recall hook; the knowledge base after ingest | On demand, or every prompt with the recall hook | Until deleted | Episodic | harness (`--with-digest`) |
 | 14 | Structured knowledge store (GBrain) | Pages about people, companies, meetings and ideas, with keyword and hybrid search | Its own database, served over MCP | Any agent via `gbrain put` or MCP | Any agent via `gbrain search`, `gbrain query`, `gbrain get` or MCP | On demand | Permanent | Semantic | optional |
 | 15 | Obsidian vault mirror | Human-readable markdown copy of the knowledge store, editable by hand | A folder you choose | You; `gbrain export` | You; `gbrain import` back into the store | On demand | Permanent | Semantic | optional |
-| 16 | Graph layer | Nodes and edges extracted from the vault, clustered into communities; traversal queries | `graphify-out/graph.json` in the vault; optional Neo4j database; a graph MCP server | graphify (and an optional Neo4j loader) | Any agent via MCP (`harness/memory/vault-graph/graph_mcp.py`) or `graphify query` | On demand | Rebuilt on each run | Relational | optional (harness ships the wikilink builder, the MCP server and the Neo4j loader) |
-| 17 | Client memory graph | People and accounts with dated, quoted facts, each quote checked against its source message | `<seat>/.claude/hooks/ogl/memory/client-graph/graph.db` | `build_graph.py` (run by hand or by cron) | `recall_hook.py` (UserPromptSubmit) injects matching facts | Every prompt that names a known entity and asks about it | Until rebuilt | Relational + provenance | harness (`--with-client-graph`) |
-| 18 | Truth-correction ledger | Each time an agent stated something false: the claim, the correction, who caught it, evidence | `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/YYYY-MM-DD.jsonl` (`event: truth_correction`) | `harness/tools/emit-truth-correction.sh` | Scoring jobs, reviews, the seat itself | On demand | Append-only, permanent | Provenance | harness |
-| 19 | Message logs | Every inbound and outbound Telegram message; agent-to-agent messages | `$CTX_ROOT/logs/<seat>/inbound-messages.jsonl`, `outbound-messages.jsonl`; `$CTX_ROOT/inbox/<seat>/`, `processed/<seat>/` | Daemon, `send-telegram`, `send-message` | The seat; audit tools; the truth ledger's evidence checks | On demand | Append-only | Episodic + provenance | Framework |
-| 20 | Event log | Everything a seat chose to log: actions, tasks, errors, heartbeats, metrics | `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/YYYY-MM-DD.jsonl` | `cortextos bus log-event` | Dashboard, reviews, scoring | On demand | Append-only, one file per seat per UTC day | Episodic | Framework |
-| 21 | Tasks and approvals | Commitments: what was promised, to whom, with what result; actions waiting for a human | `$CTX_ROOT/orgs/<org>/tasks/`, `$CTX_ROOT/orgs/<org>/approvals/` | `create-task`, `complete-task`, `create-approval`, `update-approval` | `list-tasks`, `list-approvals`, dashboard | On demand; reviews | Until archived | Episodic (commitments) | Framework |
-| 22 | Skills | How to do a kind of job: step lists, checks, commands | `<seat>/.claude/skills/<name>/SKILL.md`, `~/.claude/skills/`, plugins | You, or a seat with approval | Claude Code lists names at start; full text loads on invoke | Names at start; body on demand | Permanent | Procedural | Framework + harness |
-| 23 | Seat rules | Operating manual, guardrails, identity, goals | `<seat>/CLAUDE.md`, `AGENTS.md`, `GUARDRAILS.md`, `IDENTITY.md`, `GOALS.md` | You; some seats edit their own guardrails | Claude Code loads `CLAUDE.md`; boot reads the rest | Every session | Permanent | Procedural | Framework + harness |
+| 16 | Client memory graph | People and accounts with dated, quoted facts, each quote checked against its source message | `<seat>/.claude/hooks/ogl/memory/client-graph/graph.db` | `build_graph.py` (run by hand or by cron) | `recall_hook.py` (UserPromptSubmit) injects matching facts | Every prompt that names a known entity and asks about it | Until rebuilt | Relational + provenance | harness (`--with-client-graph`) |
+| 17 | Truth-correction ledger | Each time an agent stated something false: the claim, the correction, who caught it, evidence | `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/YYYY-MM-DD.jsonl` (`event: truth_correction`) | `harness/tools/emit-truth-correction.sh` | Scoring jobs, reviews, the seat itself | On demand | Append-only, permanent | Provenance | harness |
+| 18 | Message logs | Every inbound and outbound Telegram message; agent-to-agent messages | `$CTX_ROOT/logs/<seat>/inbound-messages.jsonl`, `outbound-messages.jsonl`; `$CTX_ROOT/inbox/<seat>/`, `processed/<seat>/` | Daemon, `send-telegram`, `send-message` | The seat; audit tools; the truth ledger's evidence checks | On demand | Append-only | Episodic + provenance | Framework |
+| 19 | Event log | Everything a seat chose to log: actions, tasks, errors, heartbeats, metrics | `$CTX_ROOT/orgs/<org>/analytics/events/<seat>/YYYY-MM-DD.jsonl` | `cortextos bus log-event` | Dashboard, reviews, scoring | On demand | Append-only, one file per seat per UTC day | Episodic | Framework |
+| 20 | Tasks and approvals | Commitments: what was promised, to whom, with what result; actions waiting for a human | `$CTX_ROOT/orgs/<org>/tasks/`, `$CTX_ROOT/orgs/<org>/approvals/` | `create-task`, `complete-task`, `create-approval`, `update-approval` | `list-tasks`, `list-approvals`, dashboard | On demand; reviews | Until archived | Episodic (commitments) | Framework |
+| 21 | Skills | How to do a kind of job: step lists, checks, commands | `<seat>/.claude/skills/<name>/SKILL.md`, `~/.claude/skills/`, plugins | You, or a seat with approval | Claude Code lists names at start; full text loads on invoke | Names at start; body on demand | Permanent | Procedural | Framework + harness |
+| 22 | Seat rules | Operating manual, guardrails, identity, goals | `<seat>/CLAUDE.md`, `AGENTS.md`, `GUARDRAILS.md`, `IDENTITY.md`, `GOALS.md` | You; some seats edit their own guardrails | Claude Code loads `CLAUDE.md`; boot reads the rest | Every session | Permanent | Procedural | Framework + harness |
 
 The rest of this section explains the layers that need more than a table row.
 
@@ -124,7 +123,7 @@ Claude Code keeps its own memory folder per project, at `~/.claude/projects/<pro
   ```
 
 - **Body shape.** The rule, then **Why:** (the reason) and **How to apply:** (the trigger and the action).
-- **Wikilinks.** Related notes link with `[[other-note-slug]]`, so a graph tool can walk them.
+- **Wikilinks.** Related notes link with `[[other-note-slug]]`, so a reader in the vault can follow them.
 - **An index.** `MEMORY.md` in the same folder lists one line per note: a Markdown link and a short hook. Claude Code loads this index at every session start and truncates it past 200 lines, so the index must stay under that limit. Notes load only when the seat opens them.
 
 The index is the cheapest always-on memory OGL Cortex has. Treat its line budget as scarce: one line per note, a hook short enough to trigger recall, details in the note.
@@ -171,26 +170,23 @@ Session digests ship in `harness/memory/session-digest/` and install with `--wit
 
 Digests are plain markdown, so the knowledge base can ingest them too (section 2.4).
 
-### 2.6 The optional knowledge stack (layers 14, 15, 16)
+### 2.6 The optional knowledge stack (layers 14, 15)
 
 OGL Cortex works without these. Install them when you want structured, cross-project knowledge that outlives any one seat.
 
 ```
-GBrain (database)   <-->   Obsidian vault   -->   graphify   -->   graph.json / Neo4j
-source of truth          human mirror            extractor          graph query layer
+GBrain (database)   <-->   Obsidian vault
+source of truth            human mirror
 ```
 
 - **GBrain** is the structured store. Pages have slugs, types and tags. `gbrain put <slug> < page.md` writes, `gbrain get <slug>` reads, `gbrain search` does keyword search, and `gbrain query` does hybrid search when embeddings are configured. `gbrain serve` runs it as a stdio MCP server.
 - **The Obsidian vault** is a folder of markdown with `[[wikilinks]]`. `gbrain export --dir <vault>` writes the store out; `gbrain import <vault>` reads edits back. People browse and edit here.
-- **The graph layer** turns the vault into `graphify-out/graph.json`. graphify extracts concepts with a model and clusters them; `graphify query "<question>"`, `graphify path "A" "B"` and `graphify explain "X"` traverse it. The harness ships a model-free alternative, `harness/memory/vault-graph/vault_graph.py`, that builds the same file shape from `[[wikilinks]]` and tags. `graph_mcp.py`, also in that folder, serves either file to agents over MCP with `memory_query`, `memory_neighbors`, `memory_shortest_path` and `memory_read_note`. `neo4j_load.py` and `docker-compose.yml` load it into a local Neo4j for Cypher queries.
 
-Install steps for all three are in GETTING-STARTED.md, [M6](../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer).
+Install steps for both are in GETTING-STARTED.md, [M6](../GETTING-STARTED.md#m6-add-ons-gbrain-and-the-obsidian-vault).
 
-Recall across this stack goes structured first (GBrain), relational second (graph, when installed), raw notes last.
+Recall across this stack goes structured first (GBrain), raw notes second (the vault).
 
-**The graph layer is an optional add-on, and the reference install no longer runs it.** On 2026-10-17 the reference install retired its graph layer (the graphify `graph.json`, the MAGMA query layer over it, the Neo4j database and the graph MCP tools `memory_query`, `memory_neighbors` and `memory_shortest_path`) and the separate Perseus memory service. Its last build was four months old and held mostly imported chat history, so it answered from stale data. The reference install now keeps GBrain and the vault, and recalls in the order in section 6. The harness still ships the wikilink graph builder, the MCP server and the Neo4j loader in `harness/memory/vault-graph/`. Install them when you will rebuild the graph on a schedule; otherwise leave them out.
-
-### 2.7 Client memory graph (layer 17)
+### 2.7 Client memory graph (layer 16)
 
 For a seat that talks about many people and accounts, a small graph of entities with dated, quoted facts beats a long file. It ships in `harness/memory/client-graph/` and installs with `--with-client-graph`; the installer copies code only, never a database. `build_graph.py` reads the message logs, extracts entities, aliases and relations, and stores each fact with the exact quote and the message it came from. Each quote is checked against its source message before it enters the graph. A UserPromptSubmit hook then runs on every prompt:
 
@@ -203,7 +199,7 @@ For a seat that talks about many people and accounts, a small graph of entities 
 
 The value is timing. The facts arrive before the model reads the question, so the seat does not have to remember to look.
 
-### 2.8 Provenance and commitments (layers 18 to 21)
+### 2.8 Provenance and commitments (layers 17 to 20)
 
 The event log, message logs, tasks and approvals are not usually called memory, but they are the most reliable episodic record a seat has, because code writes them at the moment things happen. A seat that wants to know "did I tell the user?" should read `outbound-messages.jsonl`, not its own recollection. A seat that wants to know "what did I promise?" should read open tasks and pending approvals.
 
@@ -232,7 +228,7 @@ sequenceDiagram
     D->>S: Telegram or bus message or cron prompt
     H->>S: UserPromptSubmit injects client graph facts
     S->>KB: kb-query before a task
-    S->>X: gbrain query and graph traversal
+    S->>X: gbrain query
     S->>F: Append WORKING ON and COMPLETED lines
     S->>F: Rewrite STATE.md at each checkpoint
     S->>D: log-event, create-task, send-telegram
@@ -250,16 +246,15 @@ sequenceDiagram
     S->>KB: kb-ingest memory files and digests
     S->>F: Consolidate daily lessons into MEMORY.md and auto-memory
     S->>X: gbrain put durable facts then export to vault
-    X->>X: graphify rebuilds graph.json
 ```
 
-The diagram shows every write path and read path a fully configured seat uses. A base install has the daemon, the daily log, `MEMORY.md`, `knowledge.md`, the knowledge base, the event and message logs, and tasks. The harness adds the compaction kit, `STATE.md`, the checkpoint and inject hooks, session facts, the memory templates and, by flag, session digests and the client graph. GBrain, the vault and the graph layer are optional components. The nightly consolidation step is a cron prompt you write (section 8.4); no code ships for it.
+The diagram shows every write path and read path a fully configured seat uses. A base install has the daemon, the daily log, `MEMORY.md`, `knowledge.md`, the knowledge base, the event and message logs, and tasks. The harness adds the compaction kit, `STATE.md`, the checkpoint and inject hooks, session facts, the memory templates and, by flag, session digests and the client graph. GBrain and the vault are optional components. The nightly consolidation step is a cron prompt you write (section 8.4); no code ships for it.
 
 ---
 
 ## 4. The lifecycle of one fact
 
-Follow one fact from a chat message to the graph. Suppose the user writes on Telegram: "From now on, invoices go out on the 1st, not the 15th."
+Follow one fact from a chat message to the vault. Suppose the user writes on Telegram: "From now on, invoices go out on the 1st, not the 15th."
 
 | Step | Layer | What happens | Gate |
 |---|---|---|---|
@@ -271,7 +266,7 @@ Follow one fact from a chat message to the graph. Suppose the user writes on Tel
 | 6 | Knowledge base | The next ingest run indexes the updated files into `agent-<seat>`, or into `shared-<org>` if every seat needs it | Ingest scope decides who can find it |
 | 7 | Org `knowledge.md` | If other seats act on invoices, the fact goes into the shared file every seat reads at boot | Same write gate; shared facts carry the most weight, so they need the highest-ranked source |
 | 8 | GBrain (optional) | A nightly pass writes or updates the page with `gbrain put`, citing the message | Same write gate; re-express, do not paste |
-| 9 | Vault and graph (optional) | `gbrain export` mirrors the page to the vault; graphify links it to the client, the billing process and the person who owns it | Rebuild only; no new facts enter here |
+| 9 | Vault (optional) | `gbrain export` mirrors the page to the vault, where its `[[wikilinks]]` connect it to the client, the billing process and the person who owns it | Mirror only; no new facts enter here |
 
 If the seat later states "invoices go out on the 15th" after step 5, that is wrong at write: the record already said otherwise. That claim owes a truth-correction entry (section 5.4). If the user later changes the schedule again, the old fact was true at write and is now superseded: update the entry and keep the history, with no ledger entry owed.
 
@@ -384,7 +379,6 @@ When a seat needs a fact, it reads in this order:
 | 5 | Past work by other seats: `rg -i "<term>" orgs/<org>/agents/*/memory orgs/<org>/agents/*/MEMORY.md` | Another seat may already have done or decided it |
 | 6 | The vault | Older world knowledge that never made it into a seat file |
 | 7 | Records: tasks, the event log, message logs, the source document | The authoritative record when a remembered fact matters |
-| 8 | Graph traversal, only if a graph layer is installed | Relationships: who connects to what. The reference install does not run one (section 2.6) |
 
 Three rules override the order:
 
@@ -392,7 +386,7 @@ Three rules override the order:
 - **For a fact that will go to a user, read the authoritative source, not the most convenient one.** Memory says what the seat once believed. A live page, the system of record or the message log says what is true. If the two disagree, the source wins and the memory entry gets updated.
 - **An absence claim needs every store searched.** "We have nothing on X" is a claim. Search places 1 to 5 above, each with a query that must match something, before reporting that nothing exists.
 
-The client memory graph (layer 17) does not appear in the order because it arrives on its own: the UserPromptSubmit hook injects its facts before the seat starts searching.
+The client memory graph (layer 16) does not appear in the order because it arrives on its own: the UserPromptSubmit hook injects its facts before the seat starts searching.
 
 ### 6.1 One view of all of it: the dashboard Knowledge Base tab
 
@@ -404,7 +398,7 @@ The dashboard's Knowledge Base tab (`framework/dashboard/src/app/(dashboard)/kno
 - **Corrections**: the corrections ledger, every `truth_correction` event any seat logged, newest first
 - **The agents**: each seat's `MEMORY.md`, `ENTITIES.md` and `STATE.md`, today's log and all its logs
 - **Records**: links to tasks, the event log, the corrections page and the receipts page
-- **Everything**: the vault's folders, the graph summary when a `graph.json` exists, and the blueprint docs
+- **Everything**: the vault's folders and the blueprint docs
 
 Below it, the original semantic search box still queries the knowledge base collections.
 
@@ -428,7 +422,7 @@ Which org, seats and vault the tab reads comes from env vars, documented in `fra
 | Knowledge base | Survives | Survives | Survives | Survives | Copy `$CTX_ROOT/orgs/<org>/knowledge-base/`, or re-ingest |
 | Session facts, digests | Written at compaction | Survive | Survive | Survive | Copy `$CTX_ROOT/state/<seat>/` and the seat folder |
 | Event log, message logs, tasks, approvals | Survive | Survive | Survive | Survive | Copy `$CTX_ROOT/` |
-| GBrain, vault, graph | Survive | Survive | Survive | Survive | Separate install; copy or re-sync its database and vault |
+| GBrain, vault | Survive | Survive | Survive | Survive | Separate install; copy or re-sync its database and vault |
 | Skills and seat rules | Reload | Reload | Reload | Reload | Copy the seat folder and `~/.claude/skills/` |
 
 The pattern: everything on disk survives everything except a move to a new machine, and a move only needs the right folders copied. Only the live context is fragile, and the compaction kit, `STATE.md` and the daily log exist to carry its important parts to disk before it goes.
@@ -472,7 +466,6 @@ The shipped checkpoint (layer 5) is built around three details. Keep them if you
 | Session digests and their local search index | `harness/memory/session-digest/` | `--with-digest` |
 | Notes recall on every prompt | `harness/memory/session-digest/index/recall_hook.py` | `--with-notes-recall` (needs `--with-digest`) |
 | Client memory graph and its recall hook | `harness/memory/client-graph/` | `--with-client-graph` (code only; you build `graph.db`) |
-| Vault graph builder, graph MCP server, Neo4j loader | `harness/memory/vault-graph/` | By hand, at user level (GETTING-STARTED.md M6) |
 | Seat templates: `CLAUDE.md`, `STATE.md`, `ENTITIES.md`, `MEMORY.md`, `GUARDRAILS.md`, `HEARTBEAT.md`, `daily-memory.md` | `harness/templates/` | `install.sh --apply` |
 | Org templates: `org-GUARDRAILS.md`, `org-knowledge.md` | `harness/templates/` | `install.sh --apply`, when the seat sits under `orgs/<org>/agents/` |
 | User-level read order | `harness/templates/user-CLAUDE.md` | `--user-level` |
@@ -502,21 +495,18 @@ Some memory rules are text, not code. The templates carry them, and the seat fol
 
 ### 8.4 Optional external components
 
-GBrain, Obsidian, graphify and Neo4j are separate projects. GETTING-STARTED.md, [M6](../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer), has the full install steps. In short:
+GBrain and Obsidian are separate projects. GETTING-STARTED.md, [M6](../GETTING-STARTED.md#m6-add-ons-gbrain-and-the-obsidian-vault), has the full install steps. In short:
 
 | Component | Install | Wire to Claude Code |
 |---|---|---|
 | GBrain | Clone `github.com/garrytan/gbrain`, `bun install && bun link`, `gbrain init` | `claude mcp add --scope user gbrain -- gbrain serve` |
 | Obsidian vault | Open a folder in Obsidian as a vault | None. Sync with `gbrain export --dir <vault>` and `gbrain import <vault>` |
-| graphify | `uv tool install graphifyy`, `graphify install --platform claude` | Run `/graphify .` in Claude Code inside the vault |
-| Vault graph MCP | Copy `harness/memory/vault-graph/graph_mcp.py` to a user-level folder | `claude mcp add --scope user vault-graph -- env OGL_GRAPH_JSON=<graph.json> OGL_VAULT_DIR=<vault> python3 <path>/graph_mcp.py` |
-| Neo4j | `docker compose up -d` in a copy of `harness/memory/vault-graph/`, with `NEO4J_PASSWORD` set | Load with `neo4j_load.py <graph.json>`; query with Cypher |
 
 Then add a nightly cron to the seat that owns consolidation:
 
 ```bash
 cortextos bus add-cron <seat> memory-nightly "<cron-expr>" \
-  "Consolidate today's lessons into MEMORY.md and auto-memory, run the write gate, gbrain import the vault, gbrain put durable facts, gbrain export to the vault, and rebuild the graph."
+  "Consolidate today's lessons into MEMORY.md and auto-memory, run the write gate, gbrain import the vault, gbrain put durable facts, and gbrain export to the vault."
 ```
 
 A seat must not depend on an optional component to boot. If an MCP server fails to connect, the seat falls back to the knowledge base and raw files, and says which layer it could not reach.
@@ -537,7 +527,6 @@ A seat must not depend on an optional component to boot. If an MCP server fails 
 - **Headless digests cost a model call** per session end and per compaction, on the seat's own Claude login. `session` mode avoids it.
 - **The digest index is keyword-only without `fastembed`.** Install it in a venv for the embedding leg.
 - **The client graph is as current as its last build,** and its extraction step calls a model once per batch of messages. `graph.db` holds client data: keep it out of any repository.
-- **`graph_mcp.py` holds the whole `graph.json` in memory.** Very large graphs belong in Neo4j.
 - **No consolidation code ships.** Moving daily lessons into `MEMORY.md`, pruning indexes and checking that every indexed note exists are cron prompts and reviews, not scripts.
 - **No backup ships.** See "Memory is local to the host" below.
 - **The agent template's `AGENTS.md` mentions a `--collection` flag and a `memory-<seat>` collection** that `kb-query` and `kb-ingest` do not accept. The real scopes are `shared` (collection `shared-<org>`), `private` (collection `agent-<seat>`, needs `--agent` or `CTX_AGENT_NAME`) and, for queries only, `all`. Use `--scope private` for a seat's memory files.
@@ -568,12 +557,12 @@ This repo:
 
 - `harness/hooks/compaction/` (`compaction.json`, `common.py`, `meter.py`, `after_compact.py`, `save_summary.py`)
 - `harness/hooks/memory/` (`transcript.py`, `precompact_checkpoint.py`, `sessionstart_inject.py`, `session_facts.py`)
-- `harness/memory/session-digest/`, `harness/memory/client-graph/`, `harness/memory/vault-graph/`
+- `harness/memory/session-digest/`, `harness/memory/client-graph/`
 - `harness/templates/` (`STATE.md`, `CLAUDE.md`, `ENTITIES.md`, `MEMORY.md`, `daily-memory.md`, `GUARDRAILS.md`, `HEARTBEAT.md`, `org-GUARDRAILS.md`, `org-knowledge.md`, `user-CLAUDE.md`)
 - `harness/tools/emit-truth-correction.sh`
 - `harness/hooks/future_time_guard.py`, `harness/hooks/shared_surface_guard.py`
 - `harness/settings.example.json`, `harness/install.sh`, `scripts/doctor.sh`
-- `harness/tests/test_memory_hooks.py`, `test_session_digest.py`, `test_client_graph.py`, `test_vault_graph.py`, `test_install_memory.py`
+- `harness/tests/test_memory_hooks.py`, `test_session_digest.py`, `test_client_graph.py`, `test_install_memory.py`
 - `framework/dashboard/src/lib/data/memory-stores.ts` (which stores the Knowledge Base tab reads), `memory-hub.ts` (kinds, people and companies, corrections ledger), `src/lib/install.ts` (install-specific settings), `src/app/(dashboard)/knowledge-base/`
 
 Related documents: 01 (architecture), 03 (configuration), 04 (context limits and compaction), 21 (data models and schemas).

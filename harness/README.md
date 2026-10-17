@@ -9,7 +9,7 @@ memory components, operating skills and seat templates. You install it into one 
 |-------|------|--------------|
 | Guard hooks | `hooks/` | Claude Code hooks that block unsafe or sloppy tool calls before they run |
 | Memory hooks | `hooks/memory/` | PreCompact checkpoint, SessionStart re-inject, PostCompact session facts |
-| Memory components | `memory/` | Session digests with a local search index, the client memory graph, the vault graph and its MCP server |
+| Memory components | `memory/` | Session digests with a local search index, and the client memory graph |
 | Hook tests | `tests/` | Feed sample hook JSON to each hook and check the exit code |
 | Settings block | `settings.example.json` | The `hooks` block that wires the guards into a seat |
 | Skills | `skills/` | Four operating skills: tasks, approvals, cron-management, complex-decomposition |
@@ -19,8 +19,8 @@ memory components, operating skills and seat templates. You install it into one 
 | Licences | `third_party/` | Licence texts for code derived from other projects |
 
 Requirements: the OGL Cortex framework installed, with its CLI on `PATH` as `cortextos`, Claude Code, Python 3.9 or later, bash. The hooks
-and memory components use the Python standard library only. Two parts take optional extras: the digest index adds a
-meaning leg when `fastembed` is installed, and `memory/vault-graph/neo4j_load.py` needs the `neo4j` driver and Docker.
+and memory components use the Python standard library only. One part takes an optional extra: the digest index adds a
+meaning leg when `fastembed` is installed.
 
 ## How a hook blocks
 
@@ -273,16 +273,7 @@ Build: copy `config.example.json` to `graph.config.json`, fill it in, then
 `python3 build_graph.py all --config graph.config.json`. Write your own `cases.json` from the sources before you look
 at recall output, and run `evals.py` after every rebuild. `graph.db` and `work/` hold client data.
 
-### Vault graph and graph MCP: `memory/vault-graph/` (user level, not installed into a seat)
-
-| File | Role |
-|------|------|
-| `vault_graph.py` | Builds `graph.json` from a markdown vault's `[[wikilinks]]` and tags, no model. Same node-link shape as graphify output |
-| `graph_mcp.py` | A stdio MCP server over any `graph.json` (graphify's or `vault_graph.py`'s): `memory_query`, `memory_neighbors`, `memory_shortest_path`, `memory_read_note`. Read-only; re-reads the graph when the file changes; `memory_read_note` refuses paths outside `OGL_VAULT_DIR` |
-| `neo4j_load.py` | Loads `graph.json` into Neo4j (`:Note` nodes, `:LINK {relation}` edges), replacing the previous load. `--dry-run` prints the plan. Password from `NEO4J_PASSWORD` only |
-| `docker-compose.yml` | Neo4j 5 community edition bound to `127.0.0.1` |
-
-Setup steps for this and the other external stores are in [GETTING-STARTED.md](../GETTING-STARTED.md#memory-full-setup).
+Setup steps for the external stores (GBrain and the Obsidian vault) are in [GETTING-STARTED.md](../GETTING-STARTED.md#memory-full-setup).
 
 ## Skills
 
@@ -519,7 +510,6 @@ pentest_gate           checks 18/18 (incl. 14 redaction tests)   PASS
 memory hooks           must-work 17/17   must-not-break 12/12   PASS
 session digest         must-work 12/12   must-not-break 11/11   PASS
 client graph           must-work 10/10   must-not-break 11/11   PASS
-vault graph + MCP      must-work 13/13   must-not-break 8/8   PASS
 install.sh (memory)    must-work 18/18   must-not-break 5/5   PASS
 ALL PASS
 ```
@@ -571,7 +561,6 @@ echo '{"tool_name":"Bash","tool_input":{"command":"npx vercel --prod"},"cwd":"/t
   hooks re-index one file at a time.
 - The client graph is only as current as its last build. Rebuild it on a cron; the recall hook reads whatever
   `graph.db` holds.
-- `graph_mcp.py` reads a whole `graph.json` into memory. Very large graphs belong in Neo4j.
 - `emit-truth-correction.sh` reads `OGL_PRINCIPAL_ID` from its caller's environment. Anyone who can run it can set
   that variable, so the principal check proves a matching record exists, not who ran the script.
 
@@ -592,5 +581,5 @@ echo '{"tool_name":"Bash","tool_input":{"command":"npx vercel --prod"},"cwd":"/t
   from Glitch Cat Club's memory starter and graph memory starter. The graph memory starter is MIT licensed,
   Copyright (c) 2026 Glitch Cat Club; the full notice is in `third_party/GlitchCatClub-graph-memory-starter-LICENSE`.
   The memory starter's licence is not confirmed, and it is not established whether any of its code is included.
-- `hooks/memory/`, `memory/vault-graph/` and the memory templates: OGL Cortex.
+- `hooks/memory/` and the memory templates: OGL Cortex.
 - The Orwell rules come from George Orwell, "Politics and the English Language" (1946). The word lists are original.

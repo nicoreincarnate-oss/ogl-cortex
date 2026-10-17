@@ -116,7 +116,7 @@ flowchart LR
 
 ## ADR-001: one named knowledge source of truth, with seat boot files as fallback
 
-- **Context.** Knowledge can live in many places: a vault of markdown notes, a graph export, a database, and each seat's own files. Agents need to know which one wins when they disagree.
+- **Context.** Knowledge can live in many places: a vault of markdown notes, a database, and each seat's own files. Agents need to know which one wins when they disagree.
 - **Decision.** The owner names one knowledge store as the source of truth in the user-level `~/.claude/CLAUDE.md` (the reference install uses GBrain, a local PGLite store with a CLI and an MCP server). A human-readable vault mirrors it. Seats query the store first. Each seat's `MEMORY.md` and `ENTITIES.md` are the fallback because the seat reads them at every boot.
 - **Consequences.** If the store's MCP server fails to connect, seats fall back to their boot files without saying so. Add a boot health check for the store and state the fallback order in the seat CLAUDE.md, or the boot files become the real source of truth by default.
 

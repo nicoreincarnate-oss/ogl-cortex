@@ -64,7 +64,7 @@ Retention and evidence pull in opposite directions. Approval receipts often cite
 | Seat memory: `MEMORY.md`, `memory/*.md`, `memory/topics/incidents.md` | Working notes, lessons, daily logs | Yes: read into model context; `MEMORY.md` and the daily file are ingested into the knowledge base by the `kb-ingest-daily` cron |
 | `ENTITIES.md` | The noun index: one entry per person, company, place, with source and date. In client work it holds names, emails, phone numbers, prices and contract terms | Yes: loaded into the orchestrator at boot and ingested |
 | Org knowledge base | Chunks and embeddings of ingested documents, which can include client transcripts | Yes: embeddings and document reads go to the configured embedding provider through `GEMINI_API_KEY` |
-| Optional external brain (PGLite, Obsidian vault, graph layer) | Structured pages, notes, graph | Local unless configured otherwise |
+| Optional external brain (PGLite, Obsidian vault) | Structured pages, notes | Local unless configured otherwise |
 | Claude auto-memory | Claude Code's per-project memory folder | Read into context |
 | Memory backups and snapshots | Copies made before consolidation passes | Local |
 

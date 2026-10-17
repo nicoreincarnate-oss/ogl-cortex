@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">05</div><div><p class="dg">Core system</p>
-<h1>Memory Architecture</h1><p class="meta">8,546 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/05-memory-architecture.md">Markdown source</a></p></div></header>
+<h1>Memory Architecture</h1><p class="meta">8,102 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/05-memory-architecture.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#conventions">Conventions</a></li><li><a href="#1-why-memory-is-layered">1. Why memory is layered</a></li><li><a href="#2-layer-map">2. Layer map</a></li><li><a href="#3-write-and-read-paths-across-a-session">3. Write and read paths across a session</a></li><li><a href="#4-the-lifecycle-of-one-fact">4. The lifecycle of one fact</a></li><li><a href="#5-write-discipline-and-gates">5. Write discipline and gates</a></li><li><a href="#6-recall-order">6. Recall order</a></li><li><a href="#7-compaction-and-restarts">7. Compaction and restarts</a></li><li><a href="#8-what-ships-and-how-to-add-the-rest">8. What ships, and how to add the rest</a></li><li><a href="#9-known-limitations">9. Known limitations</a></li><li><a href="#10-source-files">10. Source files</a></li></ol></details>
 <article><p>This document describes every place an OGL Cortex seat stores something it can recall later: what each layer holds, where it lives, who writes it, who reads it, when it loads, and how long it lasts. It also covers the rules that decide what may be written, the order an agent searches in, and what survives compaction, restarts and a move to a new machine.</p>
 <p>Document 01 introduces seats and the bus. Document 03 lists the configuration files. Document 04 covers the context limits and compaction thresholds in more depth. Document 21 gives the full schemas for events, messages and auto-memory notes.</p>
@@ -76,7 +76,7 @@
 <p>Paths that start with <code>&lt;seat&gt;/</code> are relative to the seat folder. Commands written as <code>cortextos ...</code> are the literal CLI that OGL Cortex installs.</p>
 <hr />
 <h2 id="1-why-memory-is-layered">1. Why memory is layered</h2>
-<p>A seat is a Claude Code session that runs for days. Its conversation compacts, its process restarts, and the host can change. No single store fits every kind of recall, so OGL Cortex splits memory the way cognitive science splits it, and gives each kind its own file, writer and lifespan. <strong>Working memory</strong> is the live context plus the <code>STATE.md</code> checkpoint that carries it across compaction. <strong>Episodic memory</strong> is the dated record of what happened: daily logs, session digests, message logs and the event log. <strong>Semantic memory</strong> is distilled fact: the seat's <code>MEMORY.md</code>, Claude Code's auto-memory notes, the <code>ENTITIES.md</code> noun index, the org <code>knowledge.md</code>, the vector knowledge base and an optional structured knowledge store. <strong>Procedural memory</strong> is how to do things: skills, the seat's <code>CLAUDE.md</code> and its guardrails. <strong>Relational memory</strong> is how things connect: an optional graph layer and an optional client memory graph. <strong>Provenance memory</strong> records where a fact came from and when a stated fact turned out false: source ranks and as-of dates on durable facts, plus the truth-correction ledger. Each layer is cheap to write and cheap to read for its own job, and expensive or wrong for the others. Most memory failures in agent systems come from asking one layer to do another layer's job.</p>
+<p>A seat is a Claude Code session that runs for days. Its conversation compacts, its process restarts, and the host can change. No single store fits every kind of recall, so OGL Cortex splits memory the way cognitive science splits it, and gives each kind its own file, writer and lifespan. <strong>Working memory</strong> is the live context plus the <code>STATE.md</code> checkpoint that carries it across compaction. <strong>Episodic memory</strong> is the dated record of what happened: daily logs, session digests, message logs and the event log. <strong>Semantic memory</strong> is distilled fact: the seat's <code>MEMORY.md</code>, Claude Code's auto-memory notes, the <code>ENTITIES.md</code> noun index, the org <code>knowledge.md</code>, the vector knowledge base and an optional structured knowledge store. <strong>Procedural memory</strong> is how to do things: skills, the seat's <code>CLAUDE.md</code> and its guardrails. <strong>Relational memory</strong> is how things connect: an optional client memory graph. <strong>Provenance memory</strong> records where a fact came from and when a stated fact turned out false: source ranks and as-of dates on durable facts, plus the truth-correction ledger. Each layer is cheap to write and cheap to read for its own job, and expensive or wrong for the others. Most memory failures in agent systems come from asking one layer to do another layer's job.</p>
 <hr />
 <h2 id="2-layer-map">2. Layer map</h2>
 <p>"Kind" uses the six terms above. "Ships" says whether the layer comes with a base install (<strong>Framework</strong>), with the OGL Cortex harness in this repo (<strong>harness</strong>), with Claude Code itself (<strong>Claude Code</strong>), as a convention you adopt in your seat files (<strong>convention</strong>), or as a separately installed component (<strong>optional</strong>).</p>
@@ -278,18 +278,6 @@
 </tr>
 <tr>
 <td>16</td>
-<td>Graph layer</td>
-<td>Nodes and edges extracted from the vault, clustered into communities; traversal queries</td>
-<td><code>graphify-out/graph.json</code> in the vault; optional Neo4j database; a graph MCP server</td>
-<td>graphify (and an optional Neo4j loader)</td>
-<td>Any agent via MCP (<code>harness/memory/vault-graph/graph_mcp.py</code>) or <code>graphify query</code></td>
-<td>On demand</td>
-<td>Rebuilt on each run</td>
-<td>Relational</td>
-<td>optional (harness ships the wikilink builder, the MCP server and the Neo4j loader)</td>
-</tr>
-<tr>
-<td>17</td>
 <td>Client memory graph</td>
 <td>People and accounts with dated, quoted facts, each quote checked against its source message</td>
 <td><code>&lt;seat&gt;/.claude/hooks/ogl/memory/client-graph/graph.db</code></td>
@@ -301,7 +289,7 @@
 <td>harness (<code>--with-client-graph</code>)</td>
 </tr>
 <tr>
-<td>18</td>
+<td>17</td>
 <td>Truth-correction ledger</td>
 <td>Each time an agent stated something false: the claim, the correction, who caught it, evidence</td>
 <td><code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/YYYY-MM-DD.jsonl</code> (<code>event: truth_correction</code>)</td>
@@ -313,7 +301,7 @@
 <td>harness</td>
 </tr>
 <tr>
-<td>19</td>
+<td>18</td>
 <td>Message logs</td>
 <td>Every inbound and outbound Telegram message; agent-to-agent messages</td>
 <td><code>$CTX_ROOT/logs/&lt;seat&gt;/inbound-messages.jsonl</code>, <code>outbound-messages.jsonl</code>; <code>$CTX_ROOT/inbox/&lt;seat&gt;/</code>, <code>processed/&lt;seat&gt;/</code></td>
@@ -325,7 +313,7 @@
 <td>Framework</td>
 </tr>
 <tr>
-<td>20</td>
+<td>19</td>
 <td>Event log</td>
 <td>Everything a seat chose to log: actions, tasks, errors, heartbeats, metrics</td>
 <td><code>$CTX_ROOT/orgs/&lt;org&gt;/analytics/events/&lt;seat&gt;/YYYY-MM-DD.jsonl</code></td>
@@ -337,7 +325,7 @@
 <td>Framework</td>
 </tr>
 <tr>
-<td>21</td>
+<td>20</td>
 <td>Tasks and approvals</td>
 <td>Commitments: what was promised, to whom, with what result; actions waiting for a human</td>
 <td><code>$CTX_ROOT/orgs/&lt;org&gt;/tasks/</code>, <code>$CTX_ROOT/orgs/&lt;org&gt;/approvals/</code></td>
@@ -349,7 +337,7 @@
 <td>Framework</td>
 </tr>
 <tr>
-<td>22</td>
+<td>21</td>
 <td>Skills</td>
 <td>How to do a kind of job: step lists, checks, commands</td>
 <td><code>&lt;seat&gt;/.claude/skills/&lt;name&gt;/SKILL.md</code>, <code>~/.claude/skills/</code>, plugins</td>
@@ -361,7 +349,7 @@
 <td>Framework + harness</td>
 </tr>
 <tr>
-<td>23</td>
+<td>22</td>
 <td>Seat rules</td>
 <td>Operating manual, guardrails, identity, goals</td>
 <td><code>&lt;seat&gt;/CLAUDE.md</code>, <code>AGENTS.md</code>, <code>GUARDRAILS.md</code>, <code>IDENTITY.md</code>, <code>GOALS.md</code></td>
@@ -467,7 +455,7 @@
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">modified</span><span class="kw">:</span><span class="at"> 2026-01-01T00:00:00.000Z</span></span>
 <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span></code></pre></div></li>
 <li><p><strong>Body shape.</strong> The rule, then <strong>Why:</strong> (the reason) and <strong>How to apply:</strong> (the trigger and the action).</p></li>
-<li><p><strong>Wikilinks.</strong> Related notes link with <code>[[other-note-slug]]</code>, so a graph tool can walk them.</p></li>
+<li><p><strong>Wikilinks.</strong> Related notes link with <code>[[other-note-slug]]</code>, so a reader in the vault can follow them.</p></li>
 <li><p><strong>An index.</strong> <code>MEMORY.md</code> in the same folder lists one line per note: a Markdown link and a short hook. Claude Code loads this index at every session start and truncates it past 200 lines, so the index must stay under that limit. Notes load only when the seat opens them.</p></li>
 </ul>
 <p>The index is the cheapest always-on memory OGL Cortex has. Treat its line budget as scarce: one line per note, a hook short enough to trigger recall, details in the note.</p>
@@ -519,19 +507,17 @@
 <li><code>--with-notes-recall</code> adds <code>index/recall_hook.py</code>, a UserPromptSubmit hook that injects the top hits on every prompt that is not a cron fire.</li>
 </ol>
 <p>Digests are plain markdown, so the knowledge base can ingest them too (section 2.4).</p>
-<h3 id="26-the-optional-knowledge-stack-layers-14-15-16">2.6 The optional knowledge stack (layers 14, 15, 16)</h3>
+<h3 id="26-the-optional-knowledge-stack-layers-14-15">2.6 The optional knowledge stack (layers 14, 15)</h3>
 <p>OGL Cortex works without these. Install them when you want structured, cross-project knowledge that outlives any one seat.</p>
-<pre><code>GBrain (database)   &lt;--&gt;   Obsidian vault   --&gt;   graphify   --&gt;   graph.json / Neo4j
-source of truth          human mirror            extractor          graph query layer</code></pre>
+<pre><code>GBrain (database)   &lt;--&gt;   Obsidian vault
+source of truth            human mirror</code></pre>
 <ul>
 <li><strong>GBrain</strong> is the structured store. Pages have slugs, types and tags. <code>gbrain put &lt;slug&gt; &lt; page.md</code> writes, <code>gbrain get &lt;slug&gt;</code> reads, <code>gbrain search</code> does keyword search, and <code>gbrain query</code> does hybrid search when embeddings are configured. <code>gbrain serve</code> runs it as a stdio MCP server.</li>
 <li><strong>The Obsidian vault</strong> is a folder of markdown with <code>[[wikilinks]]</code>. <code>gbrain export --dir &lt;vault&gt;</code> writes the store out; <code>gbrain import &lt;vault&gt;</code> reads edits back. People browse and edit here.</li>
-<li><strong>The graph layer</strong> turns the vault into <code>graphify-out/graph.json</code>. graphify extracts concepts with a model and clusters them; <code>graphify query "&lt;question&gt;"</code>, <code>graphify path "A" "B"</code> and <code>graphify explain "X"</code> traverse it. The harness ships a model-free alternative, <code>harness/memory/vault-graph/vault_graph.py</code>, that builds the same file shape from <code>[[wikilinks]]</code> and tags. <code>graph_mcp.py</code>, also in that folder, serves either file to agents over MCP with <code>memory_query</code>, <code>memory_neighbors</code>, <code>memory_shortest_path</code> and <code>memory_read_note</code>. <code>neo4j_load.py</code> and <code>docker-compose.yml</code> load it into a local Neo4j for Cypher queries.</li>
 </ul>
-<p>Install steps for all three are in GETTING-STARTED.md, <a href="../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer">M6</a>.</p>
-<p>Recall across this stack goes structured first (GBrain), relational second (graph, when installed), raw notes last.</p>
-<p><strong>The graph layer is an optional add-on, and the reference install no longer runs it.</strong> On 2026-10-17 the reference install retired its graph layer (the graphify <code>graph.json</code>, the MAGMA query layer over it, the Neo4j database and the graph MCP tools <code>memory_query</code>, <code>memory_neighbors</code> and <code>memory_shortest_path</code>) and the separate Perseus memory service. Its last build was four months old and held mostly imported chat history, so it answered from stale data. The reference install now keeps GBrain and the vault, and recalls in the order in section 6. The harness still ships the wikilink graph builder, the MCP server and the Neo4j loader in <code>harness/memory/vault-graph/</code>. Install them when you will rebuild the graph on a schedule; otherwise leave them out.</p>
-<h3 id="27-client-memory-graph-layer-17">2.7 Client memory graph (layer 17)</h3>
+<p>Install steps for both are in GETTING-STARTED.md, <a href="../GETTING-STARTED.md#m6-add-ons-gbrain-and-the-obsidian-vault">M6</a>.</p>
+<p>Recall across this stack goes structured first (GBrain), raw notes second (the vault).</p>
+<h3 id="27-client-memory-graph-layer-16">2.7 Client memory graph (layer 16)</h3>
 <p>For a seat that talks about many people and accounts, a small graph of entities with dated, quoted facts beats a long file. It ships in <code>harness/memory/client-graph/</code> and installs with <code>--with-client-graph</code>; the installer copies code only, never a database. <code>build_graph.py</code> reads the message logs, extracts entities, aliases and relations, and stores each fact with the exact quote and the message it came from. Each quote is checked against its source message before it enters the graph. A UserPromptSubmit hook then runs on every prompt:</p>
 <ol type="1">
 <li>It skips scheduled prompts (cron fires are not questions about a person).</li>
@@ -541,17 +527,17 @@ source of truth          human mirror            extractor          graph query 
 </ol>
 <p><code>build_graph.py</code> keeps a fact only when code finds its quote in the source message, and it never takes ownership or roles from a chat quote; those come from your config file. <code>evals.py --cases &lt;file&gt;</code> runs known-answer checks after each rebuild. <code>fixtures/</code> holds a small synthetic data set the tests use.</p>
 <p>The value is timing. The facts arrive before the model reads the question, so the seat does not have to remember to look.</p>
-<h3 id="28-provenance-and-commitments-layers-18-to-21">2.8 Provenance and commitments (layers 18 to 21)</h3>
+<h3 id="28-provenance-and-commitments-layers-17-to-20">2.8 Provenance and commitments (layers 17 to 20)</h3>
 <p>The event log, message logs, tasks and approvals are not usually called memory, but they are the most reliable episodic record a seat has, because code writes them at the moment things happen. A seat that wants to know "did I tell the user?" should read <code>outbound-messages.jsonl</code>, not its own recollection. A seat that wants to know "what did I promise?" should read open tasks and pending approvals.</p>
 <p>The truth-correction ledger is a specific event type on top of the event log. Section 5.4 covers it.</p>
 <hr />
 <h2 id="3-write-and-read-paths-across-a-session">3. Write and read paths across a session</h2>
-<figure class="diagram"><img src="img/a1ffbf8dd7e2.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/a0e53e3715c8.svg" alt="Diagram"></figure>
 
-<p>The diagram shows every write path and read path a fully configured seat uses. A base install has the daemon, the daily log, <code>MEMORY.md</code>, <code>knowledge.md</code>, the knowledge base, the event and message logs, and tasks. The harness adds the compaction kit, <code>STATE.md</code>, the checkpoint and inject hooks, session facts, the memory templates and, by flag, session digests and the client graph. GBrain, the vault and the graph layer are optional components. The nightly consolidation step is a cron prompt you write (section 8.4); no code ships for it.</p>
+<p>The diagram shows every write path and read path a fully configured seat uses. A base install has the daemon, the daily log, <code>MEMORY.md</code>, <code>knowledge.md</code>, the knowledge base, the event and message logs, and tasks. The harness adds the compaction kit, <code>STATE.md</code>, the checkpoint and inject hooks, session facts, the memory templates and, by flag, session digests and the client graph. GBrain and the vault are optional components. The nightly consolidation step is a cron prompt you write (section 8.4); no code ships for it.</p>
 <hr />
 <h2 id="4-the-lifecycle-of-one-fact">4. The lifecycle of one fact</h2>
-<p>Follow one fact from a chat message to the graph. Suppose the user writes on Telegram: "From now on, invoices go out on the 1st, not the 15th."</p>
+<p>Follow one fact from a chat message to the vault. Suppose the user writes on Telegram: "From now on, invoices go out on the 1st, not the 15th."</p>
 <table>
 <thead>
 <tr>
@@ -612,9 +598,9 @@ source of truth          human mirror            extractor          graph query 
 </tr>
 <tr>
 <td>9</td>
-<td>Vault and graph (optional)</td>
-<td><code>gbrain export</code> mirrors the page to the vault; graphify links it to the client, the billing process and the person who owns it</td>
-<td>Rebuild only; no new facts enter here</td>
+<td>Vault (optional)</td>
+<td><code>gbrain export</code> mirrors the page to the vault, where its <code>[[wikilinks]]</code> connect it to the client, the billing process and the person who owns it</td>
+<td>Mirror only; no new facts enter here</td>
 </tr>
 </tbody>
 </table>
@@ -814,11 +800,6 @@ source of truth          human mirror            extractor          graph query 
 <td>Records: tasks, the event log, message logs, the source document</td>
 <td>The authoritative record when a remembered fact matters</td>
 </tr>
-<tr>
-<td>8</td>
-<td>Graph traversal, only if a graph layer is installed</td>
-<td>Relationships: who connects to what. The reference install does not run one (section 2.6)</td>
-</tr>
 </tbody>
 </table>
 <p>Three rules override the order:</p>
@@ -827,7 +808,7 @@ source of truth          human mirror            extractor          graph query 
 <li><strong>For a fact that will go to a user, read the authoritative source, not the most convenient one.</strong> Memory says what the seat once believed. A live page, the system of record or the message log says what is true. If the two disagree, the source wins and the memory entry gets updated.</li>
 <li><strong>An absence claim needs every store searched.</strong> "We have nothing on X" is a claim. Search places 1 to 5 above, each with a query that must match something, before reporting that nothing exists.</li>
 </ul>
-<p>The client memory graph (layer 17) does not appear in the order because it arrives on its own: the UserPromptSubmit hook injects its facts before the seat starts searching.</p>
+<p>The client memory graph (layer 16) does not appear in the order because it arrives on its own: the UserPromptSubmit hook injects its facts before the seat starts searching.</p>
 <h3 id="61-one-view-of-all-of-it-the-dashboard-knowledge-base-tab">6.1 One view of all of it: the dashboard Knowledge Base tab</h3>
 <p>The dashboard's Knowledge Base tab (<code>framework/dashboard/src/app/(dashboard)/knowledge-base/</code>) shows the memory itself, read-only and organized by what a thing is, not by where it is stored. It reads the seat folders, each seat's saved lessons, the vault and this repo's docs (the "blueprint"). One search box covers all of them, matches every word, and groups hits by kind: Person, Company, Project, Lesson, Checkpoint, Long-term memory, People index, Topic notes, Session, Brain note, Daily log, Handoff, Agent note, Blueprint. The page then shows:</p>
 <ul>
@@ -837,7 +818,7 @@ source of truth          human mirror            extractor          graph query 
 <li><strong>Corrections</strong>: the corrections ledger, every <code>truth_correction</code> event any seat logged, newest first</li>
 <li><strong>The agents</strong>: each seat's <code>MEMORY.md</code>, <code>ENTITIES.md</code> and <code>STATE.md</code>, today's log and all its logs</li>
 <li><strong>Records</strong>: links to tasks, the event log, the corrections page and the receipts page</li>
-<li><strong>Everything</strong>: the vault's folders, the graph summary when a <code>graph.json</code> exists, and the blueprint docs</li>
+<li><strong>Everything</strong>: the vault's folders and the blueprint docs</li>
 </ul>
 <p>Below it, the original semantic search box still queries the knowledge base collections.</p>
 <p>Which org, seats and vault the tab reads comes from env vars, documented in <code>framework/dashboard/.env.example</code>: <code>CTX_ORG</code> (default: the first org), <code>CTX_MEMORY_SEAT</code> (the seat with <code>ENTITIES.md</code> and <code>STATE.md</code>; default: the org's orchestrator in <code>context.json</code>), <code>CTX_MEMORY_SEATS</code> (default: the org's switched-on seats) and <code>CTX_VAULT_PATH</code> (default: unset, no vault panels).</p>
@@ -937,7 +918,7 @@ source of truth          human mirror            extractor          graph query 
 <td>Copy <code>$CTX_ROOT/</code></td>
 </tr>
 <tr>
-<td>GBrain, vault, graph</td>
+<td>GBrain, vault</td>
 <td>Survive</td>
 <td>Survive</td>
 <td>Survive</td>
@@ -1042,11 +1023,6 @@ source of truth          human mirror            extractor          graph query 
 <td><code>--with-client-graph</code> (code only; you build <code>graph.db</code>)</td>
 </tr>
 <tr>
-<td>Vault graph builder, graph MCP server, Neo4j loader</td>
-<td><code>harness/memory/vault-graph/</code></td>
-<td>By hand, at user level (GETTING-STARTED.md M6)</td>
-</tr>
-<tr>
 <td>Seat templates: <code>CLAUDE.md</code>, <code>STATE.md</code>, <code>ENTITIES.md</code>, <code>MEMORY.md</code>, <code>GUARDRAILS.md</code>, <code>HEARTBEAT.md</code>, <code>daily-memory.md</code></td>
 <td><code>harness/templates/</code></td>
 <td><code>install.sh --apply</code></td>
@@ -1101,7 +1077,7 @@ source of truth          human mirror            extractor          graph query 
 <li>the recall order (section 6), in the seat's <code>CLAUDE.md</code> and, with <code>--user-level</code>, in <code>~/.claude/CLAUDE.md</code></li>
 </ul>
 <h3 id="84-optional-external-components">8.4 Optional external components</h3>
-<p>GBrain, Obsidian, graphify and Neo4j are separate projects. GETTING-STARTED.md, <a href="../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer">M6</a>, has the full install steps. In short:</p>
+<p>GBrain and Obsidian are separate projects. GETTING-STARTED.md, <a href="../GETTING-STARTED.md#m6-add-ons-gbrain-and-the-obsidian-vault">M6</a>, has the full install steps. In short:</p>
 <table>
 <thead>
 <tr>
@@ -1121,26 +1097,11 @@ source of truth          human mirror            extractor          graph query 
 <td>Open a folder in Obsidian as a vault</td>
 <td>None. Sync with <code>gbrain export --dir &lt;vault&gt;</code> and <code>gbrain import &lt;vault&gt;</code></td>
 </tr>
-<tr>
-<td>graphify</td>
-<td><code>uv tool install graphifyy</code>, <code>graphify install --platform claude</code></td>
-<td>Run <code>/graphify .</code> in Claude Code inside the vault</td>
-</tr>
-<tr>
-<td>Vault graph MCP</td>
-<td>Copy <code>harness/memory/vault-graph/graph_mcp.py</code> to a user-level folder</td>
-<td><code>claude mcp add --scope user vault-graph -- env OGL_GRAPH_JSON=&lt;graph.json&gt; OGL_VAULT_DIR=&lt;vault&gt; python3 &lt;path&gt;/graph_mcp.py</code></td>
-</tr>
-<tr>
-<td>Neo4j</td>
-<td><code>docker compose up -d</code> in a copy of <code>harness/memory/vault-graph/</code>, with <code>NEO4J_PASSWORD</code> set</td>
-<td>Load with <code>neo4j_load.py &lt;graph.json&gt;</code>; query with Cypher</td>
-</tr>
 </tbody>
 </table>
 <p>Then add a nightly cron to the seat that owns consolidation:</p>
 <div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cortextos</span> bus add-cron <span class="op">&lt;</span>seat<span class="op">&gt;</span> memory-nightly <span class="st">&quot;&lt;cron-expr&gt;&quot;</span> <span class="dt">\</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;Consolidate today&#39;s lessons into MEMORY.md and auto-memory, run the write gate, gbrain import the vault, gbrain put durable facts, gbrain export to the vault, and rebuild the graph.&quot;</span></span></code></pre></div>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;Consolidate today&#39;s lessons into MEMORY.md and auto-memory, run the write gate, gbrain import the vault, gbrain put durable facts, and gbrain export to the vault.&quot;</span></span></code></pre></div>
 <p>A seat must not depend on an optional component to boot. If an MCP server fails to connect, the seat falls back to the knowledge base and raw files, and says which layer it could not reach.</p>
 <hr />
 <h2 id="9-known-limitations">9. Known limitations</h2>
@@ -1157,7 +1118,6 @@ source of truth          human mirror            extractor          graph query 
 <li><strong>Headless digests cost a model call</strong> per session end and per compaction, on the seat's own Claude login. <code>session</code> mode avoids it.</li>
 <li><strong>The digest index is keyword-only without <code>fastembed</code>.</strong> Install it in a venv for the embedding leg.</li>
 <li><strong>The client graph is as current as its last build,</strong> and its extraction step calls a model once per batch of messages. <code>graph.db</code> holds client data: keep it out of any repository.</li>
-<li><strong><code>graph_mcp.py</code> holds the whole <code>graph.json</code> in memory.</strong> Very large graphs belong in Neo4j.</li>
 <li><strong>No consolidation code ships.</strong> Moving daily lessons into <code>MEMORY.md</code>, pruning indexes and checking that every indexed note exists are cron prompts and reviews, not scripts.</li>
 <li><strong>No backup ships.</strong> See "Memory is local to the host" below.</li>
 <li><strong>The agent template's <code>AGENTS.md</code> mentions a <code>--collection</code> flag and a <code>memory-&lt;seat&gt;</code> collection</strong> that <code>kb-query</code> and <code>kb-ingest</code> do not accept. The real scopes are <code>shared</code> (collection <code>shared-&lt;org&gt;</code>), <code>private</code> (collection <code>agent-&lt;seat&gt;</code>, needs <code>--agent</code> or <code>CTX_AGENT_NAME</code>) and, for queries only, <code>all</code>. Use <code>--scope private</code> for a seat's memory files.</li>
@@ -1186,12 +1146,12 @@ source of truth          human mirror            extractor          graph query 
 <ul>
 <li><code>harness/hooks/compaction/</code> (<code>compaction.json</code>, <code>common.py</code>, <code>meter.py</code>, <code>after_compact.py</code>, <code>save_summary.py</code>)</li>
 <li><code>harness/hooks/memory/</code> (<code>transcript.py</code>, <code>precompact_checkpoint.py</code>, <code>sessionstart_inject.py</code>, <code>session_facts.py</code>)</li>
-<li><code>harness/memory/session-digest/</code>, <code>harness/memory/client-graph/</code>, <code>harness/memory/vault-graph/</code></li>
+<li><code>harness/memory/session-digest/</code>, <code>harness/memory/client-graph/</code></li>
 <li><code>harness/templates/</code> (<code>STATE.md</code>, <code>CLAUDE.md</code>, <code>ENTITIES.md</code>, <code>MEMORY.md</code>, <code>daily-memory.md</code>, <code>GUARDRAILS.md</code>, <code>HEARTBEAT.md</code>, <code>org-GUARDRAILS.md</code>, <code>org-knowledge.md</code>, <code>user-CLAUDE.md</code>)</li>
 <li><code>harness/tools/emit-truth-correction.sh</code></li>
 <li><code>harness/hooks/future_time_guard.py</code>, <code>harness/hooks/shared_surface_guard.py</code></li>
 <li><code>harness/settings.example.json</code>, <code>harness/install.sh</code>, <code>scripts/doctor.sh</code></li>
-<li><code>harness/tests/test_memory_hooks.py</code>, <code>test_session_digest.py</code>, <code>test_client_graph.py</code>, <code>test_vault_graph.py</code>, <code>test_install_memory.py</code></li>
+<li><code>harness/tests/test_memory_hooks.py</code>, <code>test_session_digest.py</code>, <code>test_client_graph.py</code>, <code>test_install_memory.py</code></li>
 <li><code>framework/dashboard/src/lib/data/memory-stores.ts</code> (which stores the Knowledge Base tab reads), <code>memory-hub.ts</code> (kinds, people and companies, corrections ledger), <code>src/lib/install.ts</code> (install-specific settings), <code>src/app/(dashboard)/knowledge-base/</code></li>
 </ul>
 <p>Related documents: 01 (architecture), 03 (configuration), 04 (context limits and compaction), 21 (data models and schemas).</p>

@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">11</div><div><p class="dg">Strategy and governance</p>
-<h1>AI Safety and Governance</h1><p class="meta">2,968 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/11-ai-safety-governance.md">Markdown source</a></p></div></header>
+<h1>AI Safety and Governance</h1><p class="meta">2,974 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/11-ai-safety-governance.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#how-governance-maps-to-a-single-owner-fleet">How governance maps to a single-owner fleet</a></li><li><a href="#1-authority">1. Authority</a></li><li><a href="#2-actions-that-need-the-owners-yes">2. Actions that need the owner's yes</a></li><li><a href="#3-honesty-with-clients">3. Honesty with clients</a></li><li><a href="#4-honesty-with-the-owner">4. Honesty with the owner</a></li><li><a href="#5-regulatory-and-platform-considerations">5. Regulatory and platform considerations</a></li><li><a href="#6-copyright-and-licensing">6. Copyright and licensing</a></li><li><a href="#7-secrets">7. Secrets</a></li><li><a href="#8-mechanical-enforcement-summary">8. Mechanical enforcement summary</a></li><li><a href="#9-model-and-prompt-injection-risk">9. Model and prompt-injection risk</a></li><li><a href="#10-enterprise-items-that-do-not-apply-by-default">10. Enterprise items that do not apply by default</a></li><li><a href="#known-limitations">Known limitations</a></li><li><a href="#design-notes">Design notes</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>This document defines the rules that govern what OGL Cortex agents may do to the outside world, how honest they must be with the owner and with clients, how they treat copyright, and how they handle secrets. It says where each rule lives and which layer enforces it. The hook machinery is described in <code>04-failsafe-boundary-log.md</code>; the configuration that loads it is in <code>03-configuration-registry.md</code>.</p>
 <h2 id="how-governance-maps-to-a-single-owner-fleet">How governance maps to a single-owner fleet</h2>
@@ -372,7 +372,7 @@
 </tr>
 <tr>
 <td>Published reference data (books, recipes, guides)</td>
-<td>Use as a graph-excluded sidecar. Do not copy full text</td>
+<td>Keep it in a separate reference folder, outside the memory stores. Do not copy full text</td>
 </tr>
 <tr>
 <td>Client media</td>
