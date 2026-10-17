@@ -2,21 +2,34 @@
 every session on this machine. Keep only the lines for the stores you installed. Keep it a plain file: no tool or
 vault should rewrite it automatically, because anything written here is read as trusted instructions. -->
 
+## Where memory lives
+
+1. Each seat's own memory, in its folder: `STATE.md` (where the work stands, for seats that keep one),
+   `MEMORY.md`, `memory/<YYYY-MM-DD>.md` (the daily log), `memory/topics/`, `memory/handoffs/`, and `ENTITIES.md`
+   on the seat that keeps the people index.
+2. Saved lessons: Claude Code auto-memory, `~/.claude/projects/<project-slug>/memory/` (`MEMORY.md` is the index).
+3. The org knowledge base: `cortextos bus kb-query "<question>" --org $CTX_ORG`; org notes in `orgs/<org>/knowledge.md`.
+4. GBrain, if installed: world knowledge pages (`gbrain search`, `gbrain query`, `gbrain get`, `gbrain put`).
+5. The vault, if installed: the readable copy of GBrain (`gbrain import`, `gbrain export`).
+6. Records: tasks (`cortextos bus list-tasks`), the event log with the corrections ledger (`event: truth_correction`),
+   client promises in `$CTX_ROOT/state/client-commitments.json`.
+7. The dashboard Knowledge Base tab: one search over 1, 2, 4 and 5.
+
 ## Memory read order
 
-When you need a fact, look in this order. Stop at the first layer that answers. Read the authoritative source
-before you tell a user anything that matters.
+Before substantive work, and whenever you need a fact, read in this order. Read the authoritative source before you
+tell a user anything that matters.
 
-1. Live context, then the seat's `STATE.md` and today's `memory/<YYYY-MM-DD>.md`.
-2. `ENTITIES.md` for any person, place or thing.
-3. The auto-memory index (already loaded) and the note it points to; the seat's `MEMORY.md`.
-4. The org `knowledge.md`.
-5. The knowledge base: `cortextos bus kb-query "<question>" --org $CTX_ORG --agent $CTX_AGENT_NAME`.
-6. Session digests, if installed: `python3 .claude/hooks/ogl/memory/session-digest/index/search.py "<question>"`.
-7. GBrain, if installed: `gbrain query "<question>"`, or the `gbrain` MCP tools.
-8. The graph layer, if installed: the `vault-graph` MCP tools `memory_query`, `memory_neighbors`,
-   `memory_shortest_path`.
-9. Raw records: the message logs, the event log, the source document.
+1. Your own `STATE.md`, today's daily log and `MEMORY.md`: where the work stands.
+2. Your saved lessons index (already loaded); open the lessons that touch the task.
+3. People, companies and clients: `ENTITIES.md`, then `gbrain search "<name>"`.
+4. Org knowledge: `cortextos bus kb-query "<topic>" --org $CTX_ORG`.
+5. Past work by other seats: `rg -i "<term>" orgs/<org>/agents/*/memory orgs/<org>/agents/*/MEMORY.md`.
+6. The vault, for older world knowledge.
+7. Raw records: tasks, the message logs, the event log, the source document.
+
+Your own memory first, then GBrain for world knowledge. A claim that something is absent ("we have nothing on X")
+needs a search of places 1 to 5 above, not one of them.
 
 ## Memory write rules
 
