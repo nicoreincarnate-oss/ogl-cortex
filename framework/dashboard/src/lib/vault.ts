@@ -25,7 +25,7 @@ export type ParaDir = (typeof PARA_DIRS)[number];
 const VAULT_FALLBACK = VAULT;
 
 // Generated or binary folders that hold no notes worth browsing.
-const SKIP_DIRS = new Set(['graphify-out', 'media', 'opt', 'node_modules']);
+const SKIP_DIRS = new Set(['media', 'opt', 'node_modules']);
 
 /**
  * Top-level folders of this vault. PARA vaults keep PARA order; any other vault

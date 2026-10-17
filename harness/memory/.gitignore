@@ -6,4 +6,3 @@ session-digest/index/distilled/
 client-graph/graph.db
 client-graph/work/
 client-graph/graph.config.json
-vault-graph/neo4j/

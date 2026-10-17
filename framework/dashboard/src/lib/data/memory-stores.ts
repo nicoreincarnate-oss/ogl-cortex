@@ -45,7 +45,7 @@ export const STORES: Store[] = [
 
 export const storeById = (id: string) => STORES.find((s) => s.id === id);
 
-const SKIP_DIRS = new Set(['archive', 'backups', 'memorymd-snapshots', 'checkpoints', 'node_modules', 'graphify-out']);
+const SKIP_DIRS = new Set(['archive', 'backups', 'memorymd-snapshots', 'checkpoints', 'node_modules']);
 const SKIP_FILE = /backup|predream/i;
 
 /** True for a path (relative to its store) that is live memory, not a copy. */
@@ -211,57 +211,6 @@ export function lessonDescription(abs: string): string {
     return head.match(/^description:\s*(.+)$/m)?.[1].trim() ?? '';
   } catch {
     return '';
-  }
-}
-
-export interface GraphSummary {
-  builtAt: string;
-  nodes: number;
-  links: number;
-  groups: number;
-  hubs: { label: string; links: number; rel: string | null }[];
-}
-
-let graphCache: { mtimeMs: number; summary: GraphSummary } | null = null;
-
-/** The graphify graph of the vault: size, when it was built, and the notes with the most links. */
-export function graphSummary(): GraphSummary | null {
-  if (!VAULT) return null;
-  const file = path.join(VAULT, 'graphify-out', 'graph.json');
-  let st: fs.Stats;
-  try {
-    st = fs.statSync(file);
-  } catch {
-    return null;
-  }
-  if (graphCache?.mtimeMs === st.mtimeMs) return graphCache.summary;
-  try {
-    const g = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-      nodes: { id: string; label?: string; file_type?: string; source_file?: string; community?: number }[];
-      links: { source: string; target: string }[];
-    };
-    const degree = new Map<string, number>();
-    for (const l of g.links) {
-      degree.set(l.source, (degree.get(l.source) ?? 0) + 1);
-      degree.set(l.target, (degree.get(l.target) ?? 0) + 1);
-    }
-    const hubs = g.nodes
-      .filter((n) => n.file_type === 'document' && !(n.label ?? '').startsWith('#') && n.source_file?.startsWith(VAULT + path.sep))
-      .map((n) => ({ label: n.label ?? n.id, links: degree.get(n.id) ?? 0, rel: path.relative(VAULT, n.source_file!) }))
-      .sort((a, b) => b.links - a.links)
-      .slice(0, 8)
-      .map((h) => ({ ...h, rel: resolveMemFile('brain', h.rel) ? h.rel : null }));
-    const summary = {
-      builtAt: st.mtime.toISOString(),
-      nodes: g.nodes.length,
-      links: g.links.length,
-      groups: new Set(g.nodes.map((n) => n.community).filter((c) => c !== undefined)).size,
-      hubs,
-    };
-    graphCache = { mtimeMs: st.mtimeMs, summary };
-    return summary;
-  } catch {
-    return null;
   }
 }
 

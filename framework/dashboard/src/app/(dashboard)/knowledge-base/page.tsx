@@ -1,7 +1,7 @@
 import { getFrameworkRoot } from '@/lib/config';
 import { KnowledgeBaseClient } from '@/components/knowledge-base/kb-client';
 import { refreshMirror } from '@/lib/data/ogl-cortex';
-import { STORES, listStore, searchMemory, lessonDescription, graphSummary, clientPromises, clientPromisesAt, type MemFile } from '@/lib/data/memory-stores';
+import { STORES, listStore, searchMemory, lessonDescription, clientPromises, clientPromisesAt, type MemFile } from '@/lib/data/memory-stores';
 import { getEntities, getCorrections, checkpointLines, kindOf, KIND_ORDER } from '@/lib/data/memory-hub';
 import { defaultOrg, memorySeat } from '@/lib/install';
 import Link from 'next/link';
@@ -88,8 +88,6 @@ async function OurMemory({ q, scope }: { q: string; scope: string }) {
   const lessonStores = STORES.filter((s) => s.group === 'lessons' && lists[s.id].length > 0);
   const lessons = lessonStores.flatMap((s) => lists[s.id]).sort((a, b) => b.mtimeMs - a.mtimeMs);
   const totalFiles = memoryIds.reduce((n, id) => n + lists[id].length, 0);
-  const graph = graphSummary();
-  const graphAgeDays = graph ? Math.floor((Date.now() - Date.parse(graph.builtAt)) / 86_400_000) : 0;
   const promises = clientPromises();
   const promisesAt = clientPromisesAt();
   const now = Date.now();
@@ -314,27 +312,6 @@ async function OurMemory({ q, scope }: { q: string; scope: string }) {
           ))}
         </ul>
         <Link href={browseHref('brain')} className="inline-block font-mono text-[11px] underline">All {brainFolders.size} folders</Link>
-        {graph && (
-          <div className="space-y-2 border-t border-border pt-3">
-            <h3 className="font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-              The graph: {graph.nodes.toLocaleString('en-US')} points, {graph.links.toLocaleString('en-US')} links, {graph.groups} groups
-            </h3>
-            {graphAgeDays > 7 && (
-              <p role="alert" className="border-2 border-destructive bg-destructive/10 px-3 py-2 font-mono text-xs text-destructive">
-                Last built {graph.builtAt.slice(0, 10)}, {graphAgeDays} days ago. Notes written since then are not in it.
-              </p>
-            )}
-            <p className="text-sm">
-              Most connected:{' '}
-              {graph.hubs.slice(0, 5).map((h, i) => (
-                <span key={h.label}>
-                  {i > 0 && ', '}
-                  {h.rel ? <Link href={docHref('brain', h.rel)} className="underline">{h.label}</Link> : h.label} ({h.links})
-                </span>
-              ))}
-            </p>
-          </div>
-        )}
         <p className="border-t border-border pt-3 text-sm">
           How the memory works is written up in the{' '}
           <Link href={docHref('blueprint', 'docs/05-memory-architecture.md')} className="underline">ogl-cortex blueprint</Link>{' '}
