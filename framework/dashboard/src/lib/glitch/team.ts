@@ -47,7 +47,9 @@ export function team(): { seats: Seat[]; readAt: string } {
 
   const all: { id: string; title: string }[] = [];
   const orgsDir = path.join(CTX_ROOT, 'orgs');
-  for (const org of fs.readdirSync(orgsDir)) {
+  // A fresh install has no orgs folder yet: that is an empty team, not an error.
+  const orgs = fs.existsSync(orgsDir) ? fs.readdirSync(orgsDir) : [];
+  for (const org of orgs) {
     const dir = path.join(orgsDir, org, 'tasks');
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
