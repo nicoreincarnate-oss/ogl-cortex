@@ -33,7 +33,7 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">05</div><div><p class="dg">Core system</p>
-<h1>Memory Architecture</h1><p class="meta">7,870 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/05-memory-architecture.md">Markdown source</a></p></div></header>
+<h1>Memory Architecture</h1><p class="meta">8,546 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/05-memory-architecture.md">Markdown source</a></p></div></header>
 <details class="toc" open><summary>On this page</summary><ol><li><a href="#conventions">Conventions</a></li><li><a href="#1-why-memory-is-layered">1. Why memory is layered</a></li><li><a href="#2-layer-map">2. Layer map</a></li><li><a href="#3-write-and-read-paths-across-a-session">3. Write and read paths across a session</a></li><li><a href="#4-the-lifecycle-of-one-fact">4. The lifecycle of one fact</a></li><li><a href="#5-write-discipline-and-gates">5. Write discipline and gates</a></li><li><a href="#6-recall-order">6. Recall order</a></li><li><a href="#7-compaction-and-restarts">7. Compaction and restarts</a></li><li><a href="#8-what-ships-and-how-to-add-the-rest">8. What ships, and how to add the rest</a></li><li><a href="#9-known-limitations">9. Known limitations</a></li><li><a href="#10-source-files">10. Source files</a></li></ol></details>
 <article><p>This document describes every place an OGL Cortex seat stores something it can recall later: what each layer holds, where it lives, who writes it, who reads it, when it loads, and how long it lasts. It also covers the rules that decide what may be written, the order an agent searches in, and what survives compaction, restarts and a move to a new machine.</p>
 <p>Document 01 introduces seats and the bus. Document 03 lists the configuration files. Document 04 covers the context limits and compaction thresholds in more depth. Document 21 gives the full schemas for events, messages and auto-memory notes.</p>
@@ -529,7 +529,8 @@ source of truth          human mirror            extractor          graph query 
 <li><strong>The graph layer</strong> turns the vault into <code>graphify-out/graph.json</code>. graphify extracts concepts with a model and clusters them; <code>graphify query "&lt;question&gt;"</code>, <code>graphify path "A" "B"</code> and <code>graphify explain "X"</code> traverse it. The harness ships a model-free alternative, <code>harness/memory/vault-graph/vault_graph.py</code>, that builds the same file shape from <code>[[wikilinks]]</code> and tags. <code>graph_mcp.py</code>, also in that folder, serves either file to agents over MCP with <code>memory_query</code>, <code>memory_neighbors</code>, <code>memory_shortest_path</code> and <code>memory_read_note</code>. <code>neo4j_load.py</code> and <code>docker-compose.yml</code> load it into a local Neo4j for Cypher queries.</li>
 </ul>
 <p>Install steps for all three are in GETTING-STARTED.md, <a href="../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer">M6</a>.</p>
-<p>Recall across this stack goes structured first (GBrain), relational second (graph), raw notes last.</p>
+<p>Recall across this stack goes structured first (GBrain), relational second (graph, when installed), raw notes last.</p>
+<p><strong>The graph layer is an optional add-on, and the reference install no longer runs it.</strong> On 2026-10-17 the reference install retired its graph layer (the graphify <code>graph.json</code>, the MAGMA query layer over it, the Neo4j database and the graph MCP tools <code>memory_query</code>, <code>memory_neighbors</code> and <code>memory_shortest_path</code>) and the separate Perseus memory service. Its last build was four months old and held mostly imported chat history, so it answered from stale data. The reference install now keeps GBrain and the vault, and recalls in the order in section 6. The harness still ships the wikilink graph builder, the MCP server and the Neo4j loader in <code>harness/memory/vault-graph/</code>. Install them when you will rebuild the graph on a schedule; otherwise leave them out.</p>
 <h3 id="27-client-memory-graph-layer-17">2.7 Client memory graph (layer 17)</h3>
 <p>For a seat that talks about many people and accounts, a small graph of entities with dated, quoted facts beats a long file. It ships in <code>harness/memory/client-graph/</code> and installs with <code>--with-client-graph</code>; the installer copies code only, never a database. <code>build_graph.py</code> reads the message logs, extracts entities, aliases and relations, and stores each fact with the exact quote and the message it came from. Each quote is checked against its source message before it enters the graph. A UserPromptSubmit hook then runs on every prompt:</p>
 <ol type="1">
@@ -721,69 +722,125 @@ source of truth          human mirror            extractor          graph query 
 </table>
 <hr />
 <h2 id="6-recall-order">6. Recall order</h2>
-<p>When a seat needs a fact, it searches in this order. Earlier layers are cheaper, closer to the present, or more authoritative.</p>
+<p>Memory lives in seven places. The user-level <code>~/.claude/CLAUDE.md</code> names them so every agent on the machine, whichever tool it runs in, looks in the same places:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Where</th>
+<th>What is there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Each seat's own memory, in <code>&lt;seat&gt;/</code></td>
+<td><code>STATE.md</code> (where the work stands, for seats that keep one), <code>MEMORY.md</code> (long-term), <code>memory/YYYY-MM-DD.md</code> (the daily log), <code>memory/topics/</code>, <code>memory/handoffs/</code>, and <code>ENTITIES.md</code> on the seat that keeps the people index</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Saved lessons</td>
+<td>Claude Code auto-memory, one folder per seat, <code>~/.claude/projects/&lt;project-slug&gt;/memory/</code>: the <code>MEMORY.md</code> index plus one file per lesson</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Org knowledge base</td>
+<td><code>cortextos bus kb-query "&lt;question&gt;" --org &lt;org&gt;</code> for semantic search; <code>orgs/&lt;org&gt;/knowledge.md</code> for the shared notes</td>
+</tr>
+<tr>
+<td>4</td>
+<td>GBrain</td>
+<td>World knowledge pages: people, companies, projects, ideas (<code>gbrain search</code>, <code>gbrain query</code>, <code>gbrain get</code>, <code>gbrain put</code>)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>The vault</td>
+<td>The readable copy of GBrain; <code>gbrain import</code> and <code>gbrain export</code> keep them in step</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Records</td>
+<td>Tasks (<code>cortextos bus list-tasks</code>), the event log with the corrections ledger (<code>event: truth_correction</code>), and the client promises file <code>$CTX_ROOT/state/client-commitments.json</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td>The dashboard Knowledge Base tab</td>
+<td>One search over 1, 2, 4 and 5, organized for a person (section 6.1)</td>
+</tr>
+</tbody>
+</table>
+<p>When a seat needs a fact, it reads in this order:</p>
 <table>
 <thead>
 <tr>
 <th>Order</th>
-<th>Layer</th>
+<th>Read</th>
 <th>Why it comes here</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>1</td>
-<td>Live context and <code>STATE.md</code></td>
-<td>Already loaded; describes the current state of the work</td>
+<td>Its own <code>STATE.md</code>, today's daily log and <code>MEMORY.md</code> (plus live context)</td>
+<td>Where the work stands and what the seat promised; already loaded or cheapest to read</td>
 </tr>
 <tr>
 <td>2</td>
-<td>Today's daily log and open tasks</td>
-<td>The freshest written record; tells the seat what it was doing and what it promised</td>
+<td>Its saved lessons index, then the lessons that touch the task</td>
+<td>Rules and corrections. Claude Code loads the index; open the note for the full rule</td>
 </tr>
 <tr>
 <td>3</td>
-<td><code>ENTITIES.md</code></td>
-<td>For any question about a person, place or thing; facts carry source and date</td>
+<td>For people, companies and clients: <code>ENTITIES.md</code>, then <code>gbrain search "&lt;name&gt;"</code></td>
+<td>Noun facts with source and date first, then the wider world store</td>
 </tr>
 <tr>
 <td>4</td>
-<td>Auto-memory index, then the matching note; seat <code>MEMORY.md</code></td>
-<td>Lessons and rules. The index is in context; open the note for the full rule</td>
-</tr>
-<tr>
-<td>5</td>
-<td>Org <code>knowledge.md</code></td>
-<td>Facts shared across seats</td>
-</tr>
-<tr>
-<td>6</td>
-<td><code>cortextos bus kb-query</code></td>
+<td>Org knowledge: <code>cortextos bus kb-query "&lt;topic&gt;" --org &lt;org&gt;</code></td>
 <td>Semantic search over everything ingested: older logs, digests, research, outputs</td>
 </tr>
 <tr>
+<td>5</td>
+<td>Past work by other seats: <code>rg -i "&lt;term&gt;" orgs/&lt;org&gt;/agents/*/memory orgs/&lt;org&gt;/agents/*/MEMORY.md</code></td>
+<td>Another seat may already have done or decided it</td>
+</tr>
+<tr>
+<td>6</td>
+<td>The vault</td>
+<td>Older world knowledge that never made it into a seat file</td>
+</tr>
+<tr>
 <td>7</td>
-<td>GBrain (<code>gbrain query</code>)</td>
-<td>Structured world knowledge, if installed</td>
+<td>Records: tasks, the event log, message logs, the source document</td>
+<td>The authoritative record when a remembered fact matters</td>
 </tr>
 <tr>
 <td>8</td>
-<td>Graph traversal</td>
-<td>Relationships: who connects to what, shortest paths, communities</td>
-</tr>
-<tr>
-<td>9</td>
-<td>Raw records: message logs, event log, the source document</td>
-<td>The authoritative record when a remembered fact matters</td>
+<td>Graph traversal, only if a graph layer is installed</td>
+<td>Relationships: who connects to what. The reference install does not run one (section 2.6)</td>
 </tr>
 </tbody>
 </table>
-<p>Two rules override the order:</p>
+<p>Three rules override the order:</p>
 <ul>
+<li><strong>Own memory first, then GBrain for world knowledge.</strong> A seat's files say where its work stands; GBrain says what is true about the world.</li>
 <li><strong>For a fact that will go to a user, read the authoritative source, not the most convenient one.</strong> Memory says what the seat once believed. A live page, the system of record or the message log says what is true. If the two disagree, the source wins and the memory entry gets updated.</li>
-<li><strong>Grep before claiming absence.</strong> "There is no note about X" is a claim. Search the layer you think is empty, with a query that must match something, before reporting that nothing exists.</li>
+<li><strong>An absence claim needs every store searched.</strong> "We have nothing on X" is a claim. Search places 1 to 5 above, each with a query that must match something, before reporting that nothing exists.</li>
 </ul>
 <p>The client memory graph (layer 17) does not appear in the order because it arrives on its own: the UserPromptSubmit hook injects its facts before the seat starts searching.</p>
+<h3 id="61-one-view-of-all-of-it-the-dashboard-knowledge-base-tab">6.1 One view of all of it: the dashboard Knowledge Base tab</h3>
+<p>The dashboard's Knowledge Base tab (<code>framework/dashboard/src/app/(dashboard)/knowledge-base/</code>) shows the memory itself, read-only and organized by what a thing is, not by where it is stored. It reads the seat folders, each seat's saved lessons, the vault and this repo's docs (the "blueprint"). One search box covers all of them, matches every word, and groups hits by kind: Person, Company, Project, Lesson, Checkpoint, Long-term memory, People index, Topic notes, Session, Brain note, Daily log, Handoff, Agent note, Blueprint. The page then shows:</p>
+<ul>
+<li><strong>Now</strong>: the checkpoint lines from the memory seat's <code>STATE.md</code>, open client promises from <code>client-commitments.json</code> (a promise past its date is marked), and the latest corrections</li>
+<li><strong>People &amp; companies</strong>: the memory seat's <code>ENTITIES.md</code> joined to the vault's person and company notes, each with its own page</li>
+<li><strong>Projects</strong> and <strong>Lessons</strong>: project notes from the vault, and saved lessons with their one-line descriptions</li>
+<li><strong>Corrections</strong>: the corrections ledger, every <code>truth_correction</code> event any seat logged, newest first</li>
+<li><strong>The agents</strong>: each seat's <code>MEMORY.md</code>, <code>ENTITIES.md</code> and <code>STATE.md</code>, today's log and all its logs</li>
+<li><strong>Records</strong>: links to tasks, the event log, the corrections page and the receipts page</li>
+<li><strong>Everything</strong>: the vault's folders, the graph summary when a <code>graph.json</code> exists, and the blueprint docs</li>
+</ul>
+<p>Below it, the original semantic search box still queries the knowledge base collections.</p>
+<p>Which org, seats and vault the tab reads comes from env vars, documented in <code>framework/dashboard/.env.example</code>: <code>CTX_ORG</code> (default: the first org), <code>CTX_MEMORY_SEAT</code> (the seat with <code>ENTITIES.md</code> and <code>STATE.md</code>; default: the org's orchestrator in <code>context.json</code>), <code>CTX_MEMORY_SEATS</code> (default: the org's switched-on seats) and <code>CTX_VAULT_PATH</code> (default: unset, no vault panels).</p>
 <hr />
 <h2 id="7-compaction-and-restarts">7. Compaction and restarts</h2>
 <h3 id="71-what-survives-what">7.1 What survives what</h3>
@@ -1135,6 +1192,7 @@ source of truth          human mirror            extractor          graph query 
 <li><code>harness/hooks/future_time_guard.py</code>, <code>harness/hooks/shared_surface_guard.py</code></li>
 <li><code>harness/settings.example.json</code>, <code>harness/install.sh</code>, <code>scripts/doctor.sh</code></li>
 <li><code>harness/tests/test_memory_hooks.py</code>, <code>test_session_digest.py</code>, <code>test_client_graph.py</code>, <code>test_vault_graph.py</code>, <code>test_install_memory.py</code></li>
+<li><code>framework/dashboard/src/lib/data/memory-stores.ts</code> (which stores the Knowledge Base tab reads), <code>memory-hub.ts</code> (kinds, people and companies, corrections ledger), <code>src/lib/install.ts</code> (install-specific settings), <code>src/app/(dashboard)/knowledge-base/</code></li>
 </ul>
 <p>Related documents: 01 (architecture), 03 (configuration), 04 (context limits and compaction), 21 (data models and schemas).</p>
 </article><nav class="pager"><a class="prev" href="04-failsafe-boundary-log.html"><small>Previous</small>04 Fail-Safes and Boundaries</a><a class="next" href="10-prd.html"><small>Next</small>10 Product Requirements (PRD)</a></nav></main></div></body></html>

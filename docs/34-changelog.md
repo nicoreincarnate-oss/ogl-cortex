@@ -18,6 +18,7 @@ timeline
     v0.3 Send and ship : send guard : ship wrapper and pentest gate : auth sentinel : billing alerts : credential identity check
     v0.4 Guard layer : shared-surface guard : Google account guard : fail-closed guards : calendar launchd jobs : quota ledger : compaction and STATE : brief and time guards : adversarial passes
     v0.5 Delete guards : KB replace-by-source : redacted secret scan : U-series delete guards : floor guard without auto-prune
+    v0.6 Cortex OS dashboard : Knowledge Base tab shows the memory : install settings from env : graph layer retired in the reference install
 ```
 
 ## Hook inventory at v0.5
@@ -44,6 +45,26 @@ The command-line tool is named `cortextos`.
 | PostCompact | `compaction/save_summary.py` | v0.4 |
 | UserPromptSubmit | client recall hook and prompt router (optional, not included) | v0.4 |
 | statusLine | `cortextos bus hook-context-status` | framework |
+
+---
+
+## v0.6: Cortex OS dashboard and the memory read order
+
+### Dashboard
+- **Cortex OS.** The vendored dashboard (`framework/dashboard/`) now carries the OGL look, installs as a home-screen app named Cortex OS and opens on Needs you: the operator's own asks and approvals, plus any live seat gone quiet. Only switched-on seats appear, orgs whose folder starts with `_` are hidden, and open tasks with no activity in 14 days stay out of view unless asked for.
+- **Proof pages.** Fleet truth, done drift, landmines, receipts and a Kem library page. Each reader shows what it read and when, and a reader that fails says so instead of showing an empty reading.
+- **Team, Calendar, Projects, CRM, Instagram.** Team shows each seat's job, what it is doing now and what it finished today. Calendar is read-only. Projects lists client work folders. CRM builds companies and people from client folders, the people index and an optional lead watch file, and keeps notes and follow-ups per company in `$CTX_ROOT/state/crm/notes.json` with an atomic write. Instagram shows a carousel schedule when one is configured.
+- **Push alerts.** Web push with VAPID keys and subscriptions kept in `$CTX_ROOT/config` at mode 600, plus a test alert.
+- **Hardening.** A content security policy and `X-Frame-Options: DENY` on every page (Proof pages may be framed by the same site only), no `X-Powered-By` header, and a login that survives a reverse proxy redirecting to the bind address.
+- **Speed.** Processed bus messages and Telegram logs are cached; knowledge base collections load in parallel with a 10-minute cache.
+
+### Memory
+- **The Knowledge Base tab shows the memory itself.** It searches every seat's files, the saved lessons, the vault and the docs, and groups results by kind (person, company, project, lesson, checkpoint and more). It shows where the work stands, open client promises, people and companies, and the corrections ledger. See `05-memory-architecture.md`, section 6.1.
+- **New read order.** Section 6 of `05-memory-architecture.md` lists the seven places memory lives and the order to read them: the seat's own files, its saved lessons, `ENTITIES.md` then GBrain, the knowledge base, other seats' memory, the vault, then the records. An absence claim needs every store searched.
+- **Graph layer retired in the reference install.** On 2026-10-17 the reference install stopped running its graph layer (graphify, MAGMA, Neo4j and the graph MCP tools) and the Perseus memory service. The graph stays an optional add-on, and `harness/memory/vault-graph/` still ships.
+
+### Configuration
+- **Install settings come from env vars.** The org, the memory seat, the seats on the memory views, the vault path, the display timezone, client folders, CRM exclusions, the lead watch feed, the Instagram feed and the push contact are read by `framework/dashboard/src/lib/install.ts`. Each has a default documented in `framework/dashboard/.env.example`. Team page job lines live in `$CTX_ROOT/config/team.json`.
 
 ---
 

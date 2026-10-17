@@ -186,7 +186,9 @@ source of truth          human mirror            extractor          graph query 
 
 Install steps for all three are in GETTING-STARTED.md, [M6](../GETTING-STARTED.md#m6-add-ons-gbrain-obsidian-vault-and-the-graph-layer).
 
-Recall across this stack goes structured first (GBrain), relational second (graph), raw notes last.
+Recall across this stack goes structured first (GBrain), relational second (graph, when installed), raw notes last.
+
+**The graph layer is an optional add-on, and the reference install no longer runs it.** On 2026-10-17 the reference install retired its graph layer (the graphify `graph.json`, the MAGMA query layer over it, the Neo4j database and the graph MCP tools `memory_query`, `memory_neighbors` and `memory_shortest_path`) and the separate Perseus memory service. Its last build was four months old and held mostly imported chat history, so it answered from stale data. The reference install now keeps GBrain and the vault, and recalls in the order in section 6. The harness still ships the wikilink graph builder, the MCP server and the Neo4j loader in `harness/memory/vault-graph/`. Install them when you will rebuild the graph on a schedule; otherwise leave them out.
 
 ### 2.7 Client memory graph (layer 17)
 
@@ -359,26 +361,54 @@ The test is a timestamp: did the contradicting fact exist before the claim was w
 
 ## 6. Recall order
 
-When a seat needs a fact, it searches in this order. Earlier layers are cheaper, closer to the present, or more authoritative.
+Memory lives in seven places. The user-level `~/.claude/CLAUDE.md` names them so every agent on the machine, whichever tool it runs in, looks in the same places:
 
-| Order | Layer | Why it comes here |
+| # | Where | What is there |
 |---|---|---|
-| 1 | Live context and `STATE.md` | Already loaded; describes the current state of the work |
-| 2 | Today's daily log and open tasks | The freshest written record; tells the seat what it was doing and what it promised |
-| 3 | `ENTITIES.md` | For any question about a person, place or thing; facts carry source and date |
-| 4 | Auto-memory index, then the matching note; seat `MEMORY.md` | Lessons and rules. The index is in context; open the note for the full rule |
-| 5 | Org `knowledge.md` | Facts shared across seats |
-| 6 | `cortextos bus kb-query` | Semantic search over everything ingested: older logs, digests, research, outputs |
-| 7 | GBrain (`gbrain query`) | Structured world knowledge, if installed |
-| 8 | Graph traversal | Relationships: who connects to what, shortest paths, communities |
-| 9 | Raw records: message logs, event log, the source document | The authoritative record when a remembered fact matters |
+| 1 | Each seat's own memory, in `<seat>/` | `STATE.md` (where the work stands, for seats that keep one), `MEMORY.md` (long-term), `memory/YYYY-MM-DD.md` (the daily log), `memory/topics/`, `memory/handoffs/`, and `ENTITIES.md` on the seat that keeps the people index |
+| 2 | Saved lessons | Claude Code auto-memory, one folder per seat, `~/.claude/projects/<project-slug>/memory/`: the `MEMORY.md` index plus one file per lesson |
+| 3 | Org knowledge base | `cortextos bus kb-query "<question>" --org <org>` for semantic search; `orgs/<org>/knowledge.md` for the shared notes |
+| 4 | GBrain | World knowledge pages: people, companies, projects, ideas (`gbrain search`, `gbrain query`, `gbrain get`, `gbrain put`) |
+| 5 | The vault | The readable copy of GBrain; `gbrain import` and `gbrain export` keep them in step |
+| 6 | Records | Tasks (`cortextos bus list-tasks`), the event log with the corrections ledger (`event: truth_correction`), and the client promises file `$CTX_ROOT/state/client-commitments.json` |
+| 7 | The dashboard Knowledge Base tab | One search over 1, 2, 4 and 5, organized for a person (section 6.1) |
 
-Two rules override the order:
+When a seat needs a fact, it reads in this order:
 
+| Order | Read | Why it comes here |
+|---|---|---|
+| 1 | Its own `STATE.md`, today's daily log and `MEMORY.md` (plus live context) | Where the work stands and what the seat promised; already loaded or cheapest to read |
+| 2 | Its saved lessons index, then the lessons that touch the task | Rules and corrections. Claude Code loads the index; open the note for the full rule |
+| 3 | For people, companies and clients: `ENTITIES.md`, then `gbrain search "<name>"` | Noun facts with source and date first, then the wider world store |
+| 4 | Org knowledge: `cortextos bus kb-query "<topic>" --org <org>` | Semantic search over everything ingested: older logs, digests, research, outputs |
+| 5 | Past work by other seats: `rg -i "<term>" orgs/<org>/agents/*/memory orgs/<org>/agents/*/MEMORY.md` | Another seat may already have done or decided it |
+| 6 | The vault | Older world knowledge that never made it into a seat file |
+| 7 | Records: tasks, the event log, message logs, the source document | The authoritative record when a remembered fact matters |
+| 8 | Graph traversal, only if a graph layer is installed | Relationships: who connects to what. The reference install does not run one (section 2.6) |
+
+Three rules override the order:
+
+- **Own memory first, then GBrain for world knowledge.** A seat's files say where its work stands; GBrain says what is true about the world.
 - **For a fact that will go to a user, read the authoritative source, not the most convenient one.** Memory says what the seat once believed. A live page, the system of record or the message log says what is true. If the two disagree, the source wins and the memory entry gets updated.
-- **Grep before claiming absence.** "There is no note about X" is a claim. Search the layer you think is empty, with a query that must match something, before reporting that nothing exists.
+- **An absence claim needs every store searched.** "We have nothing on X" is a claim. Search places 1 to 5 above, each with a query that must match something, before reporting that nothing exists.
 
 The client memory graph (layer 17) does not appear in the order because it arrives on its own: the UserPromptSubmit hook injects its facts before the seat starts searching.
+
+### 6.1 One view of all of it: the dashboard Knowledge Base tab
+
+The dashboard's Knowledge Base tab (`framework/dashboard/src/app/(dashboard)/knowledge-base/`) shows the memory itself, read-only and organized by what a thing is, not by where it is stored. It reads the seat folders, each seat's saved lessons, the vault and this repo's docs (the "blueprint"). One search box covers all of them, matches every word, and groups hits by kind: Person, Company, Project, Lesson, Checkpoint, Long-term memory, People index, Topic notes, Session, Brain note, Daily log, Handoff, Agent note, Blueprint. The page then shows:
+
+- **Now**: the checkpoint lines from the memory seat's `STATE.md`, open client promises from `client-commitments.json` (a promise past its date is marked), and the latest corrections
+- **People & companies**: the memory seat's `ENTITIES.md` joined to the vault's person and company notes, each with its own page
+- **Projects** and **Lessons**: project notes from the vault, and saved lessons with their one-line descriptions
+- **Corrections**: the corrections ledger, every `truth_correction` event any seat logged, newest first
+- **The agents**: each seat's `MEMORY.md`, `ENTITIES.md` and `STATE.md`, today's log and all its logs
+- **Records**: links to tasks, the event log, the corrections page and the receipts page
+- **Everything**: the vault's folders, the graph summary when a `graph.json` exists, and the blueprint docs
+
+Below it, the original semantic search box still queries the knowledge base collections.
+
+Which org, seats and vault the tab reads comes from env vars, documented in `framework/dashboard/.env.example`: `CTX_ORG` (default: the first org), `CTX_MEMORY_SEAT` (the seat with `ENTITIES.md` and `STATE.md`; default: the org's orchestrator in `context.json`), `CTX_MEMORY_SEATS` (default: the org's switched-on seats) and `CTX_VAULT_PATH` (default: unset, no vault panels).
 
 ---
 
@@ -544,5 +574,6 @@ This repo:
 - `harness/hooks/future_time_guard.py`, `harness/hooks/shared_surface_guard.py`
 - `harness/settings.example.json`, `harness/install.sh`, `scripts/doctor.sh`
 - `harness/tests/test_memory_hooks.py`, `test_session_digest.py`, `test_client_graph.py`, `test_vault_graph.py`, `test_install_memory.py`
+- `framework/dashboard/src/lib/data/memory-stores.ts` (which stores the Knowledge Base tab reads), `memory-hub.ts` (kinds, people and companies, corrections ledger), `src/lib/install.ts` (install-specific settings), `src/app/(dashboard)/knowledge-base/`
 
 Related documents: 01 (architecture), 03 (configuration), 04 (context limits and compaction), 21 (data models and schemas).

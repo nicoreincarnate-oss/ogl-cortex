@@ -33,14 +33,14 @@
 <li><a href="42-chaos-telemetry-determinism.html"><span>42</span>Chaos, telemetry and determinism</a></li>
 <li><a href="43-legal-ip-training.html"><span>43</span>Legal, IP, licences and training</a></li></ol></nav>
 <main id="main"><header class="dh"><div class="dn">34</div><div><p class="dg">Operations and security</p>
-<h1>Changelog</h1><p class="meta">2,049 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/34-changelog.md">Markdown source</a></p></div></header>
-<details class="toc" open><summary>On this page</summary><ol><li><a href="#release-map">Release map</a></li><li><a href="#hook-inventory-at-v05">Hook inventory at v0.5</a></li><li><a href="#v05-delete-guards-and-memory-hygiene">v0.5: Delete guards and memory hygiene</a></li><li><a href="#v04-the-guard-layer">v0.4: The guard layer</a></li><li><a href="#v03-send-path-and-ship-path">v0.3: Send path and ship path</a></li><li><a href="#v02-instruments">v0.2: Instruments</a></li><li><a href="#v01-foundation">v0.1: Foundation</a></li><li><a href="#deprecations">Deprecations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
+<h1>Changelog</h1><p class="meta">2,536 words · <a href="https://github.com/nicoreincarnate-oss/ogl-cortex/blob/main/docs/34-changelog.md">Markdown source</a></p></div></header>
+<details class="toc" open><summary>On this page</summary><ol><li><a href="#release-map">Release map</a></li><li><a href="#hook-inventory-at-v05">Hook inventory at v0.5</a></li><li><a href="#v06-cortex-os-dashboard-and-the-memory-read-order">v0.6: Cortex OS dashboard and the memory read order</a></li><li><a href="#v05-delete-guards-and-memory-hygiene">v0.5: Delete guards and memory hygiene</a></li><li><a href="#v04-the-guard-layer">v0.4: The guard layer</a></li><li><a href="#v03-send-path-and-ship-path">v0.3: Send path and ship path</a></li><li><a href="#v02-instruments">v0.2: Instruments</a></li><li><a href="#v01-foundation">v0.1: Foundation</a></li><li><a href="#deprecations">Deprecations</a></li><li><a href="#source-files">Source files</a></li></ol></details>
 <article><p>The version labels v0.1 to v0.5 group features in the order they were added. They are not tagged releases.</p>
 <p>Release notes for the OGL Cortex harness layer: the hooks, guards, tools, memory protocol and deploy path that sit on top of the framework. Framework changes are tracked in the upstream framework repository.</p>
 <p>Each entry says what the feature does and why it exists, as a property of the software.</p>
 <p>Related documents: <code>32-security-red-team-log.md</code> (how each guard works), <code>31-observability-alerting.md</code> (each sentinel's thresholds), <code>30-sre-runbooks.md</code> (what to do when one fires).</p>
 <h2 id="release-map">Release map</h2>
-<figure class="diagram"><img src="img/9af9c5beef69.svg" alt="Diagram"></figure>
+<figure class="diagram"><img src="img/68165a69b2e3.svg" alt="Diagram"></figure>
 
 <h2 id="hook-inventory-at-v05">Hook inventory at v0.5</h2>
 <p>An orchestrator seat set up with <code>harness/install.sh</code> registers these hooks. Specialist seats register a subset. Hook files install to <code>&lt;seat&gt;/.claude/hooks/ogl/</code>. Entries marked "not included" describe optional components that this repository does not ship.</p>
@@ -136,6 +136,27 @@
 </tr>
 </tbody>
 </table>
+<hr />
+<h2 id="v06-cortex-os-dashboard-and-the-memory-read-order">v0.6: Cortex OS dashboard and the memory read order</h2>
+<h3 id="dashboard">Dashboard</h3>
+<ul>
+<li><strong>Cortex OS.</strong> The vendored dashboard (<code>framework/dashboard/</code>) now carries the OGL look, installs as a home-screen app named Cortex OS and opens on Needs you: the operator's own asks and approvals, plus any live seat gone quiet. Only switched-on seats appear, orgs whose folder starts with <code>_</code> are hidden, and open tasks with no activity in 14 days stay out of view unless asked for.</li>
+<li><strong>Proof pages.</strong> Fleet truth, done drift, landmines, receipts and a Kem library page. Each reader shows what it read and when, and a reader that fails says so instead of showing an empty reading.</li>
+<li><strong>Team, Calendar, Projects, CRM, Instagram.</strong> Team shows each seat's job, what it is doing now and what it finished today. Calendar is read-only. Projects lists client work folders. CRM builds companies and people from client folders, the people index and an optional lead watch file, and keeps notes and follow-ups per company in <code>$CTX_ROOT/state/crm/notes.json</code> with an atomic write. Instagram shows a carousel schedule when one is configured.</li>
+<li><strong>Push alerts.</strong> Web push with VAPID keys and subscriptions kept in <code>$CTX_ROOT/config</code> at mode 600, plus a test alert.</li>
+<li><strong>Hardening.</strong> A content security policy and <code>X-Frame-Options: DENY</code> on every page (Proof pages may be framed by the same site only), no <code>X-Powered-By</code> header, and a login that survives a reverse proxy redirecting to the bind address.</li>
+<li><strong>Speed.</strong> Processed bus messages and Telegram logs are cached; knowledge base collections load in parallel with a 10-minute cache.</li>
+</ul>
+<h3 id="memory">Memory</h3>
+<ul>
+<li><strong>The Knowledge Base tab shows the memory itself.</strong> It searches every seat's files, the saved lessons, the vault and the docs, and groups results by kind (person, company, project, lesson, checkpoint and more). It shows where the work stands, open client promises, people and companies, and the corrections ledger. See <code>05-memory-architecture.md</code>, section 6.1.</li>
+<li><strong>New read order.</strong> Section 6 of <code>05-memory-architecture.md</code> lists the seven places memory lives and the order to read them: the seat's own files, its saved lessons, <code>ENTITIES.md</code> then GBrain, the knowledge base, other seats' memory, the vault, then the records. An absence claim needs every store searched.</li>
+<li><strong>Graph layer retired in the reference install.</strong> On 2026-10-17 the reference install stopped running its graph layer (graphify, MAGMA, Neo4j and the graph MCP tools) and the Perseus memory service. The graph stays an optional add-on, and <code>harness/memory/vault-graph/</code> still ships.</li>
+</ul>
+<h3 id="configuration">Configuration</h3>
+<ul>
+<li><strong>Install settings come from env vars.</strong> The org, the memory seat, the seats on the memory views, the vault path, the display timezone, client folders, CRM exclusions, the lead watch feed, the Instagram feed and the push contact are read by <code>framework/dashboard/src/lib/install.ts</code>. Each has a default documented in <code>framework/dashboard/.env.example</code>. Team page job lines live in <code>$CTX_ROOT/config/team.json</code>.</li>
+</ul>
 <hr />
 <h2 id="v05-delete-guards-and-memory-hygiene">v0.5: Delete guards and memory hygiene</h2>
 <h3 id="guards">Guards</h3>
