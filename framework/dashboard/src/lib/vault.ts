@@ -6,7 +6,7 @@
  */
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
+import { VAULT } from './install';
 import { CTX_FRAMEWORK_ROOT } from './config';
 
 export const PARA_DIRS = [
@@ -21,8 +21,33 @@ export const PARA_DIRS = [
 
 export type ParaDir = (typeof PARA_DIRS)[number];
 
-const VAULT_FALLBACK = process.env.CTX_VAULT_PATH
-  ?? path.join(os.homedir(), 'storage', 'Documents', 'Github', 'sondres-orchestrator', 'vault');
+// The configured vault (the GBrain mirror): CTX_VAULT_PATH. Unset = only the knowledge.md path above.
+const VAULT_FALLBACK = VAULT;
+
+// Generated or binary folders that hold no notes worth browsing.
+const SKIP_DIRS = new Set(['graphify-out', 'media', 'opt', 'node_modules']);
+
+/**
+ * Top-level folders of this vault. PARA vaults keep PARA order; any other vault
+ * (e.g. "00 Inbox", "05 Sessions", "projects") lists its own folders by name.
+ */
+export function getVaultDirs(vaultRoot: string): string[] {
+  const para = PARA_DIRS.filter((d) => fs.existsSync(path.join(vaultRoot, d)));
+  if (para.length > 0) return [...para];
+  return fs
+    .readdirSync(vaultRoot, { withFileTypes: true })
+    .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !SKIP_DIRS.has(e.name))
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/** The vault's inbox folder: 00-inbox, "00 Inbox" or inbox, whichever exists. */
+export function getInboxDir(vaultRoot: string): string | null {
+  for (const d of ['00-inbox', '00 Inbox', 'inbox']) {
+    if (fs.existsSync(path.join(vaultRoot, d))) return d;
+  }
+  return null;
+}
 
 export function getVaultRoot(org: string): string | null {
   // 1. Try parsing orgs/<org>/knowledge.md for an "Obsidian vault" path entry
@@ -43,8 +68,8 @@ export function getVaultRoot(org: string): string | null {
     }
   }
 
-  // 2. Fallback to the known sondre-hq vault location
-  if (fs.existsSync(VAULT_FALLBACK) && fs.statSync(VAULT_FALLBACK).isDirectory()) {
+  // 2. Fallback to the configured vault location
+  if (VAULT_FALLBACK && fs.existsSync(VAULT_FALLBACK) && fs.statSync(VAULT_FALLBACK).isDirectory()) {
     return VAULT_FALLBACK;
   }
 
@@ -114,7 +139,7 @@ export function firstMeaningfulLine(body: string, max = 160): string {
 
 /**
  * Resolves a relative vault path safely. Refuses anything outside the vault
- * root or outside the PARA dirs.
+ * root or outside the vault's top-level note folders.
  */
 export function resolveVaultPath(
   vaultRoot: string,
@@ -126,7 +151,7 @@ export function resolveVaultPath(
   if (cleaned.includes('..')) return null;
   // Must start with one of the PARA dir names
   const top = cleaned.split('/')[0];
-  if (!PARA_DIRS.includes(top as ParaDir)) return null;
+  if (!getVaultDirs(vaultRoot).includes(top)) return null;
 
   const abs = path.resolve(vaultRoot, cleaned);
   // Defense in depth — confirm resolved path is inside the vault root
@@ -135,7 +160,7 @@ export function resolveVaultPath(
 }
 
 /**
- * Walk all PARA dirs and collect every .md file. Used by search.
+ * Walk all note folders and collect every .md file. Used by search.
  */
 export function listAllNotes(vaultRoot: string): Array<{
   relPath: string;
@@ -143,7 +168,7 @@ export function listAllNotes(vaultRoot: string): Array<{
   mtimeMs: number;
 }> {
   const out: Array<{ relPath: string; absPath: string; mtimeMs: number }> = [];
-  for (const dir of PARA_DIRS) {
+  for (const dir of getVaultDirs(vaultRoot)) {
     const abs = path.join(vaultRoot, dir);
     if (!fs.existsSync(abs)) continue;
     walk(abs, vaultRoot, out);

@@ -21,17 +21,37 @@ import {
   IconTarget,
   IconX,
   IconNotes,
+  IconSitemap,
+  IconAddressBook,
+  IconEye,
+  IconGitCompare,
+  IconBomb,
+  IconReceipt,
+  IconBooks,
+  IconUsersGroup,
+  IconCalendar,
+  IconBrandInstagram,
 } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 
 const mainTabs = [
-  { label: 'Overview', href: '/', icon: IconLayoutDashboard },
+  { label: 'Needs you', href: '/approvals', icon: IconShieldCheck },
+  { label: 'Team', href: '/team', icon: IconUsersGroup },
+  { label: 'Calendar', href: '/calendar', icon: IconCalendar },
   { label: 'Tasks', href: '/tasks', icon: IconListCheck },
-  { label: 'Approvals', href: '/approvals', icon: IconShieldCheck },
-  { label: 'Analytics', href: '/analytics', icon: IconChartDots3 },
 ];
 
 const morePages = [
+  { label: 'CRM', href: '/crm', icon: IconAddressBook },
+  { label: 'Projects', href: '/projects', icon: IconSitemap },
+  { label: 'Instagram', href: '/instagram', icon: IconBrandInstagram },
+  { label: 'Overview', href: '/', icon: IconLayoutDashboard },
+  { label: 'Analytics', href: '/analytics', icon: IconChartDots3 },
+  { label: 'Fleet truth', href: '/truth', icon: IconEye },
+  { label: 'Done drift', href: '/drift', icon: IconGitCompare },
+  { label: 'Landmines', href: '/landmines', icon: IconBomb },
+  { label: 'Receipts', href: '/receipts', icon: IconReceipt },
+  { label: 'Kem library', href: '/library', icon: IconBooks },
   { label: 'Agents', href: '/agents', icon: IconRobot },
   { label: 'Comms', href: '/comms', icon: IconMessages },
   { label: 'Activity', href: '/activity', icon: IconActivity },

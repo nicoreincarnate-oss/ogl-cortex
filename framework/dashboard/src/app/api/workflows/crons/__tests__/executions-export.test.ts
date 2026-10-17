@@ -72,9 +72,11 @@ afterAll(() => {
 // Dynamic import AFTER env var is set
 type RouteModule = typeof import('../[agent]/executions/route');
 let route: RouteModule;
+let cronHelpers: typeof import('@/lib/cron-executions');
 
 beforeAll(async () => {
   route = await import('../[agent]/executions/route');
+  cronHelpers = await import('@/lib/cron-executions');
 });
 
 // ---------------------------------------------------------------------------
@@ -211,5 +213,64 @@ describe('GET /api/workflows/crons/[agent]/executions — validation', () => {
     expect(body.entries).toHaveLength(0);
     expect(body.total).toBe(0);
     expect(body.hasMore).toBe(false);
+  });
+
+  it('rejects an invalid cronName query', async () => {
+    const res = await callGet(AGENT, 'cronName=../../secret');
+    expect(res.status).toBe(400);
+  });
+
+  it('does not follow a cron-execution.log symlink or return arbitrary JSON', async () => {
+    const agent = 'symlink-agent';
+    const dir = path.join(rootTmp, CRONS_DIR, agent);
+    const target = path.join(rootTmp, 'secret.json');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(target, JSON.stringify({ token: 'must-not-leak' }));
+    fs.symlinkSync(target, path.join(dir, 'cron-execution.log'));
+
+    const res = await callGet(agent, 'limit=10');
+    const body = await res.json() as { entries: unknown[] };
+    expect(body.entries).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain('must-not-leak');
+  });
+
+  it('drops malformed entry shapes while retaining a valid row', async () => {
+    const agent = 'strict-agent';
+    const dir = path.join(rootTmp, CRONS_DIR, agent);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'cron-execution.log'), [
+      JSON.stringify({ token: 'must-not-leak' }),
+      JSON.stringify(makeEntry('safe-cron', 'fired', 1)),
+      JSON.stringify({ ...makeEntry('bad cron', 'fired', 2), attempt: '1' }),
+    ].join('\n') + '\n');
+
+    const res = await callGet(agent, 'limit=10');
+    const body = await res.json() as { entries: CronExecutionLogEntry[] };
+    expect(body.entries).toEqual([expect.objectContaining({ cron: 'safe-cron' })]);
+    expect(JSON.stringify(body)).not.toContain('must-not-leak');
+  });
+
+  it('reads only a bounded tail and discards a truncated leading line', async () => {
+    const agent = 'bounded-agent';
+    const dir = path.join(rootTmp, CRONS_DIR, agent);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'cron-execution.log'),
+      `${'x'.repeat(cronHelpers.CRON_EXECUTION_LOG_MAX_BYTES + 256)}\n${JSON.stringify(makeEntry('tail-row', 'fired', 1))}\n`,
+    );
+
+    const res = await callGet(agent, 'limit=10');
+    const body = await res.json() as { entries: CronExecutionLogEntry[] };
+    expect(body.entries).toEqual([expect.objectContaining({ cron: 'tail-row' })]);
+  });
+
+  it('neutralizes spreadsheet formulas in CSV cells', () => {
+    const csv = cronHelpers.entriesToCsv([{
+      ...makeEntry('-formula', 'failed', 1),
+      error: '=HYPERLINK("https://example.invalid","open")',
+    }]);
+    expect(csv).toContain("'-formula");
+    expect(csv).toContain("'=HYPERLINK");
+    expect(csv).not.toContain(',=HYPERLINK');
   });
 });

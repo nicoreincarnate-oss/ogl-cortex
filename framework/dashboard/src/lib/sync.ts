@@ -38,6 +38,54 @@ function markSynced(filePath: string): void {
   ).run(filePath, stat.mtimeMs);
 }
 
+function hasSourceProjection(
+  table: 'tasks' | 'approvals',
+  filePath: string,
+): boolean {
+  return Boolean(
+    db
+      .prepare(`SELECT 1 FROM ${table} WHERE source_file = ? LIMIT 1`)
+      .get(filePath),
+  );
+}
+
+function eventProjectionMatches(
+  filePath: string,
+  agent: string,
+  fileName: string,
+): boolean {
+  try {
+    const lines = fs
+      .readFileSync(filePath, 'utf-8')
+      .split('\n')
+      .filter((line) => line.trim());
+    const expectedIds = new Set<string>();
+
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        const event = JSON.parse(lines[i]);
+        expectedIds.add(event.id ?? `${agent}-${fileName}-${i}`);
+      } catch {
+        // Malformed lines are deliberately absent from the projection.
+      }
+    }
+
+    const projectedIds = new Set(
+      db
+        .prepare('SELECT id FROM events WHERE source_file = ? ORDER BY id')
+        .all(filePath)
+        .map((row) => (row as { id: string }).id),
+    );
+
+    return (
+      expectedIds.size === projectedIds.size &&
+      Array.from(expectedIds).every((id) => projectedIds.has(id))
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Task sync
 // ---------------------------------------------------------------------------
@@ -65,7 +113,12 @@ export function syncTasks(org: string): number {
     for (const file of files) {
       const filePath = path.join(taskDir, file);
       activePaths.push(filePath);
-      if (!hasFileChanged(filePath)) continue;
+      if (
+        !hasFileChanged(filePath) &&
+        hasSourceProjection('tasks', filePath)
+      ) {
+        continue;
+      }
 
       try {
         const raw = fs.readFileSync(filePath, 'utf-8');
@@ -132,7 +185,12 @@ export function syncApprovals(org: string): number {
       const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
       for (const file of files) {
         const filePath = path.join(dir, file);
-        if (!hasFileChanged(filePath)) continue;
+        if (
+          !hasFileChanged(filePath) &&
+          hasSourceProjection('approvals', filePath)
+        ) {
+          continue;
+        }
 
         try {
           const raw = fs.readFileSync(filePath, 'utf-8');
@@ -189,7 +247,12 @@ export function syncEvents(org: string, agent: string): number {
   const run = db.transaction(() => {
     for (const file of files) {
       const filePath = path.join(eventsDir, file);
-      if (!hasFileChanged(filePath)) continue;
+      if (
+        !hasFileChanged(filePath) &&
+        eventProjectionMatches(filePath, agent, file)
+      ) {
+        continue;
+      }
 
       try {
         const raw = fs.readFileSync(filePath, 'utf-8');
@@ -236,7 +299,12 @@ export function syncEvents(org: string, agent: string): number {
 export function syncHeartbeat(agent: string): boolean {
   const heartbeatPath = getHeartbeatPath(agent);
   if (!fs.existsSync(heartbeatPath)) return false;
-  if (!hasFileChanged(heartbeatPath)) return false;
+  if (
+    !hasFileChanged(heartbeatPath) &&
+    db.prepare('SELECT 1 FROM heartbeats WHERE agent = ? LIMIT 1').get(agent)
+  ) {
+    return false;
+  }
 
   try {
     const raw = fs.readFileSync(heartbeatPath, 'utf-8');

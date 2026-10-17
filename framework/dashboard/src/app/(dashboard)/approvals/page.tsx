@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { AlertsToggle } from '@/components/push/alerts-toggle';
 import { useOrg } from '@/hooks/use-org';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ApprovalCard } from '@/components/approvals/approval-card';
@@ -53,7 +54,7 @@ export default function ApprovalsPage() {
       }
       if (humanRes.ok) {
         const allHuman: Task[] = await humanRes.json();
-        setHumanTasks(allHuman.filter(t => t.status !== 'completed'));
+        setHumanTasks(allHuman.filter(t => ['pending', 'in_progress', 'blocked'].includes(t.status as string)));
       }
     } catch {
       // Silently fail
@@ -103,7 +104,8 @@ export default function ApprovalsPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-semibold">Approvals</h1>
+        <h1 className="text-2xl font-semibold">Needs you</h1>
+      <AlertsToggle />
         <div className="space-y-4">
           <div className="h-10 w-48 rounded-lg bg-muted/30 animate-pulse" />
           <div className="space-y-2">
@@ -118,7 +120,8 @@ export default function ApprovalsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Approvals</h1>
+      <h1 className="text-2xl font-semibold">Needs you</h1>
+      <AlertsToggle />
 
       <Tabs defaultValue={humanTasks.length > 0 ? 'human' : 'pending'}>
         <TabsList>

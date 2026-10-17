@@ -20,7 +20,7 @@ import { NextRequest } from 'next/server';
 import {
   readExecutionLogPage,
   entriesToCsv,
-} from '@/app/api/workflows/crons/[agent]/executions/route';
+} from '@/lib/cron-executions';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,8 +33,14 @@ export async function GET(
   { params }: { params: RouteParams },
 ) {
   const { agent, name } = await params;
-  const decodedAgent = decodeURIComponent(agent);
-  const decodedName = decodeURIComponent(name);
+  let decodedAgent: string;
+  let decodedName: string;
+  try {
+    decodedAgent = decodeURIComponent(agent);
+    decodedName = decodeURIComponent(name);
+  } catch {
+    return Response.json({ error: 'Invalid route encoding' }, { status: 400 });
+  }
 
   if (!VALID_IDENT.test(decodedAgent)) {
     return Response.json({ error: 'Invalid agent name' }, { status: 400 });

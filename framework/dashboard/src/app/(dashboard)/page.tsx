@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getOrgs } from '@/lib/config';
+import { getOrgs, getEnabledAgents } from '@/lib/config';
 import { getPendingCount } from '@/lib/data/approvals';
 import { getTasks, getTasksCompletedToday } from '@/lib/data/tasks';
 import { getGoals } from '@/lib/data/goals';
@@ -53,6 +53,18 @@ export default async function OverviewPage({
     getAllHeartbeats(),
   ]);
 
+  // Only seats switched on count as the fleet; off seats are not shown as red (landmine L4)
+  const on = getEnabledAgents();
+  const seen = new Set<string>();
+  const liveAgents = agents.filter((agent) => {
+    const a = agent as typeof agent & { systemName?: string };
+    const id = a.systemName ?? a.name;
+    if (on && !on.has(id)) return false;
+    if (seen.has(id)) return false; // a seat listed under two orgs shows once
+    seen.add(id);
+    return true;
+  });
+
   // Convert heartbeats array to lookup map
   const heartbeats: Record<string, typeof heartbeatsList[number]> = {};
   for (const hb of heartbeatsList) {
@@ -62,8 +74,10 @@ export default async function OverviewPage({
   const staleAgentCount = healthSummary.stale + healthSummary.down;
   const inProgressTasks = allTasks.filter(t => t.status === 'in_progress').length;
   const pendingTasks = allTasks.filter(t => t.status === 'pending').length;
-  const humanTasks = allTasks.filter(t => t.assignee === 'human' && t.status !== 'completed').length;
-  const totalActions = pendingCount + blockedTasks.length + staleAgentCount + humanTasks;
+  const humanTasks = getTasks({ agent: 'human', org: org || undefined }).filter(t => ['pending', 'in_progress', 'blocked'].includes(t.status as string)).length;
+  // Actions = things only the operator can do: their asks + approvals (+ a live seat gone quiet).
+  // Blocked agent tasks stay on the Blocked card; most wait on another seat, not him (10-16).
+  const totalActions = pendingCount + staleAgentCount + humanTasks;
 
   return (
     <div className="space-y-6">
@@ -101,7 +115,7 @@ export default async function OverviewPage({
       {totalActions > 0 && (
         <ActionRequired
           pendingApprovals={pendingCount}
-          blockedTasks={blockedTasks.length}
+          blockedTasks={0}
           staleAgents={staleAgentCount}
           humanTasks={humanTasks}
         />
@@ -110,7 +124,7 @@ export default async function OverviewPage({
       {/* Agent Status Grid + Live Activity - two columns */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div className="xl:col-span-1">
-          <AgentStatusGrid agents={agents} heartbeats={heartbeats} />
+          <AgentStatusGrid agents={liveAgents} heartbeats={heartbeats} />
         </div>
         <div className="xl:col-span-2">
           <LiveActivity initialEvents={recentEvents} />

@@ -98,7 +98,7 @@ export default function LoginPage() {
 
     const body = new URLSearchParams();
     body.set('csrfToken', submitToken || '');
-    body.set('username', usernameInput?.value || '');
+    body.set('username', (usernameInput?.value || '').trim());
     body.set('password', passwordInput?.value || '');
 
     try {
@@ -107,8 +107,26 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: body.toString(),
         credentials: 'same-origin',
-        redirect: 'follow',
+        redirect: 'manual',
       });
+      // Auth.js answers with a 302 whose Location can name another host
+      // (the 127.0.0.1 bind address when opened through tailscale serve).
+      // Following it cross-origin fails as a network error even though the
+      // session cookie was already set, so read the session instead.
+      if (res.type === 'opaqueredirect') {
+        const session = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' })
+          .then((r) => r.json())
+          .catch(() => null);
+        if (!session?.user) {
+          setError('Sign-in failed: check your username and password.');
+          setLoading(false);
+          return;
+        }
+        const callbackParam = new URL(window.location.href).searchParams.get('callbackUrl');
+        const safeTarget = callbackParam && callbackParam.startsWith('/') && !callbackParam.startsWith('//') ? callbackParam : '/';
+        window.location.href = safeTarget;
+        return;
+      }
       if (res.redirected) {
         const target = new URL(res.url);
         if (target.pathname.startsWith('/login')) {
@@ -154,16 +172,15 @@ export default function LoginPage() {
   return (
     <>
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
-    <div className={`flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-muted to-background ${showSplash ? 'invisible' : ''}`}>
+    <div className={`flex min-h-screen items-center justify-center bg-background ${showSplash ? 'invisible' : ''}`}>
       <div className="w-full max-w-sm space-y-6 px-4">
         {/* Logo */}
         <div className="text-center space-y-2">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground text-lg font-bold">
-            cO
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight">cortextOS</h1>
-          <p className="text-sm text-muted-foreground">
-            Persistent AI Agent Orchestration
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/ogl-mark.png" alt="One Giant Leap" className="mx-auto h-12 w-auto" />
+          <h1 className="text-3xl">OGL Dashboard</h1>
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            The fleet, its work and the proof
           </p>
         </div>
 
@@ -183,6 +200,9 @@ export default function LoginPage() {
                 <Input
                   id="username"
                   name="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   type="text"
                   required
                   autoFocus
@@ -212,7 +232,7 @@ export default function LoginPage() {
         </Card>
 
         <p className="text-center text-[11px] text-muted-foreground/60">
-          cortextOS v2
+          OGL Dashboard · runs on cortextOS
         </p>
       </div>
     </div>

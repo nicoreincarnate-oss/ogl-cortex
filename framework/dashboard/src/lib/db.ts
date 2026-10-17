@@ -164,6 +164,9 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp);
     CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
     CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity);
+    -- syncEvents checks every unchanged event file by source_file on every page load;
+    -- without this index each check scans the whole table (~42 s per request at 165k events).
+    CREATE INDEX IF NOT EXISTS idx_events_source_file ON events(source_file);
 
     CREATE INDEX IF NOT EXISTS idx_cost_entries_timestamp ON cost_entries(timestamp);
     CREATE INDEX IF NOT EXISTS idx_cost_entries_agent ON cost_entries(agent);

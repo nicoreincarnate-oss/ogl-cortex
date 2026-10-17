@@ -1,11 +1,20 @@
 import { NextRequest } from 'next/server';
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
 import { getCTXRoot, getFrameworkRoot } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
+
+const execFileAsync = promisify(execFile);
+
+// Listing collections loads ChromaDB in Python (~12s). Keep the last list per org for 10 minutes;
+// after that serve it at once and refresh behind the request (10-17).
+const TTL_MS = 10 * 60 * 1000;
+const listCache = new Map<string, { at: number; collections: Array<{ name: string; count: number }> }>();
+const inFlight = new Map<string, Promise<Array<{ name: string; count: number }>>>();
 
 /**
  * GET /api/kb/collections?org=<org>
@@ -88,31 +97,54 @@ export async function GET(request: NextRequest) {
     return collections;
   }
 
-  let rawOut = '';
-  try {
-    rawOut = execFileSync(pythonPath, [mmragPath, 'collections'], {
-      timeout: 15000,
-      encoding: 'utf-8',
-      env: env as NodeJS.ProcessEnv,
-    });
-  } catch (err: unknown) {
-    // ChromaDB may crash mid-output (e.g. pickle corruption) after printing some collections.
-    // Recover partial stdout rather than returning 500.
-    const execErr = err as { stdout?: string; message?: string };
-    rawOut = execErr.stdout || '';
-    if (!rawOut) {
-      const message = execErr.message || String(err);
-      if (
-        message.includes('not set up') ||
-        message.includes('No collections') ||
-        message.includes('not found')
-      ) {
-        return Response.json({ collections: [], org });
+  const load = async (): Promise<Array<{ name: string; count: number }>> => {
+    let rawOut = '';
+    try {
+      rawOut = (await execFileAsync(pythonPath, [mmragPath, 'collections'], {
+        timeout: 15000,
+        encoding: 'utf-8',
+        env: env as NodeJS.ProcessEnv,
+      })).stdout;
+    } catch (err: unknown) {
+      // ChromaDB may crash mid-output (e.g. pickle corruption) after printing some collections.
+      // Recover partial stdout rather than returning 500.
+      const execErr = err as { stdout?: string; message?: string };
+      rawOut = execErr.stdout || '';
+      if (!rawOut) {
+        const message = execErr.message || String(err);
+        if (
+          message.includes('not set up') ||
+          message.includes('No collections') ||
+          message.includes('not found')
+        ) {
+          return [];
+        }
+        console.error('[api/kb/collections] Error:', message);
+        return [];
       }
-      console.error('[api/kb/collections] Error:', message);
-      return Response.json({ collections: [], org });
     }
-  }
+    return parseCollectionsOutput(rawOut);
+  };
 
-  return Response.json({ collections: parseCollectionsOutput(rawOut), org });
+  const refresh = () => {
+    let p = inFlight.get(org);
+    if (!p) {
+      p = load()
+        .then((collections) => {
+          // An empty list from a failed run must not replace a good one.
+          if (collections.length > 0 || !listCache.has(org)) listCache.set(org, { at: Date.now(), collections });
+          return collections;
+        })
+        .finally(() => inFlight.delete(org));
+      inFlight.set(org, p);
+    }
+    return p;
+  };
+
+  const hit = listCache.get(org);
+  if (hit) {
+    if (Date.now() - hit.at > TTL_MS) void refresh();
+    return Response.json({ collections: hit.collections, org });
+  }
+  return Response.json({ collections: await refresh(), org });
 }

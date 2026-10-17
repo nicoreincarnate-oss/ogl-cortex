@@ -3,6 +3,10 @@
 
 import { db } from '@/lib/db';
 import type { Task, TaskFilters } from '@/lib/types';
+import { getEnabledAgents } from '@/lib/config';
+import { HUMAN_ASSIGNEES } from '@/lib/install';
+
+const humanSlots = HUMAN_ASSIGNEES.map(() => '?').join(', ');
 
 /**
  * Get tasks with optional filters.
@@ -20,7 +24,8 @@ export function getTasks(filters?: TaskFilters): Task[] {
     // 'human' is a virtual filter: returns tasks assigned to any non-agent human
     // (agents create human tasks with assigned_to 'user', 'human', etc.)
     if (filters.agent === 'human') {
-      conditions.push("(assignee IN ('human', 'user') OR title LIKE '[HUMAN]%' OR project = 'human-tasks')");
+      conditions.push(`(assignee IN (${humanSlots}) OR title LIKE '[HUMAN]%' OR project = 'human-tasks')`);
+      params.push(...HUMAN_ASSIGNEES);
     } else {
       conditions.push('assignee = ?');
       params.push(filters.agent);
@@ -42,6 +47,22 @@ export function getTasks(filters?: TaskFilters): Task[] {
     conditions.push('(title LIKE ? OR description LIKE ?)');
     const term = `%${filters.search}%`;
     params.push(term, term);
+  }
+
+  // Current-only by default: an open task with no activity in 14 days, or owned
+  // by a seat that is switched off, is backlog and stays out of view unless includeStale is set.
+  // Nothing is changed on disk.
+  if (!filters?.includeStale) {
+    const enabled = getEnabledAgents();
+    const cutoff = new Date(Date.now() - 14 * 864e5).toISOString();
+    const live = enabled ? Array.from(enabled) : [];
+    const owner = live.length
+      ? `(assignee IN (${humanSlots}, ${live.map(() => '?').join(',')}) OR title LIKE '[HUMAN]%')`
+      : '1=1';
+    conditions.push(
+      `(status NOT IN ('pending','blocked','in_progress') OR ((created_at >= ? OR updated_at >= ?) AND ${owner}))`
+    );
+    params.push(cutoff, cutoff, ...(live.length ? [...HUMAN_ASSIGNEES, ...live] : []));
   }
 
   const where =

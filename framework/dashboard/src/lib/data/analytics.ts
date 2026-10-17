@@ -2,6 +2,7 @@
 // Aggregated metrics for charts on the analytics page.
 
 import { db } from '@/lib/db';
+import { getEnabledAgents } from '@/lib/config';
 import type { AgentStat } from '@/components/analytics/agent-effectiveness';
 
 /**
@@ -110,7 +111,9 @@ export function getAgentEffectiveness(org?: string): AgentStat[] {
       arr[idx] = row.count;
     }
 
-    return rows.map((row) => ({
+    // Only seats that are switched on (10-16); retired seats' history stays in the DB.
+    const on = getEnabledAgents();
+    return rows.filter((row) => !on || on.has(row.name)).map((row) => ({
       name: row.name,
       completionRate: row.total > 0 ? (row.completed / row.total) * 100 : 0,
       errorCount: errorMap.get(row.name) ?? 0,

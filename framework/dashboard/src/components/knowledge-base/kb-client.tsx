@@ -173,7 +173,6 @@ export function KnowledgeBaseClient({ org, markdownContent, filePath }: Knowledg
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="Ask anything about your org..."
               className="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-ring/30"
-              autoFocus
             />
           </div>
 

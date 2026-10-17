@@ -174,7 +174,8 @@ export function parseIdentityMd(
   for (const section of parsed.sections) {
     const key = IDENTITY_HEADINGS[section.heading.toLowerCase()];
     if (key) {
-      fields[key] = section.content.trim();
+      // Un-onboarded templates hold only <!-- placeholder --> comments: those are not values.
+      fields[key] = section.content.replace(/<!--[\s\S]*?-->/g, '').trim();
     }
   }
 

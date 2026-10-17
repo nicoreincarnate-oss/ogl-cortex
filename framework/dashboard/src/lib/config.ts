@@ -147,7 +147,8 @@ export function getOrgs(): string[] {
     }
   }
 
-  return Array.from(byLower.values());
+  // Orgs whose folder name starts with "_" are backups/samples (e.g. _agentnet-sample-bak): never shown.
+  return Array.from(byLower.values()).filter((o) => !o.startsWith('_'));
 }
 
 export function getAgentsForOrg(org: string): string[] {
@@ -173,6 +174,21 @@ export function getAgentsForOrg(org: string): string[] {
 }
 
 /**
+ * Agents switched on in enabled-agents.json (enabled: true), or null when there is no registry.
+ * Fleet health counts only these: a seat that is off, or never switched on, is not "offline"
+ * (landmine L4: read the enabled field, never key presence or a folder on disk).
+ */
+export function getEnabledAgents(): Set<string> | null {
+  const enabledFile = path.join(CTX_ROOT, 'config', 'enabled-agents.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(enabledFile, 'utf-8')) as Record<string, { enabled?: boolean }>;
+    return new Set(Object.entries(data).filter(([, cfg]) => cfg?.enabled === true).map(([name]) => name));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Returns all agents by merging enabled-agents.json with filesystem scan.
  * Filesystem scan ensures CLI-created agents are always visible.
  */
@@ -187,17 +203,20 @@ export function getAllAgents(): Array<{ name: string; org: string }> {
       const data = JSON.parse(fs.readFileSync(enabledFile, 'utf-8'));
       for (const [name, config] of Object.entries(data)) {
         const cfg = config as { enabled?: boolean; org?: string };
-        if (cfg.enabled !== false) {
+        if (cfg.enabled === true) {
           agents.push({ name, org: cfg.org ?? '' });
           seen.add(name);
         }
       }
+      // Registry present: show only switched-on seats. Folders of retired seats stay on disk
+      // but are hidden Reversible: set enabled true.
+      return agents;
     } catch {
       // Skip corrupt file
     }
   }
 
-  // 2. Always scan org directories to pick up CLI-created agents
+  // 2. No registry: scan org directories to pick up CLI-created agents
   for (const org of getOrgs()) {
     for (const name of getAgentsForOrg(org)) {
       if (!seen.has(name)) {

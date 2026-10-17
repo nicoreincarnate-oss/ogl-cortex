@@ -142,6 +142,23 @@ describe('syncTasks', () => {
     const count = syncTasks('nonexistent-org');
     expect(count).toBe(0);
   });
+
+  it('repairs a missing projected row even when the source file is unchanged', () => {
+    writeJSON('orgs/drift-org/tasks/row-drift.json', {
+      id: 'row-drift',
+      title: 'Repair Me',
+      status: 'pending',
+      created_at: '2025-01-01T00:00:00Z',
+    });
+
+    expect(syncTasks('drift-org')).toBe(1);
+    db.prepare('DELETE FROM tasks WHERE id = ?').run('row-drift');
+
+    expect(syncTasks('drift-org')).toBe(1);
+    expect(
+      db.prepare('SELECT title FROM tasks WHERE id = ?').get('row-drift'),
+    ).toMatchObject({ title: 'Repair Me' });
+  });
 });
 
 describe('syncApprovals', () => {
@@ -174,6 +191,23 @@ describe('syncApprovals', () => {
 
     const resolved = db.prepare('SELECT * FROM approvals WHERE id = ?').get('ap-2') as Record<string, unknown>;
     expect(resolved.status).toBe('approved');
+  });
+
+  it('repairs a missing approval projection without an mtime change', () => {
+    writeJSON('orgs/drift-approval-org/approvals/pending/ap-drift.json', {
+      id: 'ap-drift',
+      title: 'Repair Approval',
+      agent: 'planner',
+      created_at: '2025-01-01T00:00:00Z',
+    });
+
+    expect(syncApprovals('drift-approval-org')).toBe(1);
+    db.prepare('DELETE FROM approvals WHERE id = ?').run('ap-drift');
+
+    expect(syncApprovals('drift-approval-org')).toBe(1);
+    expect(
+      db.prepare('SELECT title FROM approvals WHERE id = ?').get('ap-drift'),
+    ).toMatchObject({ title: 'Repair Approval' });
   });
 });
 
@@ -211,6 +245,42 @@ describe('syncEvents', () => {
     const count = syncEvents('evtorg2', 'builder');
     expect(count).toBe(2);
   });
+
+  it('repairs one missing event from an otherwise unchanged JSONL file', () => {
+    const lines = [
+      JSON.stringify({ id: 'drift-e1', type: 'action' }),
+      JSON.stringify({ id: 'drift-e2', type: 'task' }),
+    ].join('\n');
+    writeText(
+      'orgs/drift-event-org/analytics/events/reviewer/events.jsonl',
+      lines,
+    );
+
+    expect(syncEvents('drift-event-org', 'reviewer')).toBe(2);
+    db.prepare('DELETE FROM events WHERE id = ?').run('drift-e2');
+
+    expect(syncEvents('drift-event-org', 'reviewer')).toBe(2);
+    expect(
+      db.prepare('SELECT COUNT(*) AS count FROM events WHERE source_file LIKE ?').get('%/drift-event-org/%'),
+    ).toMatchObject({ count: 2 });
+  });
+
+  it('treats duplicate source event IDs as one stable projected row', () => {
+    const lines = [
+      JSON.stringify({ id: 'duplicate-event', message: 'first' }),
+      JSON.stringify({ id: 'duplicate-event', message: 'replacement' }),
+    ].join('\n');
+    writeText(
+      'orgs/duplicate-event-org/analytics/events/reviewer/events.jsonl',
+      lines,
+    );
+
+    expect(syncEvents('duplicate-event-org', 'reviewer')).toBe(2);
+    expect(syncEvents('duplicate-event-org', 'reviewer')).toBe(0);
+    expect(
+      db.prepare('SELECT message FROM events WHERE id = ?').get('duplicate-event'),
+    ).toMatchObject({ message: 'replacement' });
+  });
 });
 
 describe('syncHeartbeat', () => {
@@ -241,6 +311,21 @@ describe('syncHeartbeat', () => {
   it('returns false for missing heartbeat file', () => {
     const ok = syncHeartbeat('no-agent');
     expect(ok).toBe(false);
+  });
+
+  it('repairs a missing heartbeat row without an mtime change', () => {
+    writeJSON('state/drift-heartbeat/heartbeat.json', {
+      status: 'active',
+      org: 'drift-org',
+    });
+
+    expect(syncHeartbeat('drift-heartbeat')).toBe(true);
+    db.prepare('DELETE FROM heartbeats WHERE agent = ?').run('drift-heartbeat');
+
+    expect(syncHeartbeat('drift-heartbeat')).toBe(true);
+    expect(
+      db.prepare('SELECT status FROM heartbeats WHERE agent = ?').get('drift-heartbeat'),
+    ).toMatchObject({ status: 'active' });
   });
 });
 

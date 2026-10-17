@@ -29,6 +29,32 @@ interface BusMessage {
  *   before — ISO cursor for pagination
  *   search — text search in message body
  */
+// Processed messages never change once written, and there are tens of thousands of them:
+// keep each parsed file by path so a request reads only new ones (10-17, the feed took ~8s).
+const processedCache = new Map<string, BusMessage | null>();
+// Telegram logs are appended to: re-read one only when its size or mtime moves.
+const logCache = new Map<string, { size: number; mtimeMs: number; lines: string[] }>();
+
+function readMessageFile(file: string, cache: boolean): BusMessage | null {
+  if (cache && processedCache.has(file)) return processedCache.get(file)!;
+  let msg: BusMessage | null = null;
+  try {
+    const m = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (m.id && m.from && m.to && m.timestamp) msg = m;
+  } catch { /* skip */ }
+  if (cache) processedCache.set(file, msg);
+  return msg;
+}
+
+function readLogLines(file: string): string[] {
+  const st = fs.statSync(file);
+  const hit = logCache.get(file);
+  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.lines;
+  const lines = fs.readFileSync(file, 'utf-8').trim().split('\n');
+  logCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, lines });
+  return lines;
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   // `org` param is accepted but not yet applied — agents for different orgs
@@ -117,9 +143,8 @@ export async function GET(request: NextRequest) {
 
         for (const file of files) {
           try {
-            const raw = fs.readFileSync(path.join(dir, file), 'utf-8');
-            const msg: BusMessage = JSON.parse(raw);
-            if (!msg.id || !msg.from || !msg.to || !msg.timestamp) continue;
+            const msg = readMessageFile(path.join(dir, file), base === processedBase);
+            if (!msg) continue;
             if (seen.has(msg.id)) continue;
             if (agentFilter && msg.from !== agentFilter && msg.to !== agentFilter) continue;
             if (!matchesSearch(msg.text)) continue;
@@ -147,7 +172,7 @@ export async function GET(request: NextRequest) {
         const filePath = path.join(logsBase, agent, logFile);
         if (!fs.existsSync(filePath)) continue;
         try {
-          const lines = fs.readFileSync(filePath, 'utf-8').trim().split('\n');
+          const lines = readLogLines(filePath);
           const isInbound = logFile.startsWith('inbound');
           for (const line of lines) {
             if (!line.trim()) continue;

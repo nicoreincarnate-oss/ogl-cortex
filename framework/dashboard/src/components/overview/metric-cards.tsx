@@ -89,7 +89,7 @@ export function MetricCards({
       <MetricCard
         label="Blocked"
         value={blockedTasks}
-        sublabel={blockedTasks === 0 ? 'No blockers' : 'Needs attention'}
+        sublabel={blockedTasks === 0 ? 'No blockers' : 'Waiting on a seat'}
         icon={<IconAlertTriangle size={18} className="text-primary" />}
         href="/tasks?status=blocked"
       />

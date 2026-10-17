@@ -19,6 +19,16 @@ import {
   IconTarget,
   IconMessages,
   IconNotes,
+  IconSitemap,
+  IconAddressBook,
+  IconEye,
+  IconGitCompare,
+  IconBomb,
+  IconReceipt,
+  IconBooks,
+  IconUsersGroup,
+  IconCalendar,
+  IconBrandInstagram,
 } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -34,14 +44,19 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   // Core
+  { label: 'Needs you', href: '/approvals', icon: IconShieldCheck, section: 'core' },
+  { label: 'Team', href: '/team', icon: IconUsersGroup, section: 'core' },
+  { label: 'Calendar', href: '/calendar', icon: IconCalendar, section: 'core' },
+  { label: 'Instagram', href: '/instagram', icon: IconBrandInstagram, section: 'core' },
   { label: 'Overview', href: '/', icon: IconLayoutDashboard, section: 'core' },
+  { label: 'CRM', href: '/crm', icon: IconAddressBook, section: 'core' },
+  { label: 'Projects', href: '/projects', icon: IconSitemap, section: 'core' },
   { label: 'Agents', href: '/agents', icon: IconRobot, section: 'core' },
   { label: 'Tasks', href: '/tasks', icon: IconListCheck, section: 'core' },
   { label: 'Activity', href: '/activity', icon: IconActivity, section: 'core' },
 
   // Operations
   { label: 'Comms', href: '/comms', icon: IconMessages, section: 'ops' },
-  { label: 'Approvals', href: '/approvals', icon: IconShieldCheck, section: 'ops' },
   { label: 'Workflows', href: '/workflows', icon: IconClock, section: 'ops' },
   { label: 'Strategy', href: '/strategy', icon: IconTarget, section: 'ops' },
   { label: 'Analytics', href: '/analytics', icon: IconChartDots3, section: 'ops' },
@@ -51,12 +66,20 @@ const navItems: NavItem[] = [
   { label: 'Wiki', href: '/wiki', icon: IconNotes, section: 'intel' },
   { label: 'Experiments', href: '/experiments', icon: IconFlask, section: 'intel' },
   { label: 'Skills', href: '/skills', icon: IconPuzzle, section: 'intel' },
+
+  // Proof (Glitch Cat Club methods)
+  { label: 'Fleet truth', href: '/truth', icon: IconEye, section: 'proof' },
+  { label: 'Done drift', href: '/drift', icon: IconGitCompare, section: 'proof' },
+  { label: 'Landmines', href: '/landmines', icon: IconBomb, section: 'proof' },
+  { label: 'Receipts', href: '/receipts', icon: IconReceipt, section: 'proof' },
+  { label: 'Kem library', href: '/library', icon: IconBooks, section: 'proof' },
 ];
 
 const sectionLabels: Record<string, string> = {
   core: '',
   ops: 'Operations',
   intel: 'Intelligence',
+  proof: 'Proof',
 };
 
 interface SidebarProps {
@@ -94,33 +117,32 @@ export function Sidebar({
   }
 
   // Group items by section
-  const sections = ['core', 'ops', 'intel'];
+  const sections = ['core', 'proof', 'ops', 'intel'];
 
   return (
-    <aside className="flex h-screen w-56 shrink-0 flex-col border-r bg-card/50">
+    <aside className="flex h-screen w-56 shrink-0 flex-col border-r-2 border-primary bg-sidebar text-sidebar-foreground">
       {/* Logo */}
       <div className="flex h-14 items-center gap-2 px-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground text-xs font-bold">
-          cO
-        </div>
-        <span className="text-sm font-semibold tracking-tight">cortextOS</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/ogl-mark.png" alt="One Giant Leap" className="h-7 w-auto" />
+        <span data-ogl-title className="text-lg leading-none">OGL Dashboard</span>
       </div>
 
       {/* Search trigger */}
       <div className="px-3 pb-2">
         <button
           onClick={onSearchClick}
-          className="flex w-full items-center gap-2 rounded-md border bg-background/50 px-3 py-1.5 text-xs text-muted-foreground hover:bg-background hover:text-foreground transition-colors"
+          className="flex w-full items-center gap-2 rounded-md border border-sidebar-border bg-sidebar-accent px-3 py-1.5 text-xs text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors"
         >
           <IconSearch size={14} />
           <span>Search...</span>
-          <kbd className="ml-auto rounded border bg-muted px-1 py-0.5 text-[10px] font-mono">
+          <kbd className="ml-auto rounded border border-sidebar-border bg-sidebar px-1 py-0.5 text-[10px] font-mono">
             /
           </kbd>
         </button>
       </div>
 
-      <Separator />
+      <Separator className="bg-sidebar-border" />
 
       {/* Navigation */}
       <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-2">
@@ -131,7 +153,7 @@ export function Sidebar({
           return (
             <div key={section} className="mb-1">
               {label && (
-                <p className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                <p className="px-3 pb-1 pt-3 font-mono text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/50">
                   {label}
                 </p>
               )}
@@ -148,15 +170,15 @@ export function Sidebar({
                     className={cn(
                       'group flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] transition-all',
                       active
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                        ? 'bg-primary text-primary-foreground font-semibold'
+                        : 'text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground'
                     )}
                   >
                     <Icon
                       size={16}
                       className={cn(
                         'shrink-0 transition-colors',
-                        active ? 'text-primary' : 'text-muted-foreground/70 group-hover:text-foreground'
+                        active ? 'text-primary-foreground' : 'text-sidebar-foreground/60 group-hover:text-sidebar-foreground'
                       )}
                     />
                     <span className="truncate">{item.label}</span>
@@ -176,7 +198,7 @@ export function Sidebar({
         })}
       </nav>
 
-      <Separator />
+      <Separator className="bg-sidebar-border" />
 
       {/* Settings at bottom */}
       <div className="px-2 py-2">
@@ -186,8 +208,8 @@ export function Sidebar({
           className={cn(
             'flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] transition-all',
             isActive('/settings')
-              ? 'bg-primary/10 text-primary font-medium'
-              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+              ? 'bg-primary text-primary-foreground font-semibold'
+              : 'text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground'
           )}
         >
           <IconSettings size={16} className="shrink-0" />

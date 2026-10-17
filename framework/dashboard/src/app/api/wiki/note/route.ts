@@ -1,3 +1,4 @@
+import { defaultOrg } from '@/lib/install';
 import fs from 'fs';
 import { NextRequest } from 'next/server';
 import {
@@ -12,7 +13,7 @@ const ORG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const org = url.searchParams.get('org') ?? 'sondre-hq';
+  const org = url.searchParams.get('org') || defaultOrg();
   const relPath = url.searchParams.get('path');
 
   if (!ORG_RE.test(org)) {

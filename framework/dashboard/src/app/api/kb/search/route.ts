@@ -1,9 +1,12 @@
 import { NextRequest } from 'next/server';
-import { execFileSync } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import os from 'os';
-import { getCTXRoot, getFrameworkRoot } from '@/lib/config';
+import { getCTXRoot, getFrameworkRoot, getEnabledAgents } from '@/lib/config';
 
 
 export const dynamic = 'force-dynamic';
@@ -138,11 +141,11 @@ export async function GET(request: NextRequest) {
    * Run a single mmrag.py query against one collection.
    * Returns empty array (never throws) — callers handle missing/empty collections gracefully.
    */
-  function runQuery(col: string): Array<{
+  async function runQuery(col: string): Promise<Array<{
     content?: string; result?: string; similarity?: number;
     source?: string; type?: string; filename?: string;
     chunk_index?: number; total_chunks?: number; content_full_length?: number;
-  }> {
+  }>> {
     const pyArgs = [
       mmragPath, 'query', q,
       '--collection', col,
@@ -152,11 +155,12 @@ export async function GET(request: NextRequest) {
     ];
     let stdout = '';
     try {
-      stdout = execFileSync(pythonPath, pyArgs, {
+      ({ stdout } = await execFileAsync(pythonPath, pyArgs, {
         timeout: 30000,
         encoding: 'utf-8',
         env: env as NodeJS.ProcessEnv,
-      });
+        maxBuffer: 16 * 1024 * 1024,
+      }));
     } catch (e: unknown) {
       // On non-zero exit, try to recover stdout (partial output)
       stdout = (e as { stdout?: string }).stdout || '';
@@ -208,7 +212,7 @@ export async function GET(request: NextRequest) {
 
     if (collection) {
       // Explicit collection requested — query it directly
-      allResults = runQuery(collection);
+      allResults = await runQuery(collection);
     } else {
       // scope=all: discover available collections and query each one.
       // Prefer this over hardcoded "shared-{org}" because many installs only
@@ -216,28 +220,31 @@ export async function GET(request: NextRequest) {
       const knownCollections = listCollections();
 
       if (knownCollections.length > 0) {
-        for (const col of knownCollections) {
-          // Filter by scope
+        // "All" means the shared collections plus the seats that are switched on (10-16): one query
+        // per collection spawns python and embeds the question, so ~40 collections took over a minute
+        // and burned embedding quota. Retired seats' collections stay searchable by picking them.
+        const on = getEnabledAgents();
+        const picked = knownCollections.filter((col) => {
           const isShared = col.startsWith('shared-');
           const isPrivate = col.startsWith('agent-');
           const matchesScope =
             scope === 'all' ||
             (scope === 'shared' && isShared) ||
             (scope === 'private' && isPrivate);
-          // If agent is specified for private scope, only that agent's collection
           const matchesAgent =
             !agent || !isPrivate || col === `agent-${agent}`;
-
-          if (matchesScope && matchesAgent) {
-            const colResults = runQuery(col);
-            // Tag each result with its collection name for display
-            allResults.push(...colResults.map(r => ({ ...r, _collection: col })));
-          }
-        }
+          const live = !isPrivate || !on || on.has(col.slice('agent-'.length));
+          return matchesScope && matchesAgent && live;
+        });
+        const perCol = await Promise.all(picked.map((col) => runQuery(col)));
+        picked.forEach((col, i) => {
+          // Tag each result with its collection name for display
+          allResults.push(...perCol[i].map(r => ({ ...r, _collection: col })));
+        });
       } else {
         // Fallback: no collection list available, try conventional names
-        allResults.push(...runQuery(`shared-${org}`));
-        if (agent) allResults.push(...runQuery(`agent-${agent}`));
+        allResults.push(...(await runQuery(`shared-${org}`)));
+        if (agent) allResults.push(...(await runQuery(`agent-${agent}`)));
       }
 
       // Sort merged results by similarity descending, deduplicate by content hash

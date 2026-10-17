@@ -1,3 +1,4 @@
+import { defaultOrg } from '@/lib/install';
 import fs from 'fs';
 import path from 'path';
 import { NextRequest } from 'next/server';
@@ -10,7 +11,7 @@ const SNIPPET_RADIUS = 60;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const org = url.searchParams.get('org') ?? 'sondre-hq';
+  const org = url.searchParams.get('org') || defaultOrg();
   const q = (url.searchParams.get('q') ?? '').trim();
 
   if (q.length < 2) {

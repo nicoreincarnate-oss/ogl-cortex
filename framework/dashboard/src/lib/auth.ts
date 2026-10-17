@@ -70,8 +70,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         await seedAdminUser();
 
         const user = db
-          .prepare('SELECT * FROM users WHERE username = ?')
-          .get(credentials.username as string) as User | undefined;
+          // Phone keyboards capitalise the first letter and add trailing spaces.
+          .prepare('SELECT * FROM users WHERE lower(username) = lower(?)')
+          .get((credentials.username as string).trim()) as User | undefined;
         if (!user) return null;
 
         const valid = await bcrypt.compare(

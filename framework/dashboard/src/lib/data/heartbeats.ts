@@ -1,3 +1,4 @@
+import { getEnabledAgents } from '@/lib/config';
 // cortextOS Dashboard - Heartbeat data fetcher
 // Reads directly from filesystem (heartbeats change frequently; SQLite may lag).
 
@@ -132,7 +133,9 @@ export async function getHealthSummary(org?: string): Promise<HealthSummary> {
     agents: [],
   };
 
+  const on = getEnabledAgents();
   for (const hb of heartbeats) {
+    if (on && !on.has(hb.agent)) continue;
     const health = getHealthStatus(hb);
 
     if (health === 'healthy') summary.healthy++;

@@ -1,7 +1,8 @@
+import { defaultOrg } from '@/lib/install';
 import fs from 'fs';
 import path from 'path';
 import { NextRequest } from 'next/server';
-import { getVaultRoot, PARA_DIRS } from '@/lib/vault';
+import { getVaultRoot, getVaultDirs, getInboxDir } from '@/lib/vault';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,7 @@ type TreeNode =
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const org = url.searchParams.get('org') ?? 'sondre-hq';
+  const org = url.searchParams.get('org') || defaultOrg();
 
   const vaultRoot = getVaultRoot(org);
   if (!vaultRoot) {
@@ -29,7 +30,8 @@ export async function GET(req: NextRequest) {
   }
 
   const root: TreeNode[] = [];
-  for (const dir of PARA_DIRS) {
+  const inbox = getInboxDir(vaultRoot);
+  for (const dir of getVaultDirs(vaultRoot)) {
     const abs = path.join(vaultRoot, dir);
     if (!fs.existsSync(abs)) continue;
     if (!fs.statSync(abs).isDirectory()) continue;
@@ -38,7 +40,7 @@ export async function GET(req: NextRequest) {
       kind: 'dir',
       name: dir,
       relPath: dir,
-      children: walkDir(abs, vaultRoot, /* sortByMtime */ dir === '00-inbox'),
+      children: walkDir(abs, vaultRoot, /* sortByMtime */ dir === inbox),
     });
   }
 

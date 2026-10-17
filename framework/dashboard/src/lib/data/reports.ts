@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { getEnabledAgents } from '@/lib/config';
 
 // Resolve CTX_ROOT without importing from config (avoids turbopack chunk issues)
 const CTX_INSTANCE_ID = process.env.CTX_INSTANCE_ID ?? 'default';
@@ -92,12 +93,14 @@ export function getLatestSnapshot(org: string): LatestSnapshot | null {
 
 export function getFleetHealth(org: string): FleetHealth | null {
   const snapshot = getLatestSnapshot(org);
-  if (!snapshot?.health) {
+  // An empty health block ({}) is not a reading: build from live heartbeats instead (10-17).
+  const snapAgents = (snapshot?.health as { agents?: Record<string, unknown> } | undefined)?.agents;
+  if (!snapAgents || Object.keys(snapAgents).length === 0) {
     // Fallback: build fleet health from live heartbeat files
     return getFleetHealthFromHeartbeats(org);
   }
 
-  const healthData = snapshot.health as {
+  const healthData = snapshot!.health as {
     agents?: Record<string, {
       agent: string;
       heartbeat_age_min: number;
@@ -221,9 +224,11 @@ function getFleetHealthFromHeartbeats(org: string): FleetHealth | null {
   if (!fs.existsSync(agentsDir)) return null;
 
   const agents: FleetHealthAgent[] = [];
+  const on = getEnabledAgents();
   for (const entry of fs.readdirSync(agentsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const name = entry.name;
+    if (on && !on.has(name)) continue;
     const hbFile = path.join(CTX_ROOT, 'state', name, 'heartbeat.json');
     let ageMin = 9999;
     try {
@@ -307,7 +312,12 @@ export function getPlanUsage(): PlanUsage | null {
   const file = path.join(CTX_ROOT, 'state', 'usage', 'latest.json');
   if (fs.existsSync(file)) {
     try {
-      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+      const snap = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      // An old-format snapshot (e.g. {five_hour_utilization}) crashed the Analytics page (10-16).
+      // Use it only if it has the fields the widget reads.
+      if (snap?.session?.used_pct !== undefined && snap?.week_all_models?.used_pct !== undefined && snap?.week_sonnet?.used_pct !== undefined) {
+        return snap;
+      }
     } catch {
       // fall through to the live API cache
     }

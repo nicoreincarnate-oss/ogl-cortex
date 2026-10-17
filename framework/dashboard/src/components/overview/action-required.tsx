@@ -19,6 +19,7 @@ interface ActionRequiredProps {
 interface ActionItem {
   icon: React.ReactNode;
   label: string;
+  plural?: string;
   count: number;
   href: string;
 }
@@ -35,8 +36,9 @@ export function ActionRequired({
     {
       icon: <IconUser size={18} className="text-primary" />,
       label: 'task assigned to you',
+      plural: 'tasks assigned to you',
       count: humanTasks,
-      href: '/tasks?agent=human',
+      href: '/approvals',
     },
     {
       icon: <IconShield size={18} className="text-primary" />,
@@ -85,8 +87,7 @@ export function ActionRequired({
                     {item.icon}
                     <span className="text-sm">
                       <span className="font-semibold">{item.count}</span>{' '}
-                      {item.label}
-                      {item.count !== 1 ? 's' : ''}
+                      {item.count !== 1 ? (item.plural ?? `${item.label}s`) : item.label}
                     </span>
                   </div>
                   <IconChevronRight

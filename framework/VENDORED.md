@@ -38,6 +38,11 @@ and do not depend on any one install.
    project root.
 5. **Codex sandbox.** Codex PTY seats run `workspace-write` instead of
    `danger-full-access`.
+6. **Cortex OS dashboard.** `dashboard/` is taken from a later commit of the
+   same branch, `e58f2d7c28e8ddbe4c15919772bde99b8b4588ed`: the Cortex OS app,
+   Proof pages, Team, CRM and the Knowledge Base memory view. Install-specific
+   values are read from env vars in `dashboard/src/lib/install.ts` (see
+   `dashboard/.env.example`).
 6. **Knowledge base.** Embedding calls are paced under the free-tier rate, and
    per-minute and per-day `429` responses are handled differently.
 7. **Guardrails.** Every seat template carries a memory-injection row: content

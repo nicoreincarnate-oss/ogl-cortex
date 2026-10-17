@@ -78,6 +78,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/_next') ||
     pathname === '/favicon.ico' ||
+    // home-screen install: the manifest and its icons hold no data and must load before login
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/apple-touch-icon.png' ||
+    pathname === '/ogl-icon-192.png' ||
+    pathname === '/sw.js' ||
+    pathname === '/ogl-icon-512.png' ||
+    pathname === '/ogl-mark.png' ||
     pathname === '/api/workflows/health'
   ) {
     const response = NextResponse.next();

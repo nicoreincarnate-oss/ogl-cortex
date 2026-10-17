@@ -1,3 +1,4 @@
+import { defaultOrg } from '@/lib/install';
 import { getOrgs } from '@/lib/config';
 import { getGoals } from '@/lib/data/goals';
 import { getTaskThroughput, getAgentEffectiveness } from '@/lib/data/analytics';
@@ -37,7 +38,7 @@ export default async function AnalyticsPage({
       Promise.resolve(getDailyCostByModel(30)),
       Promise.resolve(getCurrentMonthCost()),
       Promise.resolve(org ? getGoals(org) : { bottleneck: '', goals: [] }),
-      Promise.resolve(getFleetHealth(org || 'default')),
+      Promise.resolve(getFleetHealth(org || defaultOrg())),
       Promise.resolve(getPlanUsage()),
       Promise.resolve(getUsageHistory(7)),
       Promise.resolve(getCodexUsage()),

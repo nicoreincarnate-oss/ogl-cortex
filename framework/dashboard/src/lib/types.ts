@@ -193,6 +193,8 @@ export interface SSEEvent {
 // -- Task Filters --
 
 export interface TaskFilters {
+  /** include open tasks older than 14 days or owned by switched-off seats */
+  includeStale?: boolean;
   org?: string;
   agent?: string;
   priority?: string;
